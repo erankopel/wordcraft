@@ -410,6 +410,14 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
+                    // A touch screen has no keys: a button brings the on-screen keyboard back after
+                    // it was dismissed (the page shows it by itself when tapped).
+                    if cfg!(target_os = "android") {
+                        if small_icon(ui, "keyboard", tl!("Show Keyboard")) {
+                            let _ = app.run("ui.keyboard", json!({}));
+                        }
+                        ui.add_space(10.0);
+                    }
                     let reading = app.session.view.read_mode;
                     let z = (if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT } * 100.0).round();
                     let ztxt = format!("{z}%");

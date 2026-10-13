@@ -1308,6 +1308,15 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
             pen.page(4.5, 2.0, 15.5, 18.0);
             pen.lines(7.0, 13.0, &[9.0, 12.0, 15.0]);
         }
+        // The on-screen keyboard (status bar, touch screens).
+        "keyboard" => {
+            pen.rect(2.0, 5.0, 18.0, 15.0, c);
+            for x in [4.5, 7.5, 10.5, 13.5] {
+                pen.frect(x, 7.0, x + 2.0, 8.4, c);
+                pen.frect(x, 9.6, x + 2.0, 11.0, c);
+            }
+            pen.frect(6.5, 12.4, 13.5, 13.4, a);
+        }
         "homeFolder" => {
             pen.closed(&[(3.0, 9.5), (10.0, 3.5), (17.0, 9.5)], c);
             pen.closed(&[(5.0, 8.5), (5.0, 17.0), (15.0, 17.0), (15.0, 8.5)], c);

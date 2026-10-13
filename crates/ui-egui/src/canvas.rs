@@ -98,6 +98,8 @@ pub struct CanvasState {
     pub(crate) ink_ui: crate::ink::InkUi,
     /// Wheel/touchpad scrolling (smooth notches, touchpad momentum).
     pub(crate) wheel: crate::scroll::CanvasScroll,
+    /// A finger scrolling the page on a touch screen, and the coast after it lets go (`touch`).
+    pub(crate) pan: crate::touch::Pan,
     /// The scroll offset and its maximum at the end of last frame.
     pub(crate) scroll_offset: egui::Vec2,
     scroll_max: egui::Vec2,
@@ -194,6 +196,7 @@ impl Default for CanvasState {
             pasted: false,
             swallow_text: false,
             wheel: Default::default(),
+            pan: Default::default(),
             scroll_offset: egui::Vec2::ZERO,
             scroll_max: egui::Vec2::ZERO,
             scroll_request: None,
@@ -866,7 +869,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     } else {
         egui::Vec2::ZERO
     };
-    let delta = wheel_delta + auto_delta;
+    let touch_delta = finger_scroll(app, ui, area);
+    let delta = wheel_delta + auto_delta + touch_delta;
     let mut scroll_area = egui::ScrollArea::both()
         .id_salt("canvas_scroll")
         .auto_shrink([false, false])
@@ -1732,11 +1736,50 @@ fn edge_scroll(p: f32, lo: f32, hi: f32, dt: f32) -> f32 {
 
 /// The scroll offset after `delta` (the wheel's convention) reaches `before`: clamped to the
 /// scrollable range, so a document shorter than the viewport never moves.
+/// How far a finger scrolls the page this frame (and the coast after it lets go): see `touch`.
+/// Reading view turns its columns itself, so a finger leaves it alone there.
+fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
+    if app.session.view.read_mode {
+        app.canvas.pan.cancel();
+        return egui::Vec2::ZERO;
+    }
+    let (events, time, dt) = ui.input(|i| (i.events.clone(), i.time, i.stable_dt));
+    if !events.iter().any(|e| matches!(e, egui::Event::Touch { .. })) && !app.canvas.pan.panning() && app.canvas.pan.idle() {
+        return egui::Vec2::ZERO;
+    }
+    let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
+    let last_press = app.canvas.last_press;
+    let tool_busy = app.canvas.obj_drag.is_some()
+        || app.canvas.table_resize.is_some()
+        || app.canvas.table_stroke.is_some()
+        || app.canvas.ink.is_some()
+        || app.canvas.erasing.is_some()
+        || app.canvas.table_tool.is_some()
+        || app.canvas.column_drag.is_some();
+    let step = app.canvas.pan.frame(&events, area, |at| press_count(last_press, time, at, delay, dist) >= 2, tool_busy, &app.session.sel, dt);
+    if let Some(before) = step.began {
+        // The press that started the scroll placed the caret or began a selection: put it back.
+        app.session.sel = before;
+        app.canvas.dragging = false;
+        app.canvas.unit_drag = None;
+        app.canvas.column_drag = None;
+        app.canvas.last_press = None;
+    }
+    if step.coasting || app.canvas.pan.panning() {
+        ui.ctx().request_repaint();
+    }
+    step.delta
+}
+
 fn clamped_scroll(before: egui::Vec2, delta: egui::Vec2, max: egui::Vec2) -> egui::Vec2 {
     (before - delta).clamp(egui::Vec2::ZERO, max)
 }
 
 fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layout: &DocLayout, scale: f32) {
+    // A finger scrolling the page is not a click or a selection (`touch`).
+    if app.canvas.pan.panning() {
+        return;
+    }
     // A pen or the eraser (Draw tab) owns the pointer.
     if crate::ink::pointer(app, ui, resp, rects, layout, scale) {
         return;

@@ -8,7 +8,7 @@ WordCraft is a clean-room, open-source, Rust-native word processor targeting Mic
 
 ## Never crash
 People trust WordCraft with their writing; a crash loses their work. **This outranks feature work**: never ship a feature through a panic path, and fix a crash before building on top of it. Standard: [`craftrules/standards/never-crash.md`](https://github.com/storytold/craftrules/blob/main/standards/never-crash.md).
-- **No panics in non-test code:** no `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`, `unimplemented!`; no `unsafe` (`unsafe_code = "forbid"`).
+- **No panics in non-test code:** no `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`, `unimplemented!`; no `unsafe` (`unsafe_code = "forbid"`), apart from the one narrow exemption in the Android app (see Android below).
 - **Errors are `Result<T, E>`** through the crate's error type and `?`. An unfinished feature returns an error or is disabled; it never panics.
 - **Input-derived numbers are hostile** (files, commands, MCP/control params): `get()` instead of `[i]`, slice strings only at char boundaries, checked/saturating arithmetic, clamp sizes, cap allocations, bound recursion.
 - **Last-resort guard:** `Session::run` turns an escaped panic into an error and restores the document. It's a safety net, not a licence.
@@ -38,7 +38,7 @@ People trust WordCraft with their writing; a crash loses their work. **This outr
 | L4 | `engine` | Session, undo, **command registry**, Word feature catalog, samples, I/O dispatch |
 | L5 | `mcp` | MCP server (headless or bridged to the app) |
 | L6 | `ui-egui` | Word-style egui front end (swappable) |
-| apps | `apps/wordcraft`, `apps/wordcraft-cli`, `apps/wordcraft-web` | binaries |
+| apps | `apps/wordcraft`, `apps/wordcraft-cli`, `apps/wordcraft-web`, `apps/wordcraft-android` | binaries (the last is the Android native library) |
 
 - **Everything is a command.** User-visible behaviour = a `CommandSpec` in `crates/engine/src/cmd/*.rs` (id, label, ribbon location, shortcut, params doc, `enabled`, `run`) + tests. UI-only commands (`ui.*`) live in `crates/ui-egui/src/lib.rs`. The ribbon, shortcuts, command search, CLI, control channel and MCP all dispatch by id. Programmatic calls never open dialogs.
 - **Parity is measured:** `crates/engine/src/catalog.rs` lists Word's ribbon/menu features with command ids. `cargo xtask parity` writes `docs/parity-checklist.md`; a test enforces a floor that only rises. Implement missing ids to raise it.
@@ -60,6 +60,13 @@ Typing, Enter, Backspace, Tab, lists, AutoCorrect and AutoFormat follow Word's o
 - MCP: `wordcraft-cli mcp` (headless) or `wordcraft-cli mcp --connect 127.0.0.1:7981` (drives the running app). See `docs/mcp.md`.
 - Shell gotcha: `mv`/`cp` may be aliased interactive — use `/bin/mv -f` / `/bin/cp -f`.
 - Parallel agents: separate `CARGO_TARGET_DIR` per agent; edit only the crates you own; delete your target dir when done (disk).
+
+## Android
+An unofficial build for personal sideloading (Samsung Galaxy Z Fold7, Android 17); it is not part of the releases.
+- **Where:** `apps/wordcraft-android` is a `cdylib` (`libwordcraft_android.so`) that Android loads through GameActivity; the entry point is `android_main` in `src/lib.rs`. It runs the same `wordcraft-ui-egui` over `wordcraft-engine`. `app.rs` and `host.rs` compile only for Android; the crate is empty on other targets, so `cargo check --workspace` still works on a desktop, and `logging.rs` and `storage.rs` have tests that run on a desktop. Touch gestures live in `crates/ui-egui/src/touch.rs`.
+- **Build:** `packaging/android/package.sh` (cargo-ndk builds the library for arm64-v8a, Gradle assembles and signs the APK; steps in `packaging/android/README.md`). `.github/workflows/android.yml` builds it on demand. The signing keystore stays outside the repo.
+- **The one unsafe exemption:** `apps/wordcraft-android` is the only crate that does not inherit the workspace `unsafe_code` forbid. It sets `unsafe_code` to deny in its own `Cargo.toml`, and the single `#[allow(unsafe_code)]` is on the `android_main` export (exporting a symbol is an unsafe attribute). Never extend it: no other allow, no unsafe anywhere else in that crate or in any other crate, and no new crate that drops the workspace lints. If Android seems to need more unsafe code, use a safe API or a dependency that wraps it.
+- **Report what you verified:** no agent sandbox has an Android device or emulator. Say what was checked (the library compiles and links for `aarch64-linux-android`, the APK structure, the host tests) and never that it works on a device until someone has run it on one. When Android behaviour changes, update the Android section of `README.md`, `docs/ui-parity.md` and `docs/hardware-parity.md` with it.
 
 ## Roadmap
 Progress docs follow [`craftrules/standards/progress-docs.md`](https://github.com/storytold/craftrules/blob/main/standards/progress-docs.md): `ROADMAP.md` (stage, headline numbers, progress log), `docs/target-app-parity.md` (the assessment), `docs/gaps.md` (ranked work list), `docs/roadmap.md` (milestones, Current focus), `docs/architecture.md`, and the parity checklists `docs/file-format-parity.md`, `docs/layout-parity.md`, `docs/typing-parity.md`, `docs/ui-parity.md`, `docs/hardware-parity.md`, `docs/localization-parity.md`. When work lands, update the gap, the parity doc and the progress log, and bump each touched doc's status line and revision history.

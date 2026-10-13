@@ -181,6 +181,13 @@ that with env_logger-style directives, for example `RUST_LOG=debug`,
 covers every target starting with it (`wordcraft*=debug`). The logger is
 `apps/wordcraft/src/logging.rs`.
 
+On Android the log goes to logcat and to `logs/wordcraft.log` in the app's private folder
+(`files/wordcraft/logs/` inside the app's data folder), which other apps and file managers cannot
+open. From a computer, `adb logcat -s WordCraft` shows the same records. Each start moves the
+previous log to `wordcraft.1.log`, and a log stops growing at 4 MiB. Levels are fixed (`info` for
+WordCraft's own crates, `warn` for the rest; `RUST_LOG` is not read), and a panic message leaves
+out the text it quotes, as on the desktop. The logger is `apps/wordcraft-android/src/logging.rs`.
+
 ## Architecture
 
 | Layer | Crate | Job |
@@ -192,7 +199,7 @@ covers every target starting with it (`wordcraft*=debug`). The logger is
 | L4 | `wordcraft-engine` | session, undo, 422 commands, Word feature catalog |
 | L5 | `wordcraft-mcp` | MCP server |
 | L6 | `wordcraft-ui-egui` | the Word-style front end (swappable) |
-| apps | `wordcraft`, `wordcraft-cli`, `wordcraft-web` | desktop, command line, browser |
+| apps | `wordcraft`, `wordcraft-cli`, `wordcraft-web`, `wordcraft-android` | desktop, command line, browser, Android (unofficial, sideloaded) |
 
 `cargo xtask ci` runs formatting, clippy, ~800 tests, the asset-attribution check, the layering
 check and the wasm build. Contributor and agent instructions: [AGENTS.md](AGENTS.md).
@@ -208,7 +215,7 @@ and estimates: [ROADMAP.md](ROADMAP.md) and [where we fall short](docs/gaps.md).
 
 ## Downloads
 
-**Download WordCraft** from GitHub: the [latest release](https://github.com/storytold/wordcraft/releases/latest) has every build listed below, and [all releases](https://github.com/storytold/wordcraft/releases) has earlier versions and their notes. `<ver>` in the file names is the version number, and `SHA256SUMS.txt` lists a checksum for every file.
+**Download WordCraft** from GitHub: the [latest release](https://github.com/storytold/wordcraft/releases/latest) has every build listed below except Android (see [Android](#android-sideload-only)), and [all releases](https://github.com/storytold/wordcraft/releases) has earlier versions and their notes. `<ver>` in the file names is the version number, and `SHA256SUMS.txt` lists a checksum for every file.
 
 ### Windows
 
@@ -300,6 +307,40 @@ For example `yay -S wordcraft-bin` or `paru -S wordcraft-bin`.
 | Build | File | Notes |
 |---|---|---|
 | Static site | `wordcraft-web-<ver>.zip` | Runs in a modern browser; host it on any static server |
+
+### Android (sideload only)
+
+WordCraft also has an unofficial Android build, for personal use. It is not part of the GitHub
+releases and is not published anywhere else: you build the APK yourself with
+`packaging/android/package.sh`, or run the Android workflow (`.github/workflows/android.yml`) on
+GitHub, and install it on your own device. Build and sideload steps are in
+[`packaging/android/README.md`](packaging/android/README.md). The target is a Samsung Galaxy Z Fold7
+on Android 17 (API 37): minSdk 35, targetSdk 36, compileSdk 37, arm64-v8a only. The app is the same
+editor as on the desktop (`wordcraft-ui-egui` over `wordcraft-engine`, eframe with wgpu on Vulkan),
+loaded through GameActivity from the `apps/wordcraft-android` crate.
+
+**What has been verified:** the library compiles and links for `aarch64-linux-android`, and the
+structure of the APK is checked statically. It has not been run on a physical device or an
+emulator, because none was available where it was built, so everything below is untested on
+hardware.
+
+- **Touch:** one finger dragging on the page scrolls it and the page coasts after release; a double
+  tap then a drag selects by words; a long press opens the context menu; two fingers pinch zoom. A
+  keyboard button at the right end of the status bar brings the on-screen keyboard back; typing on
+  it, composing text included, has not been tried on a device. The ribbon, menus and dialogs keep
+  their desktop sizes (the first start sets the interface size to 125 percent), and there is no
+  stylus work.
+- **Files:** Open and Save use the built-in file browser over `/storage/emulated/0`, because the
+  system file picker needs Java and is not called yet. To list and save in shared storage, grant
+  All files access (`MANAGE_EXTERNAL_STORAGE`) once in Android Settings under Apps, Special app
+  access, All files access.
+- **Your work:** while the document has unsaved changes a recovery copy is written about every 10
+  seconds, and at once when the app loses focus (Android can end a backgrounded app without asking);
+  the next start offers it back. Settings, the custom dictionary, added fonts and the recovery copy
+  live in the app's private folder, and uninstalling the app removes them. Fonts are read from
+  `/system/fonts`, `/system_ext/fonts`, `/product/fonts` and `/vendor/fonts`.
+- **Not there yet:** a system clipboard bridge (copy and paste work inside the app only), printing,
+  opening documents from other apps, and an accessibility bridge (TalkBack).
 
 ## The Crafting Apps
 

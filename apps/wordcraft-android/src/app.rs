@@ -8,7 +8,11 @@ use wordcraft_engine::Session;
 use wordcraft_ui_egui::{UiState, WordApp};
 
 use crate::host;
+use crate::keyboard::Keyboard;
 use crate::storage::{self, Dirs, Plan, Recovery};
+
+/// The interface size (percent) before the user has chosen one.
+const FIRST_RUN_INTERFACE_PERCENT: u32 = 125;
 
 /// Run the editor until the activity ends.
 pub fn run(android: AndroidApp) -> Result<(), String> {
@@ -20,16 +24,22 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
     log::info!("settings folder {}", dirs.root().display());
     load_user_fonts(&dirs);
 
-    let options = eframe::NativeOptions { android_app: Some(android), ..Default::default() };
+    let options = eframe::NativeOptions { android_app: Some(android.clone()), ..Default::default() };
     eframe::run_native(
         "WordCraft",
         options,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
             let region = wordcraft_ui_egui::i18n::system_region();
             let mut session = Session::new(wordcraft_engine::blank_document(&region));
             session.system_region = region;
             let mut app = WordApp::new(session, host::services());
-            load_prefs(&mut app, &dirs);
+            if !load_prefs(&mut app, &dirs) {
+                // First start: a phone or a tablet is used with fingers, so the interface starts a
+                // step larger than the desktop's 100 % (File › Options › Interface size changes it).
+                if let Err(e) = app.run("ui.interfaceSize", serde_json::json!({"percent": FIRST_RUN_INTERFACE_PERCENT})) {
+                    log::warn!("interface size: {e}");
+                }
+            }
             load_user_dictionary(&mut app, &dirs);
             let mut recovery = Recovery::default();
             if restore_unsaved(&mut app, &dirs) {
@@ -38,7 +48,8 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
                 // Nothing to carry on with: start on File › Home, as the desktop app does.
                 app.start_screen();
             }
-            Ok(Box::new(Shell { app, dirs, recovery, left: false }))
+            let keyboard = Keyboard::new(android, &cc.egui_ctx);
+            Ok(Box::new(Shell { app, dirs, recovery, keyboard, left: false }))
         }),
     )
     .map_err(|e| e.to_string())
@@ -49,6 +60,7 @@ struct Shell {
     app: WordApp,
     dirs: Dirs,
     recovery: Recovery,
+    keyboard: Keyboard,
     /// The app lost focus since the last frame: Android may end it next.
     left: bool,
 }
@@ -56,6 +68,8 @@ struct Shell {
 impl eframe::App for Shell {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.app.logic(ctx);
+        // The keyboard is read while the page or a text field has focus.
+        self.keyboard.want(self.app.canvas.focused || ctx.egui_wants_keyboard_input());
         if std::mem::take(&mut self.left) {
             save_prefs(&self.app, &self.dirs);
             self.keep_recovery(true);
@@ -69,6 +83,8 @@ impl eframe::App for Shell {
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.app.raw_input_hook(raw);
+        let typed = self.keyboard.events(&raw.events);
+        raw.events.extend(typed);
         self.left |= raw.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)));
     }
 
@@ -141,12 +157,15 @@ fn load_user_fonts(dirs: &Dirs) {
     }
 }
 
-fn load_prefs(app: &mut WordApp, dirs: &Dirs) {
+/// Apply the saved preferences; false when there are none yet (the first start).
+fn load_prefs(app: &mut WordApp, dirs: &Dirs) -> bool {
     if let Some(bytes) = storage::read_limited(&dirs.prefs(), storage::MAX_FILE_BYTES)
         && let Some(ui) = UiState::from_json(&bytes)
     {
         app.apply_prefs(ui);
+        return true;
     }
+    false
 }
 
 fn save_prefs(app: &WordApp, dirs: &Dirs) {

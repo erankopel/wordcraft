@@ -73,6 +73,7 @@ pub mod table_pen;
 pub mod table_resize;
 pub mod table_ruler;
 pub mod theme;
+pub mod touch;
 pub mod widgets;
 pub mod window_geometry;
 pub mod wordart_menus;
@@ -1002,6 +1003,15 @@ impl WordApp {
                 self.canvas.context_menu_from_keys = true;
                 self.canvas.want_focus = true;
                 json!({"pending": "contextMenu"})
+            }
+            // The on-screen keyboard: a touch screen has no keys, so focus the page and ask the
+            // system to show it. A host without one ignores the request.
+            "ui.keyboard" => {
+                self.canvas.want_focus = true;
+                if let Some(ctx) = &self.ctx {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::IMEAllowed(true));
+                }
+                json!({"requested": true})
             }
             "ui.collapseRibbon" => {
                 self.ui.ribbon_collapsed = !self.ui.ribbon_collapsed;
@@ -2185,6 +2195,63 @@ mod tests {
         let notch = crate::scroll::notch_px(a.canvas.scale / crate::canvas::PX_PER_PT);
         assert!(first > 0.0 && first < notch, "a notch eases in: {first}");
         assert!((a.canvas.scroll_offset.y - at - notch).abs() < 0.5, "a notch scrolls {notch}: {}", a.canvas.scroll_offset.y - at);
+    }
+
+    /// A finger dragging across the page scrolls it and leaves the caret alone; a tap places the
+    /// caret and doesn't scroll (touch screens, `touch`).
+    #[test]
+    fn a_finger_drag_scrolls_the_page_and_a_tap_places_the_caret() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("text.insert", json!({"text": "A line of text for the finger to scroll past. ".repeat(900)})).unwrap();
+        a.run("caret.set", json!({"pos": wordcraft_doc::Pos::body(0, 100)})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 600.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..4 {
+            frame(&mut a, Vec::new());
+        }
+        // What egui-winit sends for a finger: the touch itself and the mouse press it stands in for.
+        let touch = |phase, pos| egui::Event::Touch { device_id: egui::TouchDeviceId(0), id: egui::TouchId(1), phase, pos, force: None };
+        let button =
+            |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        let from = a.canvas.canvas_rect.unwrap().center();
+        let caret = a.session.sel.clone();
+        let start = a.canvas.scroll_offset.y;
+        frame(&mut a, vec![touch(egui::TouchPhase::Start, from), egui::Event::PointerMoved(from), button(from, true)]);
+        let mut at = from;
+        for _ in 0..5 {
+            at.y -= 40.0;
+            frame(&mut a, vec![touch(egui::TouchPhase::Move, at), egui::Event::PointerMoved(at)]);
+        }
+        frame(&mut a, vec![touch(egui::TouchPhase::End, at), button(at, false), egui::Event::PointerGone]);
+        assert!(a.canvas.scroll_offset.y > start + 150.0, "the page followed the finger up: {start} to {}", a.canvas.scroll_offset.y);
+        assert_eq!(a.session.sel, caret, "scrolling doesn't move the caret or select text");
+        assert!(!a.canvas.drag_selecting());
+        // The page coasts a little after the finger lifts, then stops.
+        for _ in 0..120 {
+            frame(&mut a, Vec::new());
+        }
+        let rest = a.canvas.scroll_offset.y;
+        frame(&mut a, Vec::new());
+        assert_eq!(a.canvas.scroll_offset.y, rest, "the coast ends");
+        // A tap (down and up in place) puts the caret there and doesn't scroll.
+        let tap = a.canvas.canvas_rect.unwrap().center();
+        frame(&mut a, vec![touch(egui::TouchPhase::Start, tap), egui::Event::PointerMoved(tap), button(tap, true)]);
+        frame(&mut a, vec![touch(egui::TouchPhase::End, tap), button(tap, false), egui::Event::PointerGone]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        assert_eq!(a.canvas.scroll_offset.y, rest, "a tap doesn't scroll");
+        assert_ne!(a.session.sel, caret, "a tap puts the caret where it landed");
     }
 
     /// Reading Mode: reflowed viewport-height columns, horizontal wheel/navigation, exit restores

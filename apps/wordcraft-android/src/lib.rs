@@ -6,6 +6,8 @@
 //! provides, and each piece of that lives in its own module:
 //!
 //! - [`logging`]: `log::` records go to logcat (`adb logcat -s WordCraft`) and a log file.
+//! - [`ime`] and `keyboard`: typing on the on-screen keyboard (winit drops its text, so the
+//!   keyboard's state is read and turned into the editor's own input events).
 //! - [`storage`]: preferences, the custom dictionary and added fonts in the app's private
 //!   folder, and a recovery copy of unsaved work (Android ends a backgrounded app without asking).
 //! - `host`: the [`Services`](wordcraft_ui_egui::Services) an Android host offers (the built-in
@@ -28,6 +30,9 @@
 mod app;
 #[cfg(target_os = "android")]
 mod host;
+pub mod ime;
+#[cfg(target_os = "android")]
+mod keyboard;
 pub mod logging;
 pub mod storage;
 

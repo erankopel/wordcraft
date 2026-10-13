@@ -1,6 +1,6 @@
 # WordCraft architecture
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** minor (`proof` is per language: English and Polish; previously major: first committed version; `plan/architecture.md` is local-only) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (`apps/wordcraft-android`, the Android app crate, and its narrow unsafe exemption; previously minor: `proof` is per language: English and Polish; previously major: first committed version; `plan/architecture.md` is local-only) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft is built today (origin/main `40c5d51`). The longer design notes in
 `plan/architecture.md` are gitignored and local to the original author's machine; this file is the
@@ -8,9 +8,9 @@ committed, current summary. Rules for working in the code are in [`AGENTS.md`](.
 
 ## Layers
 
-~85,600 lines of Rust, 15 crates, 3 apps and `xtask`. Layering is enforced by `cargo xtask layers`:
+~85,600 lines of Rust, 15 crates, 3 apps and `xtask` (counted on 2026-10-10; the Android app below, added on 2026-10-13, is not in that count). Layering is enforced by `cargo xtask layers`:
 a crate may only depend on crates in lower layers, and nothing below L6 depends on egui, eframe,
-winit or rfd.
+winit or rfd. Apps and `xtask` are exempt from the layer rules, the Android app included.
 
 | Layer | Crate | Lines | Job |
 |---|---|---|---|
@@ -28,10 +28,17 @@ winit or rfd.
 | L4 | `zotero` | 1.7k | Zotero's word-processor integration protocol answered against a `Session` |
 | L4 | `control-key` | 0.1k | Per-window control-port key files shared by the app and the MCP bridge |
 | L5 | `mcp` | 1.0k | MCP server: every command as a tool; headless or bridged to the running app |
-| L6 | `ui-egui` | 13.1k | Word-style front end: ribbon, keytips, mini-toolbar, Backstage, canvas, rulers, panes, dialogs, Equation tab, i18n catalogs, themes, control channel, headless `ui_shot` example |
+| L6 | `ui-egui` | 13.1k | Word-style front end: ribbon, keytips, mini-toolbar, Backstage, canvas, rulers, panes, dialogs, Equation tab, i18n catalogs, themes, control channel, finger gestures for touch screens (`touch.rs`), headless `ui_shot` example |
 | apps | `wordcraft` | 1.6k | Desktop app (eframe + wgpu; logging, window geometry, file associations) |
 | apps | `wordcraft-cli` | 0.4k | `convert`, `text`, `inspect`, `run`, `commands`, `parity`, `mcp`, `zotero` |
 | apps | `wordcraft-web` | 0.3k | Browser build (eframe web runner, WebGPU with WebGL2 fallback) |
+| apps | `wordcraft-android` | 1.0k | Android build: a `cdylib` (`libwordcraft_android.so`) that Android loads through GameActivity, entry point `android_main`; the same `wordcraft-ui-egui` over the engine on eframe with wgpu (Vulkan); settings, logs, custom dictionary, added fonts and a recovery copy of unsaved work in the app's private folder; the built-in file browser stands in for the system file dialog; empty on non-Android targets. Unofficial, for personal sideloading |
+
+## Android
+
+`apps/wordcraft-android` is the only crate that does not inherit the workspace's `unsafe_code` forbid. Android starts a native app through the exported symbol `android_main`, and exporting a symbol is an unsafe attribute. The crate sets `unsafe_code` to deny in its own `Cargo.toml` and allows it on that one item in `src/lib.rs`; everything else in the crate, and every other crate, stays safe. It carries the same `#![deny(clippy::unwrap_used, ...)]` line as the production crates. `logging.rs` (logcat plus `logs/wordcraft.log`) and `storage.rs` (folders, the recovery copy and when to write it) are plain code with tests that run on a desktop; `app.rs` and `host.rs` need Android.
+
+`packaging/android` builds the library for arm64-v8a with cargo-ndk and assembles and signs the APK; `.github/workflows/android.yml` runs that on demand. Targets: Android 17 (API 37), minSdk 35, targetSdk 36, compileSdk 37. Verified so far: the library compiles and links for `aarch64-linux-android` and the APK structure is checked statically. Nothing has run on a physical device or an emulator.
 
 ## Data flow
 
@@ -58,11 +65,12 @@ winit or rfd.
 - `cargo xtask parity` regenerates [`parity-checklist.md`](parity-checklist.md); a test keeps the
   catalog percentage above a floor that only rises.
 - GitHub Actions on PRs: packaging lint, and FreeBSD / Windows ARM64 when build files change;
-  release builds on pushes to `release`.
+  release builds on pushes to `release`. The Android workflow (`.github/workflows/android.yml`) runs only on demand and is not part of the releases.
 
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | `wordcraft-android` added to the apps and an Android section: the `android_main` unsafe exemption, what is in the crate, packaging and what is verified (compiles and links for `aarch64-linux-android`; not run on a device); `ui-egui` gains `touch.rs` |
 | 2026-10-10 | minor | `proof`: proofing languages (English, Polish), affix engine, Polish patterns; layout and engine route each run by its language |
 | 2026-10-10 | major | First committed architecture doc, from the crates' sources and `AGENTS.md` |

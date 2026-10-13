@@ -37,8 +37,9 @@ wordcraft-ui-egui = { workspace = true }
 wordcraft-control-key = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "android-game-activity"] }
 egui = { workspace = true }
-# GameActivity, not NativeActivity: only it delivers soft keyboard text (composing text from
-# Samsung Keyboard and the like) to winit as IME events.
+# GameActivity, not NativeActivity: its text input (GameTextInput) is what a soft keyboard such as
+# Samsung Keyboard talks to, with composing text and suggestions. winit 0.30 drops those text
+# events, so `src/keyboard.rs` reads the state itself and feeds the editor (`src/ime.rs`).
 android-activity = { version = "0.6", features = ["game-activity"] }
 android_logger = "0.15"
 serde_json = { workspace = true }

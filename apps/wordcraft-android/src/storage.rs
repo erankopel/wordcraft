@@ -135,11 +135,7 @@ impl Recovery {
         if self.on_disk == Some(stamp) {
             return Plan::Nothing;
         }
-        if leaving || now_ms - self.last_write_ms >= RECOVERY_INTERVAL_MS {
-            Plan::Write
-        } else {
-            Plan::Nothing
-        }
+        if leaving || now_ms - self.last_write_ms >= RECOVERY_INTERVAL_MS { Plan::Write } else { Plan::Nothing }
     }
 
     /// The copy for `stamp` is on disk.

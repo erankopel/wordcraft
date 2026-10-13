@@ -332,7 +332,7 @@ pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
 
 /// The browser's contents; `Some` once it closes (`Some(None)`: cancelled).
 fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>> {
-    if b.unavailable {
+    if b.unavailable && !cfg!(target_os = "android") {
         ui.label(
             egui::RichText::new(tl!(
                 "The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity."
@@ -407,7 +407,19 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
             let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             Some((crate::i18n::fmt(tl!("{name} already exists. Choose Save again to replace it."), &[("name", &name)]), t.red))
         }
+        (Err(e), _) if cfg!(target_os = "android") => Some((
+            crate::i18n::fmt(
+                tl!("This folder can't be read: {error}. In Android Settings, open Apps, Special app access, All files access, and allow WordCraft."),
+                &[("error", e)],
+            ),
+            t.red,
+        )),
         (Err(e), _) => Some((crate::i18n::fmt(tl!("This folder can't be read: {error}"), &[("error", e)]), t.red)),
+        (Ok(l), _) if cfg!(target_os = "android") && l.entries.is_empty() => Some((
+            tl!("Nothing to show here. If files are missing, in Android Settings open Apps, Special app access, All files access, and allow WordCraft.")
+                .to_owned(),
+            t.text_dim,
+        )),
         (Ok(l), _) if l.truncated => {
             Some((crate::i18n::fmt(tl!("Showing the first {count} items."), &[("count", &l.entries.len().to_string())]), t.text_dim))
         }

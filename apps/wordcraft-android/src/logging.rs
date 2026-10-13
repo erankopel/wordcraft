@@ -195,7 +195,10 @@ mod tests {
 
     #[test]
     fn a_panic_message_never_carries_the_text_it_quotes() {
-        assert_eq!(redact_quoted("byte index 5 is not a char boundary; it is inside 'é' of `Dear Anna, my secret`"), "byte index 5 is not a char boundary; it is inside 'é' of `…`");
+        assert_eq!(
+            redact_quoted("byte index 5 is not a char boundary; it is inside 'é' of `Dear Anna, my secret`"),
+            "byte index 5 is not a char boundary; it is inside 'é' of `…`"
+        );
         assert_eq!(redact_quoted("no quotes"), "no quotes");
         // An unpaired backtick leaves the rest out.
         assert_eq!(redact_quoted("oops `private text"), "oops `…");

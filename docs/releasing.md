@@ -26,6 +26,10 @@ produce unsigned builds with a warning, so forks still build.
 Local packaging: `packaging/macos/package.sh --arch universal`, `packaging/windows/package.ps1`,
 `packaging/linux/package.sh` (then `packaging/linux/flatpak-bundle.sh` for the Flatpak), `packaging/web/package.sh`.
 
+The Android APK is not part of a release: it is for personal sideloading, built locally with
+`packaging/android/package.sh` or on demand by `.github/workflows/android.yml` (see the Android
+section of the README).
+
 Dry run: `gh workflow run release.yml --ref <branch>` builds the unsigned jobs (version, Linux,
 Linux riscv64, Flatpak, FreeBSD, web) on any branch; the signing jobs are refused there by the `release`
 environment's branch rule, so no draft release is made.

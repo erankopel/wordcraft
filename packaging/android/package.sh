@@ -85,7 +85,8 @@ export ANDROID_NDK_HOME="$NDK"
 JAVA_BIN="java"
 [ -n "${JAVA_HOME:-}" ] && JAVA_BIN="$JAVA_HOME/bin/java"
 command -v "$JAVA_BIN" >/dev/null || { echo "error: java not found (a JDK 17 or newer; set JAVA_HOME)" >&2; exit 1; }
-JAVA_MAJOR="$("$JAVA_BIN" -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
+# (java may print other lines first, such as "Picked up JAVA_TOOL_OPTIONS".)
+JAVA_MAJOR="$("$JAVA_BIN" -version 2>&1 | sed -n 's/.*version "\([0-9]*\).*/\1/p' | head -n 1)"
 [ "${JAVA_MAJOR:-0}" -ge 17 ] || { echo "error: a JDK 17 or newer is needed (found major version ${JAVA_MAJOR:-unknown})" >&2; exit 1; }
 KEYTOOL="keytool"
 [ -n "${JAVA_HOME:-}" ] && KEYTOOL="$JAVA_HOME/bin/keytool"

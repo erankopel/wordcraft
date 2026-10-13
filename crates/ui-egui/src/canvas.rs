@@ -782,6 +782,15 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             app.canvas.scroll_to_caret = true;
         }
     }
+    // The on-screen keyboard (or anything else) shortened the window: keep the caret in sight
+    // instead of leaving it behind the keyboard until the next edit.
+    if let Some(before) = app.canvas.viewport
+        && before.height() - area.height() > 80.0
+        && app.canvas.focused
+        && !app.session.view.read_mode
+    {
+        app.canvas.scroll_to_caret = true;
+    }
     // Where the selection really ends, also when it took whole table cells.
     let caret = layout.caret_on(&app.session.sel_ends().focus, app.session.page_hint);
     // Editing a header/footer (or a note) dims the body; once per frame, for every page.
@@ -1227,9 +1236,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         deselect_balloon(app, ui.ctx());
     }
     // Focus: the canvas takes keyboard focus on click and keeps Tab/arrows.
-    if resp.clicked() || resp.drag_started() || app.canvas.want_focus {
+    // A finger that drags is scrolling, not clicking in: it neither takes focus nor raises the
+    // on-screen keyboard (a tap does both).
+    let finger = ui.input(|i| i.any_touches());
+    if resp.clicked() || (resp.drag_started() && !finger) || app.canvas.want_focus {
         resp.request_focus();
         app.canvas.want_focus = false;
+    }
+    // A tap with a finger raises the on-screen keyboard again after it was dismissed (the window
+    // asks for it only when the page gains focus). Hosts without one ignore the request.
+    if resp.clicked() && ui.input(|i| i.has_touch_screen()) {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::IMEAllowed(true));
     }
     if resp.has_focus() {
         ui.memory_mut(|m| {
@@ -1301,6 +1318,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
             context_suggestions(app);
         }
+    }
+    // A long press with a finger also selects the word under it, as a long press does in other
+    // editors on a touch screen (the menu below is the right click menu).
+    if resp.long_touched() && app.session.math.is_none() && app.session.sel.is_collapsed() {
+        let _ = app.run("select.word", json!({}));
     }
     // Shift+F10 opens the same menu below the caret, for the selection or the word there (#821).
     let from_keys = std::mem::take(&mut app.canvas.context_menu_from_keys);
@@ -1749,7 +1771,13 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
     if !touching && !app.canvas.pan.panning() && app.canvas.pan.idle() {
         return egui::Vec2::ZERO;
     }
-    let (events, time, dt) = ui.input(|i| (i.events.clone(), i.time, i.stable_dt));
+    let (mut events, time, dt) = ui.input(|i| (i.events.clone(), i.time, i.stable_dt));
+    // A finger that lands on a dialog, a menu or the mini toolbar (layers drawn over the page)
+    // belongs to it, not to the page behind it.
+    events.retain(|e| match e {
+        egui::Event::Touch { phase: egui::TouchPhase::Start, pos, .. } => ui.ctx().layer_id_at(*pos).is_none_or(|layer| layer == ui.layer_id()),
+        _ => true,
+    });
     let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
     let last_press = app.canvas.last_press;
     let tool_busy = app.canvas.obj_drag.is_some()
@@ -1771,7 +1799,9 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
     if step.coasting || app.canvas.pan.panning() {
         ui.ctx().request_repaint();
     }
-    step.delta
+    // Two fingers moving together scroll as well (their pinch is the zoom).
+    let two = ui.input(|i| i.multi_touch().map(|m| m.translation_delta));
+    step.delta + two.unwrap_or(egui::Vec2::ZERO)
 }
 
 fn clamped_scroll(before: egui::Vec2, delta: egui::Vec2, max: egui::Vec2) -> egui::Vec2 {
@@ -1779,8 +1809,11 @@ fn clamped_scroll(before: egui::Vec2, delta: egui::Vec2, max: egui::Vec2) -> egu
 }
 
 fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layout: &DocLayout, scale: f32) {
-    // A finger scrolling the page is not a click or a selection (`touch`).
-    if app.canvas.pan.panning() {
+    // A finger scrolling the page is not a click or a selection (`touch`), and neither are two
+    // fingers (pinch zoom and two finger scroll are the page's own).
+    if app.canvas.pan.panning() || ui.input(|i| i.multi_touch().is_some()) {
+        app.canvas.dragging = false;
+        app.canvas.unit_drag = None;
         return;
     }
     // A pen or the eraser (Draw tab) owns the pointer.
@@ -2537,6 +2570,11 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         ui.close();
     }
     item(ui, app, "Paste", "edit.paste", json!({}));
+    // For a finger, which has no Ctrl+A: Word's own menu has no such entry, so a mouse user doesn't
+    // see it.
+    if ui.input(|i| i.has_touch_screen()) {
+        item(ui, app, "Select All", "select.all", json!({}));
+    }
     ui.separator();
     if let Some(syn) = app.canvas.context_synonyms.clone().and_then(|v| v.as_array().cloned()).filter(|a| !a.is_empty()) {
         ui.menu_button(tl!("Synonyms"), |ui| {

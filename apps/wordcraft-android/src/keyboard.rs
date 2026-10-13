@@ -17,6 +17,8 @@ use crate::ime::{Bridge, Output, Snapshot};
 
 /// How often the keyboard's buffer is read while the editor wants text.
 const POLL: Duration = Duration::from_millis(30);
+/// The gap between the two reads that must agree.
+const CONFIRM: Duration = Duration::from_millis(8);
 /// How often the thread looks again when the editor doesn't want text.
 const IDLE: Duration = Duration::from_millis(250);
 
@@ -102,9 +104,13 @@ fn poll(android: &AndroidApp, shared: &Shared, ctx: &egui::Context) {
             std::thread::sleep(IDLE);
             continue;
         }
-        let state = android.text_input_state();
-        let compose = state.compose_region.map(|span| (span.start, span.end));
-        let snapshot = Snapshot::from_utf16_spans(state.text, compose);
+        let snapshot = read(android);
+        // GameTextInput's buffer is shared with the thread that types into it, with no lock around
+        // the read: only a state seen twice in a row is taken, so a half-written one never is.
+        std::thread::sleep(CONFIRM);
+        if read(android) != snapshot {
+            continue;
+        }
         if snapshot != last {
             last = snapshot.clone();
             *shared.latest.lock().unwrap_or_else(PoisonError::into_inner) = Some(snapshot);
@@ -112,6 +118,13 @@ fn poll(android: &AndroidApp, shared: &Shared, ctx: &egui::Context) {
         }
         std::thread::sleep(POLL);
     }
+}
+
+/// The keyboard's buffer now.
+fn read(android: &AndroidApp) -> Snapshot {
+    let state = android.text_input_state();
+    let compose = state.compose_region.map(|span| (span.start, span.end));
+    Snapshot::from_utf16_spans(state.text, compose)
 }
 
 /// An event that puts the caret somewhere else than where the typed text was going.

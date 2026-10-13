@@ -1370,8 +1370,16 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::Layout(d) => d.title(),
     };
     let id = egui::Id::new(("dialog", title));
-    let shown = place_dialog(ctx, id, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false)).open(&mut open).show(ctx, |ui| {
-        ui.set_min_width(340.0);
+    // In a window too small for the dialog (a phone, the Galaxy Z Fold's outer screen, a tablet
+    // with the keyboard up) the dialog stays inside it and scrolls.
+    let room = ctx.content_rect().size();
+    let cramped = room.x < 700.0 || room.y < 520.0;
+    let mut window = egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false);
+    if cramped {
+        window = window.max_size(room - egui::vec2(16.0, 16.0)).scroll(true);
+    }
+    let shown = place_dialog(ctx, id, window).open(&mut open).show(ctx, |ui| {
+        ui.set_min_width(if cramped { (room.x - 40.0).clamp(160.0, 340.0) } else { 340.0 });
         close = body(app, ui, &mut d);
     });
     if shown.is_some() {

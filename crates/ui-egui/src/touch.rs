@@ -43,7 +43,8 @@ pub(crate) struct Step {
     /// The distance to scroll the page this frame, in the sign the canvas's scroll uses (a finger
     /// moving up is a negative y, the same as a wheel turning down).
     pub delta: Vec2,
-    /// A finger became a scroll this frame; the selection it changed on the way down is returned.
+    /// A finger became a scroll (or a second finger landed) this frame; the selection the press
+    /// changed on the way down is returned.
     pub began: Option<Selection>,
     /// The page is still moving without a finger (coasting): ask for another frame.
     pub coasting: bool,
@@ -98,9 +99,12 @@ impl Pan {
             match phase {
                 TouchPhase::Start => {
                     self.fling = Vec2::ZERO;
-                    if self.finger.is_some() {
-                        // A second finger: pinch and two finger pan are egui's.
-                        self.finger = None;
+                    if let Some(first) = self.finger.take() {
+                        // A second finger: pinch and two finger scroll are egui's. The press of the
+                        // first finger (a caret placed, a selection begun) is undone, as for a scroll.
+                        if !first.panning && !first.selecting {
+                            step.began = Some(first.before);
+                        }
                     } else if area.contains(*pos) {
                         self.finger =
                             Some(Finger { id: *id, start: *pos, last: *pos, panning: false, selecting: second_tap(*pos), before: selection.clone() });
@@ -268,6 +272,10 @@ mod tests {
         assert!(pan.panning());
         run(&mut pan, &[touch(2, TouchPhase::Start, pos2(500.0, 400.0))]);
         assert!(!pan.panning());
+        // A second finger landing on a finger that has not scrolled gives back the selection too.
+        let mut tap = Pan::default();
+        run(&mut tap, &[touch(1, TouchPhase::Start, pos2(300.0, 400.0))]);
+        assert_eq!(run(&mut tap, &[touch(2, TouchPhase::Start, pos2(500.0, 400.0))]).began, Some(sel()));
         let s = run(&mut pan, &[touch(1, TouchPhase::Move, pos2(300.0, 200.0)), touch(2, TouchPhase::Move, pos2(500.0, 200.0))]);
         assert_eq!(s.delta, Vec2::ZERO, "pinch and two finger pan belong to egui");
         let mut pan = Pan::default();

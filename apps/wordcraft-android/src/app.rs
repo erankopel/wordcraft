@@ -4,15 +4,16 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use android_activity::AndroidApp;
-use android_activity::ndk::configuration::UiModeNight;
+use android_activity::ndk::configuration::{Keyboard, UiModeNight};
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{UiState, WordApp};
 
 use crate::host;
-use crate::keyboard::Keyboard;
+use crate::keyboard::Keyboard as SoftKeyboard;
 use crate::storage::{self, Dirs, Plan, Recovery};
 
-/// The interface size (percent) before the user has chosen one.
+/// The interface size (percent) before the user has chosen one, on a screen 600 dp wide or more
+/// (the unfolded Galaxy Z Fold, a tablet); a phone's narrower screen starts at 100.
 const FIRST_RUN_INTERFACE_PERCENT: u32 = 125;
 
 /// Run the editor until the activity ends.
@@ -33,6 +34,12 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
         "WordCraft",
         options,
         Box::new(move |cc| {
+            // Fingers are less exact than a mouse: a tap may wander further and a double tap
+            // may take longer than the desktop defaults.
+            cc.egui_ctx.options_mut(|o| {
+                o.input_options.max_click_dist = 12.0;
+                o.input_options.max_double_click_delay = 0.5;
+            });
             let region = wordcraft_ui_egui::i18n::system_region();
             let mut session = Session::new(wordcraft_engine::blank_document(&region));
             session.system_region = region;
@@ -40,7 +47,9 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
             if !load_prefs(&mut app, &dirs) {
                 // First start: a phone or a tablet is used with fingers, so the interface starts a
                 // step larger than the desktop's 100 % (File › Options › Interface size changes it).
-                if let Err(e) = app.run("ui.interfaceSize", serde_json::json!({"percent": FIRST_RUN_INTERFACE_PERCENT})) {
+                let wide = android.config().screen_width_dp().is_none_or(|dp| dp >= 600);
+                let percent = if wide { FIRST_RUN_INTERFACE_PERCENT } else { 100 };
+                if let Err(e) = app.run("ui.interfaceSize", serde_json::json!({"percent": percent})) {
                     log::warn!("interface size: {e}");
                 }
             }
@@ -52,7 +61,7 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
                 // Nothing to carry on with: start on File › Home, as the desktop app does.
                 app.start_screen();
             }
-            let keyboard = Keyboard::new(android.clone(), &cc.egui_ctx);
+            let keyboard = SoftKeyboard::new(android.clone(), &cc.egui_ctx);
             Ok(Box::new(Shell { android, app, dirs, recovery, keyboard, left: false }))
         }),
     )
@@ -65,7 +74,7 @@ struct Shell {
     app: WordApp,
     dirs: Dirs,
     recovery: Recovery,
-    keyboard: Keyboard,
+    keyboard: SoftKeyboard,
     /// The app lost focus since the last frame: Android may end it next.
     left: bool,
 }
@@ -101,6 +110,12 @@ impl eframe::App for Shell {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.app.ui(ui);
+        // With a hardware keyboard the page doesn't raise the on-screen one by itself: while it is
+        // up, the system keeps the arrow, Home and End keys for the keyboard's own buffer. The
+        // keyboard button and a tap on the page still raise it.
+        if !matches!(self.android.config().keyboard(), Keyboard::NoKeys | Keyboard::Any) {
+            ui.ctx().output_mut(|o| o.ime = None);
+        }
     }
 
     fn on_exit(&mut self) {

@@ -77,9 +77,11 @@ before changing anything.
 
 ## Using it
 
-- **Scroll** with one finger; the page coasts after you let go. **Tap** to place the caret,
-  **double tap** to select a word (then drag to select by words), **long press** for the context
-  menu, **pinch** to zoom.
+- **Scroll** with one finger (or two); the page coasts after you let go. **Tap** to place the caret,
+  **double tap** to select a word (then drag to select by words), **long press** to select the word
+  and open the context menu (it has Select All), **pinch** to zoom.
+- In a narrow window (the Fold's outer screen) the ribbon's tabs scroll sideways, Share, Editing and
+  Comments fold into the menu at the end of the tab strip, and dialogs scroll inside the window.
 - The **keyboard button** at the right end of the status bar brings the on-screen keyboard back
   after you dismissed it. Tapping the page shows it by itself. A hardware keyboard works as on the
   desktop.
@@ -94,8 +96,15 @@ before changing anything.
 
 A system clipboard bridge (copy and paste work inside WordCraft only), printing, opening documents
 from other apps, the system file picker, a TalkBack bridge, Read Aloud, Zotero, hunspell
-dictionaries for Polish and Portuguese (English spelling works), and touch sized controls (the
-ribbon, menus and dialogs keep their desktop sizes).
+dictionaries for Polish and Portuguese (English spelling works), and finger sized controls (the
+ribbon, menus and dialogs keep their desktop sizes, and there are no selection handles).
+
+Hardware keyboards type, and the arrow, Home, End and Page keys work, but shortcuts that use Ctrl
+or Shift (Ctrl+B, Ctrl+C, Shift+arrows) do not: winit's Android backend never reports modifier
+keys. Use the ribbon and the context menu. Fixing it means carrying a small patch to winit.
+While the on-screen keyboard is up, Android keeps the arrow, Home and End keys for the keyboard's
+own buffer, so with a hardware keyboard the page does not raise the on-screen one by itself (the
+keyboard button and a tap on the page do).
 
 ## Logs
 

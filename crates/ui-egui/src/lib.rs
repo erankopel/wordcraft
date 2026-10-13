@@ -2204,6 +2204,41 @@ mod tests {
         assert!((a.canvas.scroll_offset.y - at - notch).abs() < 0.5, "a notch scrolls {notch}: {}", a.canvas.scroll_offset.y - at);
     }
 
+    /// In a window as narrow as a phone's (or the Galaxy Z Fold's outer screen) the ribbon's tabs
+    /// scroll instead of running under the Share block, every tab can still be chosen, and a
+    /// dialog stays inside the window.
+    #[test]
+    fn a_narrow_window_keeps_the_tabs_reachable_and_dialogs_inside() {
+        for width in [411.0_f32, 666.0, 832.0, 1280.0] {
+            let ctx = egui::Context::default();
+            let mut a = app();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 760.0));
+            let mut t = 0.0;
+            let mut frame = |a: &mut WordApp| {
+                t += 1.0 / 60.0;
+                let input = egui::RawInput { time: Some(t), screen_rect: Some(screen), ..Default::default() };
+                ctx.run_ui(input, |ui| {
+                    a.logic(ui.ctx());
+                    a.ui(ui);
+                })
+                .drop_without_applying_deltas();
+            };
+            for tab in ["Home", "Review", "View", "Help"] {
+                a.run("ui.tab", json!({"tab": tab})).unwrap();
+                for _ in 0..3 {
+                    frame(&mut a);
+                }
+                assert_eq!(a.ui.tab, tab, "{tab} at {width} points");
+            }
+            a.run("ui.dialog", json!({"name": "zoom"})).unwrap();
+            for _ in 0..4 {
+                frame(&mut a);
+            }
+            let rect = ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", "Zoom")))).expect("the Zoom dialog is shown");
+            assert!(rect.width() <= width + 0.5 && rect.height() <= 760.0 + 0.5, "Zoom {rect:?} in {width} by 760");
+        }
+    }
+
     /// A finger dragging across the page scrolls it and leaves the caret alone; a tap places the
     /// caret and doesn't scroll (touch screens, `touch`).
     #[test]

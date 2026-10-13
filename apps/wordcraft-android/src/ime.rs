@@ -81,6 +81,11 @@ pub fn utf16_to_char(text: &str, offset: usize) -> usize {
     text.chars().count()
 }
 
+/// More characters than this deleted from the keyboard's buffer in one change are not a deletion:
+/// they are a buffer that was replaced or could not be read (a person deletes a word, not a
+/// paragraph, between two reads of 30 ms).
+const MAX_DELETE_CHARS: usize = 24;
+
 /// Remembers what has been given to the editor.
 #[derive(Debug, Default)]
 pub struct Bridge {
@@ -127,6 +132,16 @@ impl Bridge {
             self.preedit = composing;
         }
         out
+    }
+
+    /// The snapshot is not an edit of what was given: the keyboard's buffer was unreadable (it reads
+    /// as empty), or replaced, or a late read of an older buffer. Giving it to the editor would
+    /// delete text that is there and type it again, so the buffer is started over instead.
+    pub fn out_of_step(&self, now: &Snapshot) -> bool {
+        let chars = now.text.chars();
+        let same = self.given.iter().zip(chars).take_while(|(a, b)| *a == b).count();
+        let removed = self.given.len().saturating_sub(same);
+        removed > MAX_DELETE_CHARS || (now.text.is_empty() && self.given.len() > 1)
     }
 
     /// The keyboard's buffer was emptied (or the caret moved somewhere else): forget it. A word
@@ -207,6 +222,9 @@ pub fn context(before_caret: &str) -> String {
     text
 }
 
+/// A commit longer than this goes to the editor as one piece.
+const LONG_COMMIT_CHARS: usize = 64;
+
 /// Add the text the editor should type: a line break is the Enter key, not text, and CR or CRLF
 /// (what a pasted clipboard suggestion may hold) is one line break.
 fn push_text(out: &mut Vec<Output>, text: &str) {
@@ -233,6 +251,11 @@ fn push_text(out: &mut Vec<Output>, text: &str) {
 /// (Word's rules, `typing-parity.md`), so those are separate pieces and the words between them are
 /// whole.
 pub fn typing_pieces(text: &str) -> Vec<String> {
+    // A long commit is a paste or a dictated phrase, not a word typed: it goes in whole (and quickly:
+    // each piece is an edit with its own bookkeeping).
+    if text.chars().count() > LONG_COMMIT_CHARS {
+        return vec![text.to_owned()];
+    }
     let mut pieces = Vec::new();
     let mut run = String::new();
     for c in text.chars() {
@@ -416,6 +439,39 @@ mod tests {
         assert_eq!(typing_pieces("שלום, עולם"), vec!["שלום", ",", " ", "עולם"]);
         assert_eq!(typing_pieces(""), Vec::<String>::new());
         assert_eq!(typing_pieces("plain"), vec!["plain"]);
+    }
+
+    #[test]
+    fn a_snapshot_that_is_not_an_edit_of_the_buffer_is_out_of_step() {
+        let full = "Dear Sam,\nSee you soon. Thanks for the long letter and the kind words.";
+        let len = full.chars().count();
+        let mut b = Bridge::default();
+        b.seed(full);
+        let cut = |n: usize| Snapshot { text: full.chars().take(len - n).collect(), compose: None, at_end: true };
+        // A Backspace, a word: edits.
+        assert!(!b.out_of_step(&cut(1)));
+        assert!(!b.out_of_step(&cut(10)));
+        assert!(!b.out_of_step(&cut(24)));
+        // A paragraph at once, or an unreadable buffer (it reads as empty): not a deletion.
+        assert!(b.out_of_step(&cut(25)));
+        assert!(b.out_of_step(&Snapshot::default()));
+        // An older, shorter buffer replacing a newer one is out of step as well.
+        let mut b = Bridge::default();
+        b.seed(&"x".repeat(60));
+        assert!(b.out_of_step(&Snapshot { text: "y".into(), compose: None, at_end: true }));
+        // An empty buffer after a single character is the character's deletion.
+        let mut b = Bridge::default();
+        b.seed("a");
+        assert!(!b.out_of_step(&Snapshot { text: String::new(), compose: None, at_end: true }));
+        // Nothing given, nothing to be out of step with.
+        assert!(!Bridge::default().out_of_step(&Snapshot { text: "typed".into(), compose: Some((0, 5)), at_end: true }));
+    }
+
+    #[test]
+    fn a_long_commit_goes_in_as_one_piece() {
+        let pasted = "word, ".repeat(50);
+        assert_eq!(typing_pieces(&pasted), vec![pasted.clone()]);
+        assert!(typing_pieces("word, word").len() > 1);
     }
 
     /// The keyboard's text buffer as Android keeps it, in UTF-16, with the operations a keyboard

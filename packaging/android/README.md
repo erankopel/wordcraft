@@ -95,9 +95,10 @@ before changing anything.
 - **Scroll** with one finger (or two); the page coasts after you let go, and touching it stops it
   (without moving the caret). **Tap** to place the caret (the page gets the press when the finger
   lifts, so a swipe never edits a picture or a table it starts on), **double tap** to select a word
-  (then drag to select by words), **rest a finger** a moment to give the page its press and a little
-  longer to select the word and open the context menu (it has Select All; a picture or table border
-  held that way can be dragged), **pinch** to zoom. Hyperlinks can't be followed (that is
+  (then drag to select by words), **rest a finger** a moment to give the page its press and about
+  half a second in all to select the word and open the context menu (it has Select All; a picture
+  or table border held that way can be dragged), **pinch** to zoom (two fingers moving together
+  scroll). A finger on the scroll bar at the page's right edge drags the bar. Hyperlinks can't be followed (that is
   Ctrl+click); a Bluetooth mouse or DeX pointer counts as a finger, so click-dragging scrolls and
   the wheel does nothing.
 - In a narrow window (the Fold's outer screen) the ribbon's tabs scroll sideways, Share, Editing and
@@ -107,7 +108,9 @@ before changing anything.
   before the caret, so Backspace, capital letters and suggestions follow the document; words reach
   the editor with their spaces and punctuation separate, so AutoCorrect, smart quotes and lists
   work as when typing on a desktop. A swipe on the space bar restarts the keyboard's buffer at the
-  caret instead of moving it. A hardware keyboard types, with the limits under Not there yet.
+  caret instead of moving it. In a dialog's text field the keyboard gets blank filler instead of
+  the document's text (the first letter may come capitalised). A hardware keyboard types, with the
+  limits under Not there yet.
 - The interface starts at 125 percent on a screen 600 dp wide or more (the unfolded Fold) and 100
   percent on a narrower one (the folded cover screen); File, Options, General changes it, and the
   choice is kept.

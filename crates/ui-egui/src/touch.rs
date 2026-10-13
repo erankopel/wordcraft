@@ -127,10 +127,15 @@ impl Pan {
                 TouchPhase::Start | TouchPhase::Move if !pos.is_finite() => continue,
                 TouchPhase::Start => {
                     self.fling = Vec2::ZERO;
-                    let others = !self.down.is_empty();
-                    if !self.down.contains(id) {
-                        self.down.push(*id);
+                    // An id that is already down never lifted (the app was paused): it starts over.
+                    if self.down.contains(id) {
+                        self.down.retain(|d| d != id);
+                        if self.finger.as_ref().is_some_and(|f| f.id == *id) {
+                            self.finger = None;
+                        }
                     }
+                    let others = !self.down.is_empty();
+                    self.down.push(*id);
                     if others {
                         // A second finger: pinch and two finger scroll are egui's. The press of the
                         // first finger (a caret placed, a selection begun) is undone, as for a scroll.
@@ -228,18 +233,21 @@ enum Mode {
     /// No finger is being held back.
     #[default]
     Free,
-    /// One finger on the page, not yet a scroll, a tap or a hold: its mouse events are held.
+    /// One finger on the page, not yet a scroll, a tap or a hold: its mouse presses are held.
     Undecided { id: TouchId, start: Pos2, since: f64, stopper: bool },
     /// A scroll or a pinch: the page gets no press from these fingers.
     Scrolling,
-    /// The page has its press (a tap, a hold, a tool or the interface): mouse events go through.
+    /// The page has its press (a hold, a tool or the interface): mouse events go through.
     Pressed,
-    /// The rest of this batch's mouse events belong to a touch that was settled (and dropped).
-    Releasing,
+    /// The rest of this batch's mouse presses belong to a touch that was settled (and dropped or
+    /// replaced by a tap of the gate's own); `own_gone` says the gate sends the pointer's departure.
+    Releasing { own_gone: bool },
 }
 
-/// Holds back the mouse events egui-winit makes for the first finger until the gesture is known
-/// (see the module's docs). Works on a frame's raw events, before egui sees them.
+/// Holds back the mouse presses egui-winit makes for the first finger until the gesture is known
+/// (see the module's docs). Works on a frame's raw events, before egui sees them. The pointer's
+/// moves always go through (egui starts a pinch only when the pointer has a position); only the
+/// press is held.
 #[derive(Default)]
 pub(crate) struct Gate {
     mode: Mode,
@@ -247,24 +255,31 @@ pub(crate) struct Gate {
     down: Vec<TouchId>,
     /// When a touch event last came.
     last_touch: f64,
+    /// Events for the next frame: a tap's release comes one frame after its press, as a real tap's
+    /// does, so what reacts to the press in its own frame (a drag begun on a picture or a table, a
+    /// selection area) sees it end.
+    queued: Vec<Event>,
 }
 
 impl Gate {
     /// Let go of everything (the view changed under the finger).
     pub fn cancel(&mut self) {
-        *self = Gate::default();
+        // A queued release still goes out: its press did.
+        let queued = std::mem::take(&mut self.queued);
+        *self = Gate { queued, ..Gate::default() };
     }
 
-    /// Filter a frame's events: the touches stay, the mouse events a finger stands in for come
-    /// when the finger's meaning is clear. `now` is the frame's time in seconds. Returns how long
-    /// until a finger that rests becomes a press and hold, so a frame is drawn then.
+    /// Filter a frame's events: the touches stay, the mouse presses a finger stands in for come when
+    /// the finger's meaning is clear. `now` is the frame's time in seconds. Returns how long until a
+    /// frame is wanted: a finger that rests becomes a press and hold, a tap's release is queued.
     pub fn filter(&mut self, events: &mut Vec<Event>, now: f64, env: &Env) -> Option<f64> {
         let button = |pos, pressed| Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
         if !self.down.is_empty() && now - self.last_touch > STALE_TOUCH {
             self.cancel();
         }
         let input = std::mem::take(events);
-        let mut out = Vec::with_capacity(input.len() + 3);
+        let mut out = std::mem::take(&mut self.queued);
+        out.reserve(input.len() + 3);
         for e in input {
             match &e {
                 // The window lost focus: a finger that was down won't report its lift.
@@ -309,16 +324,20 @@ impl Gate {
                             self.down.retain(|d| d != id);
                             match std::mem::take(&mut self.mode) {
                                 Mode::Undecided { id: held, start, stopper, .. } if held == *id => {
-                                    // The finger lifted without travelling: a tap, unless it only stopped
-                                    // a coast (or was cancelled).
                                     out.push(e.clone());
                                     if *phase == TouchPhase::End && !stopper {
-                                        out.extend([Event::PointerMoved(start), button(start, true), button(start, false)]);
+                                        // The finger lifted without travelling: a tap. The press now, the
+                                        // release (and the pointer leaving) with the next frame.
+                                        out.extend([Event::PointerMoved(start), button(start, true)]);
+                                        self.queued = vec![button(start, false), Event::PointerGone];
+                                        self.mode = Mode::Releasing { own_gone: true };
+                                    } else {
+                                        // Only stopped a coast, or cancelled: no tap.
+                                        self.mode = Mode::Releasing { own_gone: false };
                                     }
-                                    self.mode = Mode::Releasing;
                                     continue;
                                 }
-                                Mode::Scrolling if self.down.is_empty() => self.mode = Mode::Releasing,
+                                Mode::Scrolling if self.down.is_empty() => self.mode = Mode::Releasing { own_gone: false },
                                 Mode::Pressed if self.down.is_empty() => self.mode = Mode::Free,
                                 other => self.mode = other,
                             }
@@ -326,13 +345,14 @@ impl Gate {
                     }
                     out.push(e);
                 }
-                // Held back, or belonging to a touch that was settled without a press.
-                Event::PointerMoved(_) | Event::PointerButton { .. }
-                    if matches!(self.mode, Mode::Undecided { .. } | Mode::Scrolling | Mode::Releasing) => {}
+                // A press that is held back, or belongs to a touch that was settled without one.
+                Event::PointerButton { .. } if matches!(self.mode, Mode::Undecided { .. } | Mode::Scrolling | Mode::Releasing { .. }) => {}
+                // The pointer leaving after a tap the gate sends itself.
+                Event::PointerGone if matches!(self.mode, Mode::Releasing { own_gone: true }) => {}
                 _ => out.push(e),
             }
         }
-        let mut wake = None;
+        let mut wake = if self.queued.is_empty() { None } else { Some(0.0) };
         if let Mode::Undecided { start, since, .. } = self.mode {
             if now - since >= HOLD {
                 out.extend([Event::PointerMoved(start), button(start, true)]);
@@ -341,7 +361,7 @@ impl Gate {
                 wake = Some((since + HOLD - now).max(0.0));
             }
         }
-        if self.mode == Mode::Releasing {
+        if matches!(self.mode, Mode::Releasing { .. }) {
             self.mode = if self.down.is_empty() { Mode::Free } else { Mode::Scrolling };
         }
         *events = out;
@@ -554,27 +574,31 @@ mod tests {
         (events, wake)
     }
 
+    /// The mouse presses and releases among `events` (the pointer's moves go through as they are).
     fn mouse_events(events: &[Event]) -> Vec<&Event> {
-        events.iter().filter(|e| !matches!(e, Event::Touch { .. })).collect()
+        events.iter().filter(|e| matches!(e, Event::PointerButton { .. })).collect()
     }
 
     #[test]
-    fn a_tap_reaches_the_page_as_a_press_and_a_release_when_the_finger_lifts() {
+    fn a_tap_reaches_the_page_as_a_press_and_then_a_release_when_the_finger_lifts() {
         let mut g = Gate::default();
         let p = pos2(300.0, 400.0);
         let (out, wake) = gate(&mut g, down(1, p), 0.0, &CALM);
-        assert_eq!(out, vec![touch(1, TouchPhase::Start, p)], "only the touch: the press is held back");
+        assert_eq!(out, vec![touch(1, TouchPhase::Start, p), Event::PointerMoved(p)], "the pointer arrives, the press is held back");
         assert_eq!(wake, Some(HOLD), "a frame is wanted when the finger would become a hold");
         // Jitter within the slop changes nothing.
         let (out, _) = gate(&mut g, moved(1, pos2(303.0, 402.0)), 0.05, &CALM);
-        assert_eq!(out, vec![touch(1, TouchPhase::Move, pos2(303.0, 402.0))]);
+        assert_eq!(out, moved(1, pos2(303.0, 402.0)));
         let (out, wake) = gate(&mut g, up(1, pos2(303.0, 402.0)), 0.1, &CALM);
-        assert_eq!(wake, None);
         assert_eq!(
             out,
-            vec![touch(1, TouchPhase::End, pos2(303.0, 402.0)), Event::PointerMoved(p), button(p, true), button(p, false), Event::PointerGone],
-            "the page gets the tap where the finger landed, once"
+            vec![touch(1, TouchPhase::End, pos2(303.0, 402.0)), Event::PointerMoved(p), button(p, true)],
+            "the page gets the press where the finger landed"
         );
+        assert_eq!(wake, Some(0.0), "and a frame is wanted for the release");
+        let (out, wake) = gate(&mut g, Vec::new(), 0.12, &CALM);
+        assert_eq!(out, vec![button(p, false), Event::PointerGone], "the release and the pointer's departure come with the next frame");
+        assert_eq!(wake, None);
         // Everything is back to normal for the next touch.
         let (out, _) = gate(&mut g, down(2, p), 1.0, &CALM);
         assert_eq!(mouse_events(&out).len(), 0);
@@ -586,7 +610,7 @@ mod tests {
         let p = pos2(300.0, 400.0);
         gate(&mut g, down(1, p), 0.0, &CALM);
         let (out, _) = gate(&mut g, moved(1, pos2(300.0, 380.0)), 0.02, &CALM);
-        assert_eq!(out, vec![touch(1, TouchPhase::Move, pos2(300.0, 380.0))], "past the slop: a scroll, the mouse events stay held");
+        assert_eq!(out, moved(1, pos2(300.0, 380.0)), "past the slop: a scroll, the pointer follows and no press comes");
         let (out, wake) = gate(&mut g, moved(1, pos2(300.0, 300.0)), 0.05, &CALM);
         assert_eq!((mouse_events(&out).len(), wake), (0, None));
         // A scroll that rests for longer than a hold is still a scroll.
@@ -738,7 +762,9 @@ mod tests {
         let (out, _) = gate(&mut g, down(2, p), 30.0, &CALM);
         assert_eq!(mouse_events(&out).len(), 0, "held back as a fresh touch");
         let (out, _) = gate(&mut g, up(2, p), 30.05, &CALM);
-        assert!(out.contains(&button(p, true)) && out.contains(&button(p, false)), "and delivered as a tap");
+        assert!(out.contains(&button(p, true)), "and delivered as a tap");
+        let (out, _) = gate(&mut g, Vec::new(), 30.06, &CALM);
+        assert!(out.contains(&button(p, false)));
         // Losing the focus forgets fingers at once.
         let mut g = Gate::default();
         gate(&mut g, down(1, p), 0.0, &CALM);

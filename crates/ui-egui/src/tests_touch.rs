@@ -39,11 +39,13 @@ impl Rig {
         self.t += dt;
         let mut raw = egui::RawInput { events, time: Some(self.t), screen_rect: Some(self.screen), ..Default::default() };
         self.a.raw_input_hook(&mut raw);
-        if let Some(wake) = self.a.gate_touches(&self.ctx, &mut raw) {
-            self.ctx.request_repaint_after(wake);
-        }
+        // As the Android shell does: the gate's wake is requested inside the pass, in `logic`.
+        let wake = self.a.gate_touches(&self.ctx, &mut raw);
         let a = &mut self.a;
         let out = self.ctx.run_ui(raw, |ui| {
+            if let Some(wake) = wake {
+                ui.ctx().request_repaint_after(wake);
+            }
             a.logic(ui.ctx());
             a.ui(ui);
         });
@@ -87,6 +89,14 @@ impl Rig {
         }
         self.frame(up(1, at));
         at
+    }
+
+    /// What the gate lets through of `events` now (a frame is not run).
+    fn probe(&mut self, events: Vec<Event>) -> Vec<Event> {
+        self.t += 1.0 / 60.0;
+        let mut raw = egui::RawInput { events, time: Some(self.t), screen_rect: Some(self.screen), ..Default::default() };
+        let _ = self.a.gate_touches(&self.ctx, &mut raw);
+        raw.events
     }
 
     fn tap(&mut self, at: Pos2) {
@@ -308,14 +318,194 @@ fn a_double_tap_selects_a_word_without_waiting_to_be_held() {
 
 #[test]
 fn a_pen_gets_the_press_at_once() {
+    for (mode, tool) in [("draw.pen", "pen"), ("draw.eraser", "eraser"), ("draw.lasso", "lasso")] {
+        let mut r = Rig::new(1280.0, 600.0);
+        r.long_doc();
+        r.a.run(mode, json!({})).unwrap();
+        r.frames(2);
+        assert!(crate::ink::pen_active(&r.a), "{tool} is selected");
+        let c = r.canvas().center();
+        let events = r.probe(down(1, c));
+        assert!(events.contains(&button(c, true)), "{tool}: the press goes through at once");
+    }
+    // With the pen the stroke starts as the finger lands: it is drawn, and nothing scrolls.
     let mut r = Rig::new(1280.0, 600.0);
     r.long_doc();
-    r.a.run("draw.mode", json!({"mode": "pen"})).unwrap_or_default();
+    r.a.run("draw.pen", json!({})).unwrap();
     r.frames(2);
-    let c = r.canvas().center();
+    let (c, start) = (r.canvas().center(), r.offset());
     r.frame(down(1, c));
     r.frame(moved(1, c + vec2(30.0, 0.0)));
-    let drawing = r.a.canvas.ink.is_some();
+    assert!(r.a.canvas.ink.is_some(), "a stroke is being drawn");
     r.frame(up(1, c + vec2(30.0, 0.0)));
-    assert!(drawing || !crate::ink::pen_active(&r.a), "with a pen selected the stroke starts as the finger lands");
+    assert_eq!(r.offset(), start, "and the page stayed");
+}
+
+/// Two fingers: pinch zoom and two finger scroll are egui's, and need the pointer's position, which
+/// the gate lets through.
+#[test]
+fn a_pinch_zooms_and_two_fingers_scroll_the_page() {
+    let mut r = Rig::new(1280.0, 700.0);
+    r.long_doc();
+    let c = r.canvas().center();
+    let (a, b) = (c + vec2(-50.0, 0.0), c + vec2(50.0, 0.0));
+    let z0 = r.a.canvas.scale;
+    // egui-winit: the first finger makes the mouse events, the second only a touch.
+    let mut first = down(1, a);
+    first.push(touch(2, TouchPhase::Start, b));
+    r.frame(first);
+    r.frames(2);
+    for i in 1..=10 {
+        let d = i as f32 * 12.0;
+        r.frame(vec![
+            touch(1, TouchPhase::Move, a - vec2(d, 0.0)),
+            Event::PointerMoved(a - vec2(d, 0.0)),
+            touch(2, TouchPhase::Move, b + vec2(d, 0.0)),
+        ]);
+    }
+    r.frame(vec![touch(2, TouchPhase::End, b + vec2(120.0, 0.0))]);
+    r.frame(up(1, a - vec2(120.0, 0.0)));
+    r.frames(8);
+    assert!(r.a.canvas.scale > z0 * 1.3, "spreading two fingers zooms in: {z0} to {}", r.a.canvas.scale);
+    // Two fingers moving together scroll.
+    let start = r.offset();
+    let (a, b) = (c + vec2(-60.0, 0.0), c + vec2(60.0, 0.0));
+    let mut first = down(1, a);
+    first.push(touch(2, TouchPhase::Start, b));
+    r.frame(first);
+    for i in 1..8 {
+        let d = vec2(0.0, -25.0 * i as f32);
+        r.frame(vec![touch(1, TouchPhase::Move, a + d), Event::PointerMoved(a + d), touch(2, TouchPhase::Move, b + d)]);
+    }
+    r.frame(vec![touch(1, TouchPhase::End, a), touch(2, TouchPhase::End, b)]);
+    r.frames(10);
+    assert!(r.offset() > start + 100.0, "two fingers scroll the page: {start} to {}", r.offset());
+}
+
+fn picture_rig() -> (Rig, Pos2) {
+    let mut r = Rig::new(1280.0, 900.0);
+    r.a.run("text.insert", json!({"text": "Before the picture. ".repeat(40)})).unwrap();
+    let img = image::RgbaImage::from_fn(200, 100, |_, _| image::Rgba([200, 30, 30, 255]));
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+    let data = wordcraft_engine::cmd::insert::base64_encode(&bytes);
+    r.a.session.run("insert.picture", &json!({"data": data, "width": 300})).unwrap();
+    r.a.run("select.collapse", json!({"end": true})).unwrap();
+    r.a.run("text.insert", json!({"text": " After the picture. ".repeat(60)})).unwrap();
+    r.a.run("caret.docStart", json!({})).unwrap();
+    r.frames(8);
+    let rect = r.a.session.layout().find_object(0, |_| true).map(|o| o.rect).expect("the picture is laid out");
+    let center = screen_of(&mut r, rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+    (r, center)
+}
+
+#[test]
+fn a_tap_on_a_picture_selects_it_and_leaves_no_drag_behind() {
+    let (mut r, center) = picture_rig();
+    let depth = r.a.session.undo_depth();
+    r.tap(center);
+    assert!(r.a.canvas.obj_drag.is_none(), "the press and the release were two frames, the drag ended");
+    let picture = r.a.session.sel.clone();
+    assert!(!picture.is_collapsed(), "the picture is selected");
+    // The next tap places the caret instead of being eaten (it was, once, by the drag left behind).
+    let text = screen_of(&mut r, 90.0, 40.0);
+    r.tap(text);
+    assert!(r.a.session.sel.is_collapsed() && r.a.session.sel != picture, "a tap on text places the caret");
+    // A swipe scrolls at once (it did nothing until another tap before).
+    let start = r.offset();
+    r.swipe(r.canvas().center() + vec2(100.0, 100.0), vec2(0.0, -30.0), 8);
+    r.frames(4);
+    assert!(r.offset() > start + 100.0, "the page scrolled: {start} to {}", r.offset());
+    assert_eq!(r.a.session.undo_depth(), depth, "nothing was edited");
+}
+
+#[test]
+fn a_tap_on_a_tables_selection_areas_selects_cells() {
+    // Above a column selects it; left of a row selects it.
+    let mut r = table_rig();
+    let b = cell_rect(&mut r, 0, 1);
+    let at = screen_of(&mut r, b.x + b.w / 2.0, b.y - 3.0);
+    r.tap(at);
+    assert!(r.a.session.cell_range().is_some(), "a tap above a column selects the column");
+    let mut r = table_rig();
+    let a = cell_rect(&mut r, 0, 0);
+    let at = screen_of(&mut r, a.x - 10.0, a.y + a.h / 2.0);
+    r.tap(at);
+    assert!(r.a.session.cell_range().is_some(), "a tap left of a row selects the row");
+}
+
+#[test]
+fn a_tap_leaves_no_drag_selection_behind() {
+    let mut r = Rig::new(1280.0, 600.0);
+    r.long_doc();
+    r.tap(r.canvas().center());
+    assert!(!r.a.canvas.drag_selecting(), "the press and the release were one tap");
+    r.a.run("select.text", json!({"text": "A line of text"})).unwrap();
+    r.frames(3);
+    assert!(crate::mini_toolbar::visible(&r.a), "the mini toolbar shows for the selection");
+}
+
+#[test]
+fn the_file_tab_gets_its_touches_at_once() {
+    let mut r = Rig::new(1280.0, 700.0);
+    r.long_doc();
+    let inside = r.canvas().center();
+    // On the page the press is held back ...
+    assert!(!r.probe(down(1, inside)).contains(&button(inside, true)));
+    r.probe(up(1, inside));
+    r.frames(2);
+    // ... on File it is not: the page isn't under the finger.
+    r.a.run("ui.backstage", json!({"value": true, "page": "options"})).unwrap();
+    r.frames(3);
+    let events = r.probe(down(2, inside));
+    assert!(events.contains(&button(inside, true)), "the Backstage's own widgets get the press as the finger lands");
+}
+
+#[test]
+fn a_finger_on_the_scroll_bar_strip_is_the_bars() {
+    let mut r = Rig::new(1280.0, 700.0);
+    r.long_doc();
+    let c = r.canvas();
+    let on_bar = pos2(c.max.x - 6.0, c.center().y);
+    assert!(r.probe(down(1, on_bar)).contains(&button(on_bar, true)), "the press goes through to the bar at once");
+}
+
+#[test]
+fn a_long_press_near_the_edge_opens_the_menu_without_scrolling() {
+    for from_bottom in [30.0_f32, 40.0, 60.0] {
+        let mut r = Rig::new(1280.0, 600.0);
+        r.long_doc();
+        let c = r.canvas();
+        let at = pos2(c.center().x, c.max.y - from_bottom);
+        r.frame(down(1, at));
+        // The press (at the hold) may bring the caret into view once, as a click there does.
+        for _ in 0..30 {
+            r.frame(Vec::new());
+        }
+        let settled = r.offset();
+        for _ in 0..40 {
+            r.frame(Vec::new());
+        }
+        assert!(r.a.canvas.context_menu_open, "{from_bottom}: the menu is open");
+        assert!(
+            (r.offset() - settled).abs() < 1.0,
+            "{from_bottom}: the page doesn't go on scrolling under a resting finger ({settled} to {})",
+            r.offset()
+        );
+        assert!(!r.a.canvas.drag_selecting(), "{from_bottom}: no drag select grows from the rest");
+    }
+}
+
+#[test]
+fn a_resting_finger_asks_for_its_hold_frame() {
+    let mut r = Rig::new(1280.0, 600.0);
+    r.long_doc();
+    let c = r.canvas().center();
+    let mut raw = egui::RawInput { events: down(1, c), time: Some(r.t + 0.016), screen_rect: Some(r.screen), ..Default::default() };
+    let wake = r.a.gate_touches(&r.ctx, &mut raw).expect("a frame is wanted for the hold");
+    assert!(wake > std::time::Duration::from_millis(100) && wake <= std::time::Duration::from_millis(200), "{wake:?}");
+    // Once the hold time has passed the page has its press and nothing more is awaited.
+    let mut raw = egui::RawInput { events: Vec::new(), time: Some(r.t + 0.016 + 0.25), screen_rect: Some(r.screen), ..Default::default() };
+    assert_eq!(r.a.gate_touches(&r.ctx, &mut raw), None);
+    assert!(raw.events.contains(&button(c, true)), "the press is delivered at the hold");
 }

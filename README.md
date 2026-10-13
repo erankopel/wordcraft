@@ -329,8 +329,8 @@ hardware.
 - **Touch:** one finger dragging on the page scrolls it and the page coasts after release; a tap
   places the caret (the page gets the press when the finger lifts, so a swipe never edits what it
   starts on); a double tap then a drag selects by words; resting a finger for a moment gives the
-  page its press, a little longer selects the word and opens the context menu, and a picture or a
-  table border held that way can be dragged; two fingers pinch zoom. In a narrow window (the Fold's
+  page its press, about half a second in all selects the word and opens the context menu, and a
+  picture or a table border held that way can be dragged; two fingers pinch zoom and scroll. In a narrow window (the Fold's
   outer screen) the ribbon's tabs scroll sideways and dialogs scroll inside the window. The ribbon,
   menus and dialogs keep their desktop sizes (the first start sets the interface size to 125
   percent on a screen 600 dp wide or more, 100 percent on a narrower one), so touch targets are
@@ -345,8 +345,12 @@ hardware.
   punctuation mark at a time, so AutoCorrect, smart quotes and list AutoFormat apply. A keyboard
   button at the right end of the status bar brings the keyboard back after it was dismissed.
   Moving the keyboard's own cursor (a swipe on the space bar) restarts its buffer at the editor's
-  caret instead; pasting more than 64 KiB through the keyboard's clipboard suggestion can crash the
-  app. Typing, composing text included, has not been tried on a device.
+  caret instead, as does a touch, a release (a button may change the text: Undo, Paste), a pause
+  after the editor's own corrections, or a buffer that can't be read; in a dialog's text field
+  (Find, the file name) the keyboard gets blank filler instead of the document's text, so the
+  first letter there may come capitalised. Pasting more than 64 KiB through the keyboard's
+  clipboard suggestion can crash the app. Typing, composing text included, has not been tried on
+  a device.
 - **Hardware keyboards:** letters and the arrow, Home, End and Page keys work, but Ctrl, Shift and
   Alt are never reported by winit's Android backend, so shortcuts that use them (Ctrl+B, Ctrl+C,
   Shift+arrows) do nothing; use the ribbon and the context menu. Fixing that means a small patch to

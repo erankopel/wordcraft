@@ -71,6 +71,10 @@ pub struct CanvasState {
     /// Effective scale (screen points per document point).
     pub scale: f32,
     pub canvas_rect: Option<Rect>,
+    /// Where a finger on the page is the page's (the page area without the scroll bar strips),
+    /// `None` while the page isn't shown (File, the start screen): the touch gate trusts it only
+    /// when the canvas drew this frame.
+    pub(crate) touch_rect: Option<Rect>,
     pub focused: bool,
     pub render_ms: f64,
     pub ime_preedit: String,
@@ -182,6 +186,7 @@ impl Default for CanvasState {
             page_rects: Vec::new(),
             scale: PX_PER_PT,
             canvas_rect: None,
+            touch_rect: None,
             focused: false,
             render_ms: 0.0,
             ime_preedit: String::new(),
@@ -753,6 +758,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         (None, None, full)
     };
     app.canvas.canvas_rect = Some(area);
+    app.canvas.touch_rect = Some(touch_area(area));
     app.canvas.layer = Some(ui.layer_id());
     // Ctrl/⌘ + wheel (and trackpad pinch) zooms the document, like Word. egui reports both as a
     // zoom factor and doesn't scroll for them. Start from the shown scale so fit modes zoom too.
@@ -877,8 +883,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // Dragging a selection near the viewport's edge scrolls on (#688): from a crawl at the margin
     // to full speed at the edge, through the same offset the wheel writes.
     let (down, pointer, dt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos(), i.stable_dt));
-    // A finger that only rests (a long press near the edge) is not dragging a selection.
-    let resting_finger = ui.input(|i| i.any_touches() && !i.pointer.is_decidedly_dragging());
+    // A finger that only rests (a long press near the edge) is not dragging a selection: it has to
+    // travel first.
+    let resting_finger = ui.input(|i| {
+        i.any_touches() && i.pointer.press_origin().zip(i.pointer.latest_pos()).is_none_or(|(from, to)| from.distance(to) <= opts.max_click_dist)
+    });
     let auto_delta = if !app.session.view.read_mode
         && app.canvas.drag_selecting()
         && down
@@ -1333,8 +1342,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     }
     // A long press with a finger also selects the word under it, as a long press does in other
     // editors on a touch screen (the menu below is the right click menu).
-    if resp.long_touched() && app.session.math.is_none() && app.session.sel.is_collapsed() {
-        let _ = app.run("select.word", json!({}));
+    if resp.long_touched() {
+        // The menu owns the pointer now: the press is no drag that grows a selection.
+        app.canvas.dragging = false;
+        app.canvas.unit_drag = None;
+        if app.session.math.is_none() && app.session.sel.is_collapsed() {
+            let _ = app.run("select.word", json!({}));
+        }
     }
     // Shift+F10 opens the same menu below the caret, for the selection or the word there (#821).
     let from_keys = std::mem::take(&mut app.canvas.context_menu_from_keys);
@@ -1768,6 +1782,15 @@ fn edge_scroll(p: f32, lo: f32, hi: f32, dt: f32) -> f32 {
     }
 }
 
+/// The width of the strips along the page's right and bottom edges where the scroll bars are: a
+/// finger there drags the bar (egui's), so it is not a scroll of the page.
+const SCROLLBAR_STRIP: f32 = 18.0;
+
+/// The part of the page area where a finger scrolls the page and its press waits for the gate.
+fn touch_area(area: Rect) -> Rect {
+    Rect::from_min_max(area.min, pos2((area.max.x - SCROLLBAR_STRIP).max(area.min.x), (area.max.y - SCROLLBAR_STRIP).max(area.min.y)))
+}
+
 /// Hold back the mouse events a finger makes on the page until it is known to be a tap or a hold
 /// (`touch::Gate`); a scroll never reaches the page as a press. Called on a touch screen host's raw
 /// input before the frame. Returns how long until a finger that rests becomes a press and hold, so
@@ -1784,7 +1807,7 @@ pub(crate) fn gate_touches(app: &mut WordApp, ctx: &egui::Context, raw: &mut egu
     let second_tap = |at: Pos2| press_count(last_press, time, at, delay, dist) >= 2;
     let covered = |at: Pos2| page_layer.is_some_and(|page| ctx.layer_id_at(at).is_some_and(|layer| layer != page));
     let env = crate::touch::Env {
-        area: app.canvas.canvas_rect,
+        area: app.canvas.touch_rect,
         tool: crate::ink::pen_active(app) || app.canvas.table_tool.is_some() || app.canvas.ink.is_some(),
         coasting: app.canvas.pan.coasting(),
         second_tap: &second_tap,
@@ -1799,6 +1822,11 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
     if app.session.view.read_mode {
         app.canvas.pan.cancel();
         return egui::Vec2::ZERO;
+    }
+    let area = touch_area(area);
+    // The window lost focus (the app was paused): a finger that was down won't report its lift.
+    if ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)))) {
+        app.canvas.pan.cancel();
     }
     // Nothing to do (and nothing copied) while no finger is down or coasting: every frame of a
     // mouse or touchpad user.
@@ -1823,6 +1851,7 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
         || crate::ink::pen_active(app)
         || app.canvas.ink_ui.lasso.is_some()
         || app.canvas.table_resize.is_some()
+        || app.canvas.table_drag.is_some()
         || app.canvas.table_stroke.is_some()
         || app.canvas.ink.is_some()
         || app.canvas.erasing.is_some()

@@ -1548,6 +1548,12 @@ impl WordApp {
         // the ribbon so they sit on top of it.
         crate::keytips::logic(self, &ctx);
         if self.ui.backstage {
+            // The page isn't under a finger on File: the touch gate must not hold its presses, and a
+            // finger scroll is the Backstage's own.
+            self.canvas.touch_rect = None;
+            self.canvas.layer = None;
+            self.canvas.gate.cancel();
+            self.canvas.pan.cancel();
             backstage::show(self, ui);
         } else {
             chrome::title_bar(self, ui);

@@ -11,7 +11,7 @@ use wordcraft_engine::Session;
 use wordcraft_ui_egui::{UiState, WordApp};
 
 use crate::host;
-use crate::keyboard::Keyboard as SoftKeyboard;
+use crate::keyboard::{FIELD_CONTEXT, Keyboard as SoftKeyboard};
 use crate::storage::{self, Dirs, Plan, Recovery, Restore};
 
 /// The interface size (percent) before the user has chosen one, on a screen 600 dp wide or more
@@ -48,8 +48,9 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
                 o.input_options.max_click_dist = 12.0;
                 o.input_options.max_double_click_delay = 0.5;
                 // A press and hold opens the context menu this long after the page got the press
-                // (which a resting finger gets after `touch::HOLD`, 0.2 s).
-                o.input_options.max_click_duration = 0.3;
+                // (which a resting finger gets after `touch::HOLD`, 0.2 s); a button takes a press
+                // that lasts up to this long as a click.
+                o.input_options.max_click_duration = 0.5;
             });
             let region = wordcraft_ui_egui::i18n::system_region();
             let mut session = Session::new(wordcraft_engine::blank_document(&region));
@@ -79,6 +80,7 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
                 keyboard,
                 left: false,
                 dark: None,
+                wake: None,
                 started: Instant::now(),
                 prefs_saved,
                 prefs_checked_ms: 0.0,
@@ -103,6 +105,8 @@ struct Shell {
     left: bool,
     /// The system appearance last reported to the editor.
     dark: Option<bool>,
+    /// A frame the touch gate wants (a finger that becomes a hold, a tap's release).
+    wake: Option<Duration>,
     /// The clock the planners use: milliseconds since start, which never goes backwards.
     started: Instant,
     /// The preferences file as last written (or read), to write only when something changed.
@@ -124,6 +128,9 @@ impl eframe::App for Shell {
             ctx.request_repaint();
         }
         self.app.set_system_dark(dark);
+        if let Some(wake) = self.wake.take() {
+            ctx.request_repaint_after(wake);
+        }
         self.app.logic(ctx);
         // The keyboard is read while the page or a text field has focus.
         self.keyboard.want(self.app.canvas.focused || ctx.egui_wants_keyboard_input());
@@ -132,7 +139,8 @@ impl eframe::App for Shell {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
-        self.keyboard.tick(|| context_before_caret(&self.app));
+        let page_owns = self.page_owns_keyboard(ctx);
+        self.keyboard.tick(|| if page_owns { context_before_caret(&self.app) } else { FIELD_CONTEXT.to_owned() });
         let leaving = std::mem::take(&mut self.left);
         self.keep_prefs(leaving);
         self.keep_recovery(ctx, leaving);
@@ -142,11 +150,11 @@ impl eframe::App for Shell {
         self.app.raw_input_hook(raw);
         // A finger's press waits until it is known to be a tap or a hold; a scroll never reaches the
         // page as a press. A finger that rests asks for a frame when it becomes a hold.
-        if let Some(wake) = self.app.gate_touches(ctx, raw) {
-            ctx.request_repaint_after(wake);
-        }
+        // (The frame is requested in `logic`: egui drops a delayed request made before its pass.)
+        self.wake = self.app.gate_touches(ctx, raw);
         // What the keyboard typed goes first: it was typed before this frame's touches and keys.
-        let typed = self.keyboard.events(&raw.events, &mut self.app);
+        let page_owns = self.page_owns_keyboard(ctx);
+        let typed = self.keyboard.events(&raw.events, &mut self.app, page_owns);
         raw.events.splice(0..0, typed);
         self.left |= raw.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)));
     }
@@ -170,6 +178,12 @@ impl eframe::App for Shell {
 }
 
 impl Shell {
+    /// The page (not a text field of a dialog, Find or the file browser) has the keyboard: what the
+    /// keyboard types goes into the document, and the buffer holds its text before the caret.
+    fn page_owns_keyboard(&self, ctx: &egui::Context) -> bool {
+        self.app.canvas.focused && !ctx.egui_wants_keyboard_input() && !self.app.session.view.read_mode
+    }
+
     fn now_ms(&self) -> f64 {
         self.started.elapsed().as_secs_f64() * 1000.0
     }

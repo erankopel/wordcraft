@@ -196,8 +196,6 @@ fn is_paste_special_release(key: Key, modifiers: egui::Modifiers) -> bool {
     key == Key::V && modifiers.command && modifiers.alt && !modifiers.shift
 }
 
-/// Events for the focused canvas: text, editing keys, clipboard, IME. While keytips are showing
-/// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs.
 /// Type `text` at the caret as a keyboard would have, ending the word being composed: an equation
 /// takes it as typed text, and a selected text box is entered first (as for every typed key). Text
 /// with a control character in it is not typed.
@@ -214,6 +212,8 @@ pub(crate) fn commit_text(app: &mut WordApp, text: &str) {
     }
 }
 
+/// Events for the focused canvas: text, editing keys, clipboard, IME. While keytips are showing
+/// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs.
 pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
     if app.ui.keytips != crate::keytips::Phase::Off {
         return;

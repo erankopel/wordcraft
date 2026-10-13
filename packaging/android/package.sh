@@ -39,7 +39,8 @@ done
 # runs hundreds of build scripts of other people's crates, which must not see a password.
 USER_KEYSTORE="${WORDCRAFT_KEYSTORE:-}"
 USER_KEYSTORE_PASSWORD="${WORDCRAFT_KEYSTORE_PASSWORD:-}"
-unset WORDCRAFT_KEYSTORE WORDCRAFT_KEYSTORE_PASSWORD
+USER_KEY_PASSWORD="${WORDCRAFT_KEY_PASSWORD:-}"
+unset WORDCRAFT_KEYSTORE WORDCRAFT_KEYSTORE_PASSWORD WORDCRAFT_KEY_PASSWORD
 
 # Versions this build was verified with. Changing one is a build change: re-run and check the APK.
 PLATFORM="android-37.0"
@@ -85,9 +86,11 @@ export ANDROID_NDK_HOME="$NDK"
 JAVA_BIN="java"
 [ -n "${JAVA_HOME:-}" ] && JAVA_BIN="$JAVA_HOME/bin/java"
 command -v "$JAVA_BIN" >/dev/null || { echo "error: java not found (a JDK 17 or newer; set JAVA_HOME)" >&2; exit 1; }
-# (java may print other lines first, such as "Picked up JAVA_TOOL_OPTIONS".)
-JAVA_MAJOR="$("$JAVA_BIN" -version 2>&1 | sed -n 's/.*version "\([0-9]*\).*/\1/p' | head -n 1)"
-[ "${JAVA_MAJOR:-0}" -ge 17 ] || { echo "error: a JDK 17 or newer is needed (found major version ${JAVA_MAJOR:-unknown})" >&2; exit 1; }
+# (java may print other lines first, such as "Picked up JAVA_TOOL_OPTIONS", and a stub that is
+# not a JDK exits non-zero: its message is shown below.)
+JAVA_OUT="$("$JAVA_BIN" -version 2>&1 || true)"
+JAVA_MAJOR="$(printf '%s\n' "$JAVA_OUT" | sed -n 's/.*version "\([0-9]*\).*/\1/p' | head -n 1)"
+[ "${JAVA_MAJOR:-0}" -ge 17 ] || { echo "error: a JDK 17 or newer is needed (found major version ${JAVA_MAJOR:-unknown}); java said: $JAVA_OUT" >&2; exit 1; }
 KEYTOOL="keytool"
 [ -n "${JAVA_HOME:-}" ] && KEYTOOL="$JAVA_HOME/bin/keytool"
 command -v "$KEYTOOL" >/dev/null || { echo "error: keytool (part of the JDK) not found" >&2; exit 1; }
@@ -96,6 +99,9 @@ KEY_ALIAS="${WORDCRAFT_KEY_ALIAS:-wordcraft}"
 KEYSTORE="$USER_KEYSTORE"
 KEYSTORE_PASSWORD="$USER_KEYSTORE_PASSWORD"
 if [ -z "$KEYSTORE" ]; then
+  # A password belongs to the key it was given with: the one made here has its own.
+  [ -z "$KEYSTORE_PASSWORD" ] || warn "ignoring WORDCRAFT_KEYSTORE_PASSWORD: set WORDCRAFT_KEYSTORE too to use your own key"
+  KEYSTORE_PASSWORD=""
   KEYDIR="${WORDCRAFT_ANDROID_KEY_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/wordcraft/android}"
   KEYSTORE="$KEYDIR/wordcraft-release.jks"
   PASSFILE="$KEYDIR/keystore.pass"
@@ -135,16 +141,21 @@ if ! command -v cargo-ndk >/dev/null; then
 fi
 rustup target add aarch64-linux-android >/dev/null
 JNI="$WORK/jniLibs"
-# What the library is built from, to tell a --skip-native run when it reuses a stale one.
+# What the library is built from, to tell a --skip-native run when it reuses a stale one: the
+# commit, the content of tracked changes and of untracked files, and the fonts.
 native_stamp() {
   printf '%s\n%s\n%s\n' "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" \
-    "$( (git -C "$ROOT" status --porcelain 2>/dev/null; git -C "$ROOT" diff HEAD 2>/dev/null) | cksum)" "${CRAFT_FONTS_DIR:-}"
+    "$( (git -C "$ROOT" status --porcelain 2>/dev/null; git -C "$ROOT" diff HEAD 2>/dev/null; \
+        git -C "$ROOT" ls-files --others --exclude-standard -z 2>/dev/null | (cd "$ROOT" && xargs -0 cat 2>/dev/null)) | cksum)" \
+    "${CRAFT_FONTS_DIR:-}"
 }
 if [ "$SKIP_NATIVE" = 0 ]; then
+  # The stamp is taken before the build: an edit made while it runs is not recorded as built.
+  STAMP="$(native_stamp)"
   rm -rf "$JNI"
   # Release profile of the workspace (opt-level 3, thin LTO). Linked 16 KB page aligned by NDK r28+.
   (cd "$ROOT" && cargo ndk --platform "$MIN_API" -t arm64-v8a -o "$JNI" build --release --locked -p wordcraft-android)
-  native_stamp >"$JNI/arm64-v8a/.built-from"
+  printf '%s\n' "$STAMP" >"$JNI/arm64-v8a/.built-from"
 fi
 [ -f "$JNI/arm64-v8a/libwordcraft_android.so" ] || { echo "error: $JNI/arm64-v8a/libwordcraft_android.so missing" >&2; exit 1; }
 if [ "$SKIP_NATIVE" = 1 ] && [ "$(cat "$JNI/arm64-v8a/.built-from" 2>/dev/null)" != "$(native_stamp)" ]; then
@@ -180,6 +191,7 @@ cp -R "$JNI/arm64-v8a" "$PROJECT/app/src/main/jniLibs/"
 (
   export WORDCRAFT_VERSION_NAME="$VERSION" WORDCRAFT_VERSION_CODE="$VERSION_CODE"
   export WORDCRAFT_KEYSTORE="$KEYSTORE" WORDCRAFT_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" WORDCRAFT_KEY_ALIAS="$KEY_ALIAS"
+  [ -z "$USER_KEY_PASSWORD" ] || export WORDCRAFT_KEY_PASSWORD="$USER_KEY_PASSWORD"
   cd "$PROJECT" && "$GRADLE" --no-daemon --console=plain :app:assembleRelease
 )
 

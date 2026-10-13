@@ -88,6 +88,14 @@ impl Pan {
         self.finger.is_none() && self.fling == Vec2::ZERO
     }
 
+    /// No finger is down any more (egui says so): forget the ones tracked, whose lift was lost
+    /// (the app was paused with a finger down). Without this a lost lift would make every later
+    /// finger look like a second one.
+    pub fn forget_fingers(&mut self) {
+        self.finger = None;
+        self.down.clear();
+    }
+
     /// Stop everything, e.g. when a tool takes the pointer.
     pub fn cancel(&mut self) {
         self.finger = None;
@@ -194,6 +202,10 @@ impl Pan {
 /// press then, and egui's long touch (`max_click_duration`) opens the context menu a little later.
 pub(crate) const HOLD: f64 = 0.2;
 
+/// A finger that has been down this long (seconds) with no touch event at all is taken as lost (its
+/// lift never came, say because the app was paused): the gate forgets it.
+const STALE_TOUCH: f64 = 10.0;
+
 /// What the gate needs to know about the page and the finger.
 pub(crate) struct Env<'a> {
     /// Where the page is drawn: a touch elsewhere (the ribbon, a status bar button) is the
@@ -233,6 +245,8 @@ pub(crate) struct Gate {
     mode: Mode,
     /// Every finger that is down.
     down: Vec<TouchId>,
+    /// When a touch event last came.
+    last_touch: f64,
 }
 
 impl Gate {
@@ -246,11 +260,20 @@ impl Gate {
     /// until a finger that rests becomes a press and hold, so a frame is drawn then.
     pub fn filter(&mut self, events: &mut Vec<Event>, now: f64, env: &Env) -> Option<f64> {
         let button = |pos, pressed| Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        if !self.down.is_empty() && now - self.last_touch > STALE_TOUCH {
+            self.cancel();
+        }
         let input = std::mem::take(events);
         let mut out = Vec::with_capacity(input.len() + 3);
         for e in input {
             match &e {
+                // The window lost focus: a finger that was down won't report its lift.
+                Event::WindowFocused(false) => {
+                    self.cancel();
+                    out.push(e);
+                }
                 Event::Touch { id, phase, pos, .. } => {
+                    self.last_touch = now;
                     match phase {
                         TouchPhase::Start => {
                             if !self.down.contains(id) {
@@ -703,5 +726,33 @@ mod tests {
         let short = pan2.frame(&[], area(), |_| false, false, &sel(), MAX_DT);
         assert_eq!(long.delta, short.delta);
         assert!(long.delta.length() < 400.0, "{:?}", long.delta);
+    }
+
+    #[test]
+    fn a_lost_lift_does_not_turn_every_later_finger_into_a_second_one() {
+        let p = pos2(300.0, 400.0);
+        // The gate: a finger went down, the app was paused, no lift came; much later a finger taps.
+        let mut g = Gate::default();
+        gate(&mut g, down(1, p), 0.0, &CALM);
+        gate(&mut g, Vec::new(), 0.5, &CALM);
+        let (out, _) = gate(&mut g, down(2, p), 30.0, &CALM);
+        assert_eq!(mouse_events(&out).len(), 0, "held back as a fresh touch");
+        let (out, _) = gate(&mut g, up(2, p), 30.05, &CALM);
+        assert!(out.contains(&button(p, true)) && out.contains(&button(p, false)), "and delivered as a tap");
+        // Losing the focus forgets fingers at once.
+        let mut g = Gate::default();
+        gate(&mut g, down(1, p), 0.0, &CALM);
+        gate(&mut g, vec![Event::WindowFocused(false)], 0.1, &CALM);
+        let (out, _) = gate(&mut g, down(2, p), 0.2, &CALM);
+        assert_eq!(mouse_events(&out).len(), 0);
+        let (out, _) = gate(&mut g, up(2, p), 0.25, &CALM);
+        assert!(out.contains(&button(p, true)));
+        // The scroll tracking: forgotten when egui reports no fingers.
+        let mut pan = Pan::default();
+        run(&mut pan, &[touch(1, TouchPhase::Start, p)]);
+        pan.forget_fingers();
+        run(&mut pan, &[touch(2, TouchPhase::Start, p)]);
+        let s = run(&mut pan, &[touch(2, TouchPhase::Move, pos2(300.0, 350.0))]);
+        assert_eq!(s.delta, vec2(0.0, -50.0));
     }
 }

@@ -1803,6 +1803,10 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
     // Nothing to do (and nothing copied) while no finger is down or coasting: every frame of a
     // mouse or touchpad user.
     let touching = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. })));
+    if !touching && !ui.input(|i| i.any_touches()) {
+        // No finger is down: one whose lift was lost (the app was paused) is forgotten.
+        app.canvas.pan.forget_fingers();
+    }
     if !touching && !app.canvas.pan.panning() && app.canvas.pan.idle() {
         return egui::Vec2::ZERO;
     }

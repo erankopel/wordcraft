@@ -28,6 +28,9 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 log = { workspace = true }
+# The editor's own Backspace rule (one grapheme cluster per press), so the keyboard bridge counts
+# presses the way the editor performs them (`src/ime.rs`).
+wordcraft-doc = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 wordcraft-engine = { workspace = true }

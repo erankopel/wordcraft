@@ -40,6 +40,9 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
             cc.egui_ctx.options_mut(|o| {
                 o.input_options.max_click_dist = 12.0;
                 o.input_options.max_double_click_delay = 0.5;
+                // A press and hold opens the context menu this long after the page got the press
+                // (which a resting finger gets after `touch::HOLD`, 0.2 s).
+                o.input_options.max_click_duration = 0.3;
             });
             let region = wordcraft_ui_egui::i18n::system_region();
             let mut session = Session::new(wordcraft_engine::blank_document(&region));
@@ -122,15 +125,22 @@ impl eframe::App for Shell {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
+        self.keyboard.tick(|| context_before_caret(&self.app));
         let leaving = std::mem::take(&mut self.left);
         self.keep_prefs(leaving);
         self.keep_recovery(ctx, leaving);
     }
 
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.app.raw_input_hook(raw);
-        let typed = self.keyboard.events(&raw.events);
-        raw.events.extend(typed);
+        // A finger's press waits until it is known to be a tap or a hold; a scroll never reaches the
+        // page as a press. A finger that rests asks for a frame when it becomes a hold.
+        if let Some(wake) = self.app.gate_touches(ctx, raw) {
+            ctx.request_repaint_after(wake);
+        }
+        // What the keyboard typed goes first: it was typed before this frame's touches and keys.
+        let typed = self.keyboard.events(&raw.events, &mut self.app);
+        raw.events.splice(0..0, typed);
         self.left |= raw.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)));
     }
 
@@ -198,6 +208,14 @@ impl Shell {
             }
         }
     }
+}
+
+/// The text before the caret (the start of the selection) that the on-screen keyboard's buffer is
+/// filled with, so what it sees is what the document holds there ([`crate::ime::context`]).
+fn context_before_caret(app: &WordApp) -> String {
+    let (start, _) = app.session.sel.ordered();
+    let before = app.session.doc.para_at(&start).and_then(|p| p.text.get(..start.off)).unwrap_or("");
+    crate::ime::context(before)
 }
 
 /// The preferences as the file holds them.

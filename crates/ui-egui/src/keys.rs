@@ -198,6 +198,22 @@ fn is_paste_special_release(key: Key, modifiers: egui::Modifiers) -> bool {
 
 /// Events for the focused canvas: text, editing keys, clipboard, IME. While keytips are showing
 /// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs.
+/// Type `text` at the caret as a keyboard would have, ending the word being composed: an equation
+/// takes it as typed text, and a selected text box is entered first (as for every typed key). Text
+/// with a control character in it is not typed.
+pub(crate) fn commit_text(app: &mut WordApp, text: &str) {
+    app.canvas.ime_preedit.clear();
+    if text.is_empty() || text.chars().any(char::is_control) {
+        return;
+    }
+    if app.session.math.is_some() {
+        let _ = app.run("equation.type", json!({"text": text}));
+    } else {
+        crate::objects::enter_text_box(app);
+        let _ = app.run("text.insert", json!({"text": text}));
+    }
+}
+
 pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
     if app.ui.keytips != crate::keytips::Phase::Off {
         return;

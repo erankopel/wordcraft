@@ -4,26 +4,34 @@
 //! autocorrected words, suggestions, composing text) arrives in GameActivity as `TextEvent`s, which
 //! winit logs as unknown and drops. The state behind those events is still readable
 //! (`AndroidApp::text_input_state`), so this module reads it and turns what changed into the
-//! editor's own input: [`egui::ImeEvent`] preedit and commit events (the page already handles them
-//! for desktop input methods), and Backspace and Enter key presses.
+//! editor's own input: the word being composed (shown at the caret, not yet in the document), the
+//! text the keyboard finished, and Backspace and Enter key presses.
 //!
-//! The keyboard edits a small buffer of its own. [`Bridge`] remembers the part of it already given
-//! to the editor, so only what changed is sent, whether the keyboard appended a word, deleted a
-//! character in the buffer (Backspace), or replaced an earlier word (autocorrect). The buffer is
-//! just a log of what was typed: where it goes is wherever the editor's caret is, so tapping
-//! elsewhere never needs the buffer to know. [`Bridge::should_reset`] says when to empty it, and a
-//! touch or a cursor key resets it: the word being composed is committed where it was typed, and
-//! the keyboard starts a fresh composition.
+//! The keyboard edits a small buffer of its own, which always ends where the editor's caret is. When
+//! the caret moves (a tap, a cursor key) the buffer is filled again with the text before the new
+//! caret ([`Bridge::seed`]), so what the keyboard sees is what the document holds: Backspace has
+//! something to delete (a keyboard with an empty buffer sends a delete that changes nothing),
+//! capitalisation follows the real previous sentence, and suggestions see the real previous words.
+//! [`Bridge`] remembers the part of the buffer already given to the editor, so only what changed is
+//! sent, whether the keyboard appended a word, deleted a character in the buffer (Backspace), or
+//! replaced an earlier word (autocorrect).
+//!
+//! A Backspace is counted the way the editor will perform it: one press removes a whole grapheme
+//! cluster (an emoji with its modifiers, a letter with its marks), so a keyboard that deletes one
+//! code point at a time leaves the rest of the cluster to be typed again, and one that deletes a
+//! whole cluster at once costs a single press.
 //!
 //! Everything here is plain data in, events out, with tests that run on any host; the Android
 //! calls are in `keyboard`.
 
+use wordcraft_doc::cluster;
+
 /// What the editor should be given, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Output {
-    /// Press Backspace this many times (the keyboard deleted text it had typed earlier).
+    /// Press Backspace this many times (the keyboard deleted text that is already in the document).
     Backspace(usize),
-    /// Text the keyboard finished: insert it at the caret.
+    /// Text the keyboard finished: type it at the caret.
     Commit(String),
     /// The Enter key (the keyboard typed a line break).
     Enter,
@@ -38,19 +46,25 @@ pub struct Snapshot {
     pub text: String,
     /// The composing region (characters), if any.
     pub compose: Option<(usize, usize)>,
+    /// The keyboard's cursor is at the end of the text (it is, unless the person moved it inside
+    /// the buffer, with a swipe on the space bar for instance).
+    pub at_end: bool,
 }
 
 impl Snapshot {
-    /// A snapshot from what GameActivity reports: the text and spans in UTF-16 code units (Java's
-    /// string indices). Spans that don't fit the text are clamped; a reversed span is swapped; an
-    /// empty or undefined one (a negative end) means no composition.
-    pub fn from_utf16_spans(text: String, compose: Option<(usize, usize)>) -> Snapshot {
+    /// A snapshot from what GameActivity reports: the text, the composing region and the selection
+    /// (when known), with spans in UTF-16 code units (Java's string indices). Spans that don't fit
+    /// the text are clamped; a reversed span is swapped; an empty or undefined one means no
+    /// composition.
+    pub fn from_utf16_spans(text: String, compose: Option<(usize, usize)>, selection: Option<(usize, usize)>) -> Snapshot {
         let compose = compose.and_then(|(a, b)| {
             let (a, b) = if a <= b { (a, b) } else { (b, a) };
             let (a, b) = (utf16_to_char(&text, a), utf16_to_char(&text, b));
             (a < b).then_some((a, b))
         });
-        Snapshot { text, compose }
+        let units = text.encode_utf16().count();
+        let at_end = selection.is_none_or(|(a, b)| a >= units && b >= units);
+        Snapshot { text, compose, at_end }
     }
 }
 
@@ -76,42 +90,34 @@ pub struct Bridge {
     preedit: String,
 }
 
-/// The buffer is emptied when it grows past this many characters (and nothing is being composed).
-const MAX_BUFFER_CHARS: usize = 256;
-
 impl Bridge {
     /// The keyboard's buffer is now `now`: what to give the editor so it matches. The committed
     /// text is what comes before the composing region (all of it without one); the composing text
-    /// is shown as preedit.
+    /// is shown as preedit. A composing region that starts inside text already given (a word the
+    /// keyboard reopened for suggestions) leaves that text in the document: only its replacement,
+    /// if the keyboard makes one, is sent.
     pub fn observe(&mut self, now: &Snapshot) -> Vec<Output> {
         let chars: Vec<char> = now.text.chars().collect();
         let (committed, composing): (Vec<char>, String) = match now.compose {
-            // Text after the composing region (a word reopened for composition, with what followed
-            // it) isn't given yet: it comes back as committed text when the composition ends.
-            Some((a, b)) if a < b && b <= chars.len() => (chars[..a].to_vec(), chars[a..b].iter().collect()),
+            Some((a, b)) if a < b && b <= chars.len() && a >= self.given.len() => {
+                (chars.get(..a).unwrap_or_default().to_vec(), chars.get(a..b).unwrap_or_default().iter().collect())
+            }
             _ => (chars, String::new()),
         };
-        let mut out = Vec::new();
         let same = self.given.iter().zip(&committed).take_while(|(a, b)| a == b).count();
+        let mut out = Vec::new();
+        // What has to be typed again after the deletion: the rest of a cluster the editor deletes
+        // whole although the keyboard deleted only part of it, then what the keyboard added.
+        let mut typed = String::new();
         if self.given.len() > same {
-            out.push(Output::Backspace(self.given.len() - same));
-        }
-        if committed.len() > same {
-            let added: String = committed[same..].iter().collect();
-            // A line break is the Enter key, not text.
-            let mut lines = added.split('\n');
-            if let Some(first) = lines.next()
-                && !first.is_empty()
-            {
-                out.push(Output::Commit(first.to_owned()));
+            let (presses, again) = deletion(&self.given, same);
+            if presses > 0 {
+                out.push(Output::Backspace(presses));
             }
-            for line in lines {
-                out.push(Output::Enter);
-                if !line.is_empty() {
-                    out.push(Output::Commit(line.to_owned()));
-                }
-            }
+            typed = again;
         }
+        typed.extend(committed.get(same..).unwrap_or_default());
+        push_text(&mut out, &typed);
         self.given = committed;
         // Committing text clears the preedit the editor shows, so a word still being composed is
         // sent again after it.
@@ -123,12 +129,6 @@ impl Bridge {
         out
     }
 
-    /// Whether the keyboard's buffer should be emptied now: it has grown long and nothing is being
-    /// composed (emptying it while a word is being composed would cut the word off).
-    pub fn should_reset(&self) -> bool {
-        self.given.len() > MAX_BUFFER_CHARS && self.preedit.is_empty()
-    }
-
     /// The keyboard's buffer was emptied (or the caret moved somewhere else): forget it. A word
     /// that was being composed is committed as it stands, where the caret was, before the caret
     /// moves; the keyboard starts over.
@@ -136,6 +136,119 @@ impl Bridge {
         self.given.clear();
         if self.preedit.is_empty() { Vec::new() } else { vec![Output::Commit(std::mem::take(&mut self.preedit))] }
     }
+
+    /// The keyboard's buffer was filled with `context`, the text before the caret: it is in the
+    /// document already, so only what changes from here is sent.
+    pub fn seed(&mut self, context: &str) {
+        self.given = context.chars().collect();
+    }
+
+    /// A word is being composed (shown, not yet in the document).
+    pub fn composing(&self) -> bool {
+        !self.preedit.is_empty()
+    }
+
+    /// How many characters of the keyboard's buffer the editor has been given.
+    pub fn given_len(&self) -> usize {
+        self.given.len()
+    }
+
+    /// The part of the buffer given, as text.
+    pub fn given_text(&self) -> String {
+        self.given.iter().collect()
+    }
+}
+
+/// How many Backspace presses the editor needs to delete `given[keep..]` (cluster by cluster, as
+/// its Backspace does), and the text to type afterwards when those presses took more than that
+/// (the rest of a cluster the keyboard only partly deleted).
+fn deletion(given: &[char], keep: usize) -> (usize, String) {
+    let text: String = given.iter().collect();
+    let keep_bytes: usize = given.iter().take(keep).map(|c| c.len_utf8()).sum();
+    let mut end = text.len();
+    let mut presses = 0;
+    while end > keep_bytes && presses < given.len() {
+        let next = cluster::backspace_from(&text, end);
+        if next >= end {
+            break;
+        }
+        end = next;
+        presses += 1;
+    }
+    let again = if end < keep_bytes { text.get(end..keep_bytes).unwrap_or_default().to_owned() } else { String::new() };
+    (presses, again)
+}
+
+/// How much of the document's text before the caret the keyboard's buffer is filled with.
+pub const CONTEXT_CHARS: usize = 120;
+
+/// The text to fill the keyboard's buffer with when the caret is somewhere new: the end of the
+/// caret's paragraph before the caret (`before_caret`), at most [`CONTEXT_CHARS`] characters. When
+/// that reaches the paragraph's start a line break comes first, so the keyboard sees a new
+/// paragraph (it capitalises, and a Backspace there is the editor's Backspace at a paragraph's
+/// start). Pictures and fields (the object character) and other control characters are left out; a
+/// line break inside the paragraph is a line break.
+pub fn context(before_caret: &str) -> String {
+    let mut chars: Vec<char> = before_caret
+        .chars()
+        .rev()
+        .filter(|c| *c != wordcraft_doc::para::OBJ)
+        .map(|c| if c == '\u{000B}' || c == '\u{2028}' || c == '\u{2029}' { '\n' } else { c })
+        .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
+        .take(CONTEXT_CHARS)
+        .collect();
+    let at_start = chars.len() < CONTEXT_CHARS;
+    chars.reverse();
+    let mut text = String::with_capacity(chars.len() + 1);
+    if at_start {
+        text.push('\n');
+    }
+    text.extend(chars);
+    text
+}
+
+/// Add the text the editor should type: a line break is the Enter key, not text, and CR or CRLF
+/// (what a pasted clipboard suggestion may hold) is one line break.
+fn push_text(out: &mut Vec<Output>, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut lines = text.split('\n');
+    if let Some(first) = lines.next()
+        && !first.is_empty()
+    {
+        out.push(Output::Commit(first.to_owned()));
+    }
+    for line in lines {
+        out.push(Output::Enter);
+        if !line.is_empty() {
+            out.push(Output::Commit(line.to_owned()));
+        }
+    }
+}
+
+/// Split text to type into the pieces the editor's typing rules see one at a time: AutoCorrect,
+/// smart quotes and list or dash AutoFormat act on a single typed space, punctuation mark or quote
+/// (Word's rules, `typing-parity.md`), so those are separate pieces and the words between them are
+/// whole.
+pub fn typing_pieces(text: &str) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut run = String::new();
+    for c in text.chars() {
+        if c == ' ' || ",.;:!?\"'".contains(c) {
+            if !run.is_empty() {
+                pieces.push(std::mem::take(&mut run));
+            }
+            pieces.push(c.to_string());
+        } else {
+            run.push(c);
+        }
+    }
+    if !run.is_empty() {
+        pieces.push(run);
+    }
+    pieces
 }
 
 #[cfg(test)]
@@ -143,7 +256,7 @@ mod tests {
     use super::*;
 
     fn snap(text: &str, compose: Option<(usize, usize)>) -> Snapshot {
-        Snapshot { text: text.to_owned(), compose }
+        Snapshot { text: text.to_owned(), compose, at_end: true }
     }
 
     #[test]
@@ -186,30 +299,54 @@ mod tests {
         assert_eq!(b.observe(&snap("one\ntwo", None)), vec![Output::Commit("one".into()), Output::Enter, Output::Commit("two".into())]);
         assert_eq!(b.observe(&snap("one\ntwo\n", None)), vec![Output::Enter]);
         assert_eq!(b.observe(&snap("one\ntwo\n\n", None)), vec![Output::Enter]);
+        // A clipboard suggestion with Windows line breaks is one break each, not two.
+        let mut b = Bridge::default();
+        assert_eq!(
+            b.observe(&snap("a\r\nb\rc", None)),
+            vec![Output::Commit("a".into()), Output::Enter, Output::Commit("b".into()), Output::Enter, Output::Commit("c".into())]
+        );
     }
 
     #[test]
-    fn a_word_reopened_for_composition_is_taken_back_from_the_page() {
+    fn a_word_the_keyboard_reopens_stays_in_the_document() {
         let mut b = Bridge::default();
-        b.observe(&snap("hello ", None));
-        // The keyboard marks "hello" as composing again (tapping a suggestion for it): the page
-        // takes the committed characters back, including the space after the word, and shows the
-        // word as preedit.
-        assert_eq!(b.observe(&snap("hello ", Some((0, 5)))), vec![Output::Backspace(6), Output::Preedit("hello".into())]);
-        // When the composition ends the whole text comes back as committed.
-        assert_eq!(b.observe(&snap("hello ", None)), vec![Output::Commit("hello ".into()), Output::Preedit(String::new())]);
+        b.seed("hello ");
+        // The keyboard marks the word before the caret as composing again, as it does after the
+        // caret was put at the end of a word: nothing changes in the document.
+        assert_eq!(b.observe(&snap("hello ", Some((0, 5)))), vec![]);
+        // Replacing it by a suggestion replaces the word in the document.
+        assert_eq!(b.observe(&snap("Hello ", None)), vec![Output::Backspace(6), Output::Commit("Hello ".into())]);
+        // Typing on after a reopened word extends the document, with the new part composing.
+        let mut b = Bridge::default();
+        b.seed("he");
+        assert_eq!(b.observe(&snap("hello", Some((0, 5)))), vec![Output::Commit("llo".into())]);
+    }
+
+    #[test]
+    fn backspace_after_a_seeded_context_is_seen_and_counted() {
+        let mut b = Bridge::default();
+        b.seed("Dear Sam,\nSee you");
+        assert_eq!(b.observe(&snap("Dear Sam,\nSee yo", None)), vec![Output::Backspace(1)]);
+        // Deleting back over the line break is one press as well (it joins the paragraphs).
+        let mut b = Bridge::default();
+        b.seed("\nNew");
+        assert_eq!(b.observe(&snap("\nNe", None)), vec![Output::Backspace(1)]);
+        assert_eq!(b.observe(&snap("\nN", None)), vec![Output::Backspace(1)]);
+        assert_eq!(b.observe(&snap("\n", None)), vec![Output::Backspace(1)]);
+        assert_eq!(b.observe(&snap("", None)), vec![Output::Backspace(1)]);
+        assert_eq!(b.given_len(), 0);
     }
 
     #[test]
     fn spans_are_utf16_units_and_junk_is_clamped() {
-        // An emoji is two UTF-16 units but one character: composing "a😀" is units 1..4.
-        let s = Snapshot::from_utf16_spans("xa😀".into(), Some((1, 4)));
+        // An emoji is two UTF-16 units but one character: composing "a" and the emoji is units 1..4.
+        let s = Snapshot::from_utf16_spans("xa😀".into(), Some((1, 4)), None);
         assert_eq!(s.compose, Some((1, 3)));
-        assert_eq!(Snapshot::from_utf16_spans("abc".into(), Some((2, 99))).compose, Some((2, 3)));
-        assert_eq!(Snapshot::from_utf16_spans("abc".into(), Some((3, 1))).compose, Some((1, 3)), "a reversed span is swapped");
-        assert_eq!(Snapshot::from_utf16_spans("abc".into(), Some((2, 2))).compose, None, "an empty span is no composition");
-        assert_eq!(Snapshot::from_utf16_spans("abc".into(), Some((9, 12))).compose, None);
-        assert_eq!(Snapshot::from_utf16_spans("שלום".into(), Some((0, 4))).compose, Some((0, 4)), "Hebrew letters are one unit each");
+        assert_eq!(Snapshot::from_utf16_spans("abc".into(), Some((2, 99)), None).compose, Some((2, 3)));
+        assert_eq!(Snapshot::from_utf16_spans("abc".into(), Some((3, 1)), None).compose, Some((1, 3)), "a reversed span is swapped");
+        assert_eq!(Snapshot::from_utf16_spans("abc".into(), Some((2, 2)), None).compose, None, "an empty span is no composition");
+        assert_eq!(Snapshot::from_utf16_spans("abc".into(), Some((9, 12)), None).compose, None);
+        assert_eq!(Snapshot::from_utf16_spans("שלום".into(), Some((0, 4)), None).compose, Some((0, 4)), "Hebrew letters are one unit each");
         assert_eq!(utf16_to_char("a😀b", 3), 2);
         assert_eq!(utf16_to_char("a😀b", 2), 2, "inside a pair counts as before it");
         assert_eq!(utf16_to_char("", 5), 0);
@@ -218,11 +355,244 @@ mod tests {
         assert_eq!(b.observe(&snap("ab", Some((1, 9)))), vec![Output::Commit("ab".into())]);
     }
 
-    /// A keyboard simulated against the bridge: whatever the keyboard does to its buffer (type,
-    /// compose, delete, autocorrect, be reset by a touch), the editor ends up with the text the
-    /// buffer holds on top of what was there at the last reset.
     #[test]
-    fn the_editor_always_ends_up_with_what_the_keyboard_typed() {
+    fn the_cursor_is_at_the_end_only_when_the_selection_is() {
+        let at = |text: &str, sel| Snapshot::from_utf16_spans(text.into(), None, sel).at_end;
+        assert!(at("hello", None), "unknown counts as at the end");
+        assert!(at("hello", Some((5, 5))));
+        assert!(at("", Some((0, 0))));
+        assert!(at("a😀", Some((3, 3))), "UTF-16 units: the emoji is two");
+        assert!(!at("hello", Some((2, 2))), "a swipe on the space bar");
+        assert!(!at("hello", Some((0, 5))), "a selection inside the buffer");
+        assert!(!at("a😀", Some((2, 2))));
+    }
+
+    #[test]
+    fn backspace_counts_clusters_and_types_back_what_it_took_too() {
+        let given = |s: &str| s.chars().collect::<Vec<_>>();
+        // A keyboard that deletes a whole emoji (a heart and its variation selector) at once: one press.
+        assert_eq!(deletion(&given("I like it \u{2764}\u{FE0F}"), 10), (1, String::new()));
+        // A family emoji of five code points: one press.
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        assert_eq!(deletion(&given(&format!("a{family}")), 1), (1, String::new()));
+        // A flag: two regional indicators, one press.
+        assert_eq!(deletion(&given("a\u{1F1EE}\u{1F1F1}"), 1), (1, String::new()));
+        // A keyboard that deletes one code point at a time: the editor removes the whole cluster,
+        // so what the keyboard kept of it is typed again.
+        assert_eq!(deletion(&given("e\u{0301}"), 1), (1, "e".to_owned()));
+        assert_eq!(deletion(&given("\u{1F44D}\u{1F3FD}"), 1), (1, "\u{1F44D}".to_owned()));
+        // Hebrew: a letter with a vowel mark and a dagesh is one cluster.
+        assert_eq!(deletion(&given("\u{05D1}\u{05B0}\u{05BC}"), 2), (1, "\u{05D1}\u{05B0}".to_owned()));
+        // Plain text: one press per character.
+        assert_eq!(deletion(&given("abc"), 0), (3, String::new()));
+        // Thai deletes a character at a time, as the editor does.
+        assert_eq!(deletion(&given("\u{0E01}\u{0E34}"), 1), (1, String::new()));
+        // Nothing to delete past the start.
+        assert_eq!(deletion(&given(""), 0), (0, String::new()));
+    }
+
+    #[test]
+    fn the_buffer_is_filled_with_the_paragraph_before_the_caret() {
+        // A short paragraph reaches its start: a line break first, so the keyboard capitalises and
+        // Backspace at the start is the editor's.
+        assert_eq!(context("Hello wor"), "\nHello wor");
+        assert_eq!(context(""), "\n");
+        // A long one is cut to the last characters, with no line break.
+        let long = "x".repeat(500);
+        assert_eq!(context(&long), "x".repeat(CONTEXT_CHARS));
+        // Pictures, fields and control characters are left out; a soft line break is a break.
+        assert_eq!(context("a\u{FFFC}b\u{0007}c\u{000B}d"), "\nabc\nd");
+        // Characters, not bytes: Hebrew and emoji count once.
+        let hebrew = "שלום".repeat(100);
+        assert_eq!(context(&hebrew).chars().count(), CONTEXT_CHARS);
+        assert_eq!(context("😀"), "\n😀");
+    }
+
+    #[test]
+    fn typed_text_is_cut_into_what_the_typing_rules_see_one_at_a_time() {
+        assert_eq!(typing_pieces("teh "), vec!["teh", " "]);
+        assert_eq!(typing_pieces("don't \"go\"."), vec!["don", "'", "t", " ", "\"", "go", "\"", "."]);
+        assert_eq!(typing_pieces("1. "), vec!["1", ".", " "]);
+        assert_eq!(typing_pieces("שלום, עולם"), vec!["שלום", ",", " ", "עולם"]);
+        assert_eq!(typing_pieces(""), Vec::<String>::new());
+        assert_eq!(typing_pieces("plain"), vec!["plain"]);
+    }
+
+    /// The keyboard's text buffer as Android keeps it, in UTF-16, with the operations a keyboard
+    /// performs on it (the `BaseInputConnection` ones), so the bridge is tried against what the
+    /// system really does with a buffer rather than against its own idea of it.
+    #[derive(Default, Clone)]
+    struct Editable {
+        text: Vec<u16>,
+        sel: usize,
+        comp: Option<(usize, usize)>,
+    }
+
+    fn u16s(s: &str) -> Vec<u16> {
+        s.encode_utf16().collect()
+    }
+
+    impl Editable {
+        fn snapshot(&self) -> Snapshot {
+            let text = String::from_utf16_lossy(&self.text);
+            Snapshot::from_utf16_spans(text, self.comp, Some((self.sel, self.sel)))
+        }
+        /// What the app sets after a caret move: the context, cursor at its end, nothing composing.
+        fn set_state(&mut self, text: &str) {
+            self.text = u16s(text);
+            self.sel = self.text.len();
+            self.comp = None;
+        }
+        fn replace(&mut self, s: &str, composing: bool) {
+            let (a, b) = self.comp.unwrap_or((self.sel, self.sel));
+            let new = u16s(s);
+            let end = a + new.len();
+            self.text.splice(a..b, new);
+            self.sel = end;
+            self.comp = composing.then_some((a, end)).filter(|(x, y)| x < y);
+        }
+        fn commit(&mut self, s: &str) {
+            self.replace(s, false);
+        }
+        fn compose(&mut self, s: &str) {
+            self.replace(s, true);
+        }
+        fn reopen(&mut self, a: usize, b: usize) {
+            self.comp = Some((a.min(self.text.len()), b.min(self.text.len())));
+        }
+        /// `deleteSurroundingText(n, 0)` in UTF-16 units: removes the composing text with it.
+        fn delete_before(&mut self, units: usize) {
+            let start = self.sel.saturating_sub(units);
+            self.text.drain(start..self.sel);
+            self.sel = start;
+            self.comp = None;
+        }
+    }
+
+    /// The editor, as the bridge's output reaches it: its text, the preedit it shows, and its
+    /// Backspace, which is the engine's (one cluster per press).
+    #[derive(Default)]
+    struct Page {
+        doc: String,
+        preedit: String,
+    }
+
+    impl Page {
+        fn apply(&mut self, outputs: &[Output]) {
+            for output in outputs {
+                match output {
+                    Output::Backspace(n) => {
+                        for _ in 0..*n {
+                            let at = cluster::backspace_from(&self.doc, self.doc.len());
+                            self.doc.truncate(at);
+                        }
+                    }
+                    Output::Commit(text) => {
+                        self.doc.push_str(text);
+                        self.preedit.clear();
+                    }
+                    Output::Enter => self.doc.push('\n'),
+                    Output::Preedit(text) => self.preedit.clone_from(text),
+                }
+            }
+        }
+        fn shown(&self) -> String {
+            format!("{}{}", self.doc, self.preedit)
+        }
+    }
+
+    /// A page and its keyboard, as they are after a tap: the keyboard's buffer holds the context.
+    fn after_a_tap(doc: &str) -> (Bridge, Page, Editable) {
+        let (mut bridge, mut page, mut e) = (Bridge::default(), Page::default(), Editable::default());
+        page.doc = doc.to_owned();
+        bridge.seed(doc);
+        e.set_state(doc);
+        (bridge, page, e)
+    }
+
+    fn poll(bridge: &mut Bridge, page: &mut Page, e: &Editable) {
+        let out = bridge.observe(&e.snapshot());
+        page.apply(&out);
+    }
+
+    #[test]
+    fn backspace_right_after_a_tap_deletes_in_the_document() {
+        let (mut bridge, mut page, mut e) = after_a_tap("Dear Sam,\nSee you soon");
+        e.delete_before(1);
+        poll(&mut bridge, &mut page, &e);
+        assert_eq!(page.shown(), "Dear Sam,\nSee you soo");
+        // Typing goes on where the caret is, and the keyboard capitalises from the real context.
+        e.compose("n");
+        poll(&mut bridge, &mut page, &e);
+        e.commit("n ");
+        poll(&mut bridge, &mut page, &e);
+        assert_eq!(page.shown(), "Dear Sam,\nSee you soon ");
+    }
+
+    #[test]
+    fn deleting_an_emoji_from_the_keyboard_buffer_leaves_the_rest_of_the_text() {
+        for (emoji, units) in
+            [("\u{2764}\u{FE0F}", 2), ("\u{1F44D}\u{1F3FD}", 4), ("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", 8), ("\u{1F1EE}\u{1F1F1}", 4)]
+        {
+            // A keyboard that deletes the whole emoji with one deleteSurroundingText of its length.
+            let (mut bridge, mut page, mut e) = after_a_tap(&format!("I like it {emoji}"));
+            e.delete_before(units);
+            poll(&mut bridge, &mut page, &e);
+            assert_eq!(page.shown(), "I like it ", "{emoji:?}");
+            // A keyboard that deletes one code point at a time (the last one first).
+            let (mut bridge, mut page, mut e) = after_a_tap(&format!("I like it {emoji}"));
+            e.delete_before(emoji.chars().next_back().map_or(1, char::len_utf16));
+            poll(&mut bridge, &mut page, &e);
+            assert_eq!(page.shown(), String::from_utf16_lossy(&e.text), "{emoji:?}: the page keeps what the keyboard kept");
+        }
+    }
+
+    #[test]
+    fn a_swipe_on_the_space_bar_never_deletes_text() {
+        let (mut bridge, mut page, mut e) = after_a_tap("hello world");
+        // The keyboard's cursor moves into the buffer and it reopens the word it touches.
+        e.sel = 5;
+        e.reopen(0, 5);
+        let snapshot = e.snapshot();
+        assert!(!snapshot.at_end, "the keyboard's cursor is not at the end, so the app starts the buffer again");
+        // Nothing was sent for it; the page is as it was.
+        assert_eq!(page.shown(), "hello world");
+        // The app seeds the buffer again with the context before the real caret.
+        assert_eq!(bridge.reset(), vec![]);
+        bridge.seed("hello world");
+        e.set_state("hello world");
+        e.compose("!");
+        poll(&mut bridge, &mut page, &e);
+        assert_eq!(page.shown(), "hello world!");
+    }
+
+    #[test]
+    fn typing_after_a_tap_autocorrects_replaces_and_deletes_like_a_keyboard_does() {
+        let (mut bridge, mut page, mut e) = after_a_tap("Hi. ");
+        for letter in ["t", "te", "teh"] {
+            e.compose(letter);
+            poll(&mut bridge, &mut page, &e);
+        }
+        assert_eq!(page.shown(), "Hi. teh");
+        // Space: the keyboard replaces the word by its correction and types the space.
+        e.commit("the ");
+        poll(&mut bridge, &mut page, &e);
+        assert_eq!(page.shown(), "Hi. the ");
+        // Backspace deletes the space; the keyboard reopens the word, which stays in the document.
+        e.delete_before(1);
+        e.reopen(4, 7);
+        poll(&mut bridge, &mut page, &e);
+        assert_eq!(page.shown(), "Hi. the");
+        // Typing on extends the word.
+        e.compose("them");
+        poll(&mut bridge, &mut page, &e);
+        assert_eq!(page.shown(), "Hi. them");
+    }
+
+    /// Whatever sequence of keyboard operations is run, the page ends up holding the keyboard's
+    /// text, and the keyboard's buffer holds what the page does.
+    #[test]
+    fn the_page_always_ends_up_with_what_the_keyboard_holds() {
         struct Lcg(u64);
         impl Lcg {
             fn next(&mut self, n: usize) -> usize {
@@ -230,94 +600,81 @@ mod tests {
                 ((self.0 >> 33) as usize) % n.max(1)
             }
         }
-        const WORDS: [&str; 7] = ["a", "he", "teh", "שלום", "x y", "😀", "line\nbreak"];
-        for seed in 0..300u64 {
+        const WORDS: [&str; 9] = ["a", "he", "teh", "שלום", "x y", "😀", "line\nbreak", "e\u{0301}", "\u{2764}\u{FE0F}"];
+        let mut checked = 0;
+        for seed in 0..400u64 {
             let mut rng = Lcg(seed + 1);
-            let mut bridge = Bridge::default();
-            // The keyboard's buffer: committed text, then the word being composed (if any).
-            let (mut committed, mut composing): (Vec<char>, Vec<char>) = (Vec::new(), Vec::new());
-            // The editor: its text, the preedit it shows, and what was there at the last reset.
-            let (mut doc, mut preedit, mut base): (Vec<char>, String, Vec<char>) = (Vec::new(), String::new(), Vec::new());
-            for step in 0..200 {
-                let word: Vec<char> = WORDS[rng.next(WORDS.len())].chars().collect();
-                match rng.next(6) {
-                    // Compose: the word grows or is replaced.
-                    0 | 1 => composing = word,
-                    // Commit the composition, plus what the keyboard adds with it.
+            let start = ["", "Hello world. ", "Line one\nLine two ", "שלום עולם "][rng.next(4)];
+            let (mut bridge, mut page, mut e) = after_a_tap(start);
+            for step in 0..120 {
+                let word = WORDS[rng.next(WORDS.len())];
+                match rng.next(8) {
+                    0 | 1 => e.compose(word),
                     2 => {
-                        committed.append(&mut composing);
-                        committed.extend(word);
-                        committed.push(' ');
+                        e.commit(word);
+                        e.commit(" ");
                     }
-                    // Backspace: shortens the composition, or the committed text.
-                    3 => {
-                        if composing.pop().is_none() {
-                            committed.pop();
-                        }
+                    // Backspace: a whole cluster, or one code point (the cluster's last), or a space.
+                    3 | 4 => {
+                        let text = String::from_utf16_lossy(&e.text[..e.sel.min(e.text.len())]);
+                        let at = cluster::backspace_from(&text, text.len());
+                        let units = text.get(at..).map_or(1, |t| t.encode_utf16().count());
+                        let one = text.chars().next_back().map_or(1, char::len_utf16);
+                        e.delete_before(if rng.next(2) == 0 { units } else { one });
                     }
-                    // Autocorrect: the last few committed characters are replaced.
-                    4 => {
-                        let cut = rng.next(committed.len().min(6) + 1);
-                        committed.truncate(committed.len() - cut);
-                        committed.extend(word);
+                    // Autocorrect: the last few typed characters are replaced.
+                    5 => {
+                        let n = rng.next(4);
+                        e.delete_before(n);
+                        e.commit(word);
                     }
-                    // A touch: the composition is committed where it was typed and the keyboard starts over.
+                    // The keyboard reopens a word near the end.
+                    6 => {
+                        let len = e.text.len();
+                        e.reopen(len.saturating_sub(rng.next(6)), len);
+                    }
+                    // A tap: the app commits the composition where it was, then seeds the buffer
+                    // again with the page's text before the caret (here the same caret: the end).
                     _ => {
-                        apply(&bridge.reset(), &mut doc, &mut preedit);
-                        committed.clear();
-                        composing.clear();
-                        base = doc.clone();
+                        let out = bridge.reset();
+                        page.apply(&out);
+                        let context = page.doc.clone();
+                        bridge.seed(&context);
+                        e.set_state(&context);
                     }
                 }
-                let mut text = committed.clone();
-                text.extend(&composing);
-                let compose = (!composing.is_empty()).then_some((committed.len(), text.len()));
-                let outputs = bridge.observe(&Snapshot { text: text.iter().collect(), compose });
-                apply(&outputs, &mut doc, &mut preedit);
-                if bridge.should_reset() {
-                    apply(&bridge.reset(), &mut doc, &mut preedit);
-                    committed.clear();
-                    composing.clear();
-                    base = doc.clone();
+                let snapshot = e.snapshot();
+                if snapshot.at_end {
+                    poll(&mut bridge, &mut page, &e);
                 }
-                let shown: String = doc.iter().collect::<String>() + &preedit;
-                let wanted: String = base.iter().chain(&committed).chain(&composing).collect();
-                assert_eq!(shown, wanted, "seed {seed} step {step}");
-            }
-        }
-
-        fn apply(outputs: &[Output], doc: &mut Vec<char>, preedit: &mut String) {
-            for output in outputs {
-                match output {
-                    Output::Backspace(n) => doc.truncate(doc.len().saturating_sub(*n)),
-                    Output::Commit(text) => {
-                        doc.extend(text.chars());
-                        preedit.clear();
-                    }
-                    Output::Enter => doc.push('\n'),
-                    Output::Preedit(text) => preedit.clone_from(text),
+                let wanted = String::from_utf16_lossy(&e.text);
+                // A lone surrogate half can exist in a buffer after a code point wise delete; the
+                // keyboard buffer then differs from the page only in that replacement character.
+                if !wanted.contains('\u{FFFD}') {
+                    assert_eq!(page.shown(), wanted, "seed {seed} step {step}");
+                    checked += 1;
+                } else {
+                    // Start over, as the app does when a buffer can't be read.
+                    let out = bridge.reset();
+                    page.apply(&out);
+                    let context = page.doc.clone();
+                    bridge.seed(&context);
+                    e.set_state(&context);
                 }
             }
         }
+        assert!(checked > 30_000, "{checked} states compared");
     }
 
     #[test]
-    fn the_buffer_is_emptied_when_it_is_long_and_idle_and_when_the_caret_moves() {
+    fn hostile_snapshots_never_panic() {
         let mut b = Bridge::default();
-        b.observe(&snap(&"x".repeat(MAX_BUFFER_CHARS), None));
-        assert!(!b.should_reset());
-        b.observe(&snap(&"x".repeat(MAX_BUFFER_CHARS + 1), None));
-        assert!(b.should_reset());
-        assert_eq!(b.reset(), vec![]);
-        assert!(!b.should_reset());
-        // The keyboard was emptied: what it types next is all new.
-        assert_eq!(b.observe(&snap("a", None)), vec![Output::Commit("a".into())]);
-        // Not while a word is being composed.
-        let long = format!("{}z", "x".repeat(MAX_BUFFER_CHARS + 5));
-        b.observe(&snap(&long, Some((MAX_BUFFER_CHARS + 5, MAX_BUFFER_CHARS + 6))));
-        assert!(!b.should_reset());
-        // Moving the caret commits the word being composed, where the caret was.
-        assert_eq!(b.reset(), vec![Output::Commit("z".into())]);
-        assert_eq!(b.reset(), vec![]);
+        b.seed(&"x".repeat(1000));
+        for compose in [None, Some((0, 0)), Some((usize::MAX - 1, usize::MAX)), Some((5, 2)), Some((0, usize::MAX))] {
+            let s = Snapshot::from_utf16_spans("a😀\u{0}\n\r".repeat(100), compose, Some((usize::MAX, usize::MAX)));
+            let _ = b.observe(&s);
+            let _ = b.reset();
+        }
+        let _ = b.observe(&Snapshot { text: String::new(), compose: Some((3, 1)), at_end: true });
     }
 }

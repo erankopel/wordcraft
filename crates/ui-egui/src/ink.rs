@@ -63,6 +63,12 @@ const REPLAY_GAP: f32 = 0.12;
 /// How close to the lasso selection's frame a press still grabs it, page points.
 const GRAB_SLOP: f32 = 4.0;
 
+/// A pen, the eraser or the lasso is selected on the Draw tab: it draws from the first point, so
+/// a finger's press goes to it at once.
+pub(crate) fn pen_active(app: &WordApp) -> bool {
+    app.session.view.draw.mode != DrawMode::Select
+}
+
 /// Handle the pointer while a pen, the eraser or the lasso is in use; `true` when it did (no
 /// text selection or object dragging then).
 pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layout: &DocLayout, scale: f32) -> bool {

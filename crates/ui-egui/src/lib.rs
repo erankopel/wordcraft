@@ -1511,6 +1511,22 @@ impl WordApp {
         raw.events.extend(self.synthetic.drain(..n));
     }
 
+    /// On a touch screen: hold back the mouse events a finger makes on the page until it is known
+    /// whether the finger taps, scrolls or holds (so a scroll never edits a picture or a table, or
+    /// moves the caret). Call it on the frame's raw input; it returns how long until a finger that
+    /// rests becomes a press and hold, to draw a frame then.
+    pub fn gate_touches(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) -> Option<std::time::Duration> {
+        let wake = canvas::gate_touches(self, ctx, raw)?;
+        Some(std::time::Duration::from_secs_f64(wake.clamp(0.0, 1.0)))
+    }
+
+    /// Type `text` at the caret now, before the frame's input is handled, ending the word being
+    /// composed. A host whose on-screen keyboard is still composing a word calls this just before
+    /// a touch or key moves the caret, so the word lands where it was typed.
+    pub fn commit_text(&mut self, text: &str) {
+        keys::commit_text(self, text);
+    }
+
     /// Lay out the window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let t0 = now_ms();
@@ -1814,6 +1830,9 @@ pub fn now_ms() -> f64 {
 
 #[cfg(test)]
 mod tests_perf;
+
+#[cfg(test)]
+mod tests_touch;
 
 #[cfg(test)]
 mod tests {

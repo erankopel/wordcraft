@@ -10,7 +10,15 @@
 //! pinch zoom, and cancel a scroll in progress. A touch that belongs to a tool (a dragged picture
 //! or table border, the pen) is never taken over.
 //!
-//! The state machine is plain data in, scroll distance out, so its tests need no window.
+//! The press a finger makes is held back until it is known what the finger is doing ([`Gate`]):
+//! if it travels it is a scroll and the page never saw a press (so a swipe that starts on a
+//! picture, a table border or a coasting page changes nothing); if it lifts without travelling it
+//! is a tap, and the page gets a press and a release together; if it rests for a moment it is a
+//! press and hold, and the page gets the press then (so a long press opens the context menu and a
+//! held picture can be dragged).
+//!
+//! The state machines are plain data in, events or scroll distance out, so their tests need no
+//! window.
 
 use egui::{Event, Pos2, Rect, TouchId, TouchPhase, Vec2};
 use wordcraft_engine::Selection;
@@ -23,6 +31,8 @@ const MIN_FLING: f32 = 80.0;
 const FRICTION: f32 = 3.5;
 /// The fastest coast (points per second), so a stray sample can't throw the page far.
 const MAX_FLING: f32 = 6000.0;
+/// The longest frame (seconds) a finger or a coast counts for.
+const MAX_DT: f32 = 0.05;
 
 /// One finger that is down.
 struct Finger {
@@ -54,6 +64,8 @@ pub(crate) struct Step {
 #[derive(Default)]
 pub(crate) struct Pan {
     finger: Option<Finger>,
+    /// Every finger that is down (a second or third one is never tracked as a scroll).
+    down: Vec<TouchId>,
     /// Points per second the page coasts at after a release.
     fling: Vec2,
     /// The finger lifted this frame after scrolling.
@@ -66,6 +78,11 @@ impl Pan {
         self.just_ended || self.finger.as_ref().is_some_and(|f| f.panning)
     }
 
+    /// The page is coasting on its own (no finger is down).
+    pub fn coasting(&self) -> bool {
+        self.finger.is_none() && self.fling != Vec2::ZERO
+    }
+
     /// No finger is down and the page isn't coasting: nothing to do until the next touch.
     pub fn idle(&self) -> bool {
         self.finger.is_none() && self.fling == Vec2::ZERO
@@ -74,6 +91,7 @@ impl Pan {
     /// Stop everything, e.g. when a tool takes the pointer.
     pub fn cancel(&mut self) {
         self.finger = None;
+        self.down.clear();
         self.fling = Vec2::ZERO;
         self.just_ended = false;
     }
@@ -101,10 +119,18 @@ impl Pan {
                 TouchPhase::Start | TouchPhase::Move if !pos.is_finite() => continue,
                 TouchPhase::Start => {
                     self.fling = Vec2::ZERO;
-                    if let Some(first) = self.finger.take() {
+                    let others = !self.down.is_empty();
+                    if !self.down.contains(id) {
+                        self.down.push(*id);
+                    }
+                    if others {
                         // A second finger: pinch and two finger scroll are egui's. The press of the
                         // first finger (a caret placed, a selection begun) is undone, as for a scroll.
-                        if !first.panning && !first.selecting {
+                        // Nor is a third finger a scroll of its own while two are down.
+                        if let Some(first) = self.finger.take()
+                            && !first.panning
+                            && !first.selecting
+                        {
                             step.began = Some(first.before);
                         }
                     } else if area.contains(*pos) {
@@ -126,6 +152,7 @@ impl Pan {
                     f.last = *pos;
                 }
                 TouchPhase::End | TouchPhase::Cancel => {
+                    self.down.retain(|d| d != id);
                     if self.finger.as_ref().is_some_and(|f| f.id == *id) {
                         if self.finger.as_ref().is_some_and(|f| f.panning) {
                             self.just_ended = true;
@@ -140,6 +167,9 @@ impl Pan {
         }
         step.delta = moved;
         if dt > 0.0 && dt.is_finite() {
+            // A long frame (a slow redraw, a paused app) must not throw the page: time passes at
+            // most this fast.
+            let dt = dt.min(MAX_DT);
             if moved != Vec2::ZERO || self.finger.as_ref().is_some_and(|f| f.panning) {
                 // Follow the finger's speed: an average of the last frames, so one jittery sample
                 // doesn't decide how far the page coasts.
@@ -149,13 +179,150 @@ impl Pan {
                 if self.fling.length() < MIN_FLING {
                     self.fling = Vec2::ZERO;
                 } else {
-                    step.delta += self.fling * dt;
+                    // The distance covered while the speed decays: the integral, not a step.
+                    step.delta += self.fling * ((1.0 - (-FRICTION * dt).exp()) / FRICTION);
                     self.fling *= (-FRICTION * dt).exp();
                     step.coasting = true;
                 }
             }
         }
         step
+    }
+}
+
+/// How long (seconds) a finger rests on the page before it is a press and hold: the page gets its
+/// press then, and egui's long touch (`max_click_duration`) opens the context menu a little later.
+pub(crate) const HOLD: f64 = 0.2;
+
+/// What the gate needs to know about the page and the finger.
+pub(crate) struct Env<'a> {
+    /// Where the page is drawn: a touch elsewhere (the ribbon, a status bar button) is the
+    /// interface's, which needs its presses at once.
+    pub area: Option<Rect>,
+    /// A tool owns the pointer (a pen, the eraser, the lasso, Draw Table): it draws from the first
+    /// point, so it needs the press at once.
+    pub tool: bool,
+    /// The page was coasting as the finger landed: the touch is meant to stop it, and does no more.
+    pub coasting: bool,
+    /// Whether a touch at this point is the second tap of a double tap, which selects a word as it
+    /// goes down (and then by words as it drags).
+    pub second_tap: &'a dyn Fn(Pos2) -> bool,
+    /// Whether a dialog, a menu or the mini toolbar drawn over the page is under this point.
+    pub covered: &'a dyn Fn(Pos2) -> bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+enum Mode {
+    /// No finger is being held back.
+    #[default]
+    Free,
+    /// One finger on the page, not yet a scroll, a tap or a hold: its mouse events are held.
+    Undecided { id: TouchId, start: Pos2, since: f64, stopper: bool },
+    /// A scroll or a pinch: the page gets no press from these fingers.
+    Scrolling,
+    /// The page has its press (a tap, a hold, a tool or the interface): mouse events go through.
+    Pressed,
+    /// The rest of this batch's mouse events belong to a touch that was settled (and dropped).
+    Releasing,
+}
+
+/// Holds back the mouse events egui-winit makes for the first finger until the gesture is known
+/// (see the module's docs). Works on a frame's raw events, before egui sees them.
+#[derive(Default)]
+pub(crate) struct Gate {
+    mode: Mode,
+    /// Every finger that is down.
+    down: Vec<TouchId>,
+}
+
+impl Gate {
+    /// Let go of everything (the view changed under the finger).
+    pub fn cancel(&mut self) {
+        *self = Gate::default();
+    }
+
+    /// Filter a frame's events: the touches stay, the mouse events a finger stands in for come
+    /// when the finger's meaning is clear. `now` is the frame's time in seconds. Returns how long
+    /// until a finger that rests becomes a press and hold, so a frame is drawn then.
+    pub fn filter(&mut self, events: &mut Vec<Event>, now: f64, env: &Env) -> Option<f64> {
+        let button = |pos, pressed| Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        let input = std::mem::take(events);
+        let mut out = Vec::with_capacity(input.len() + 3);
+        for e in input {
+            match &e {
+                Event::Touch { id, phase, pos, .. } => {
+                    match phase {
+                        TouchPhase::Start => {
+                            if !self.down.contains(id) {
+                                self.down.push(*id);
+                            }
+                            if self.down.len() > 1 {
+                                // A second finger: a pinch or a two finger scroll. A press that was
+                                // held back is never sent; one already sent stays (its release comes).
+                                if matches!(self.mode, Mode::Undecided { .. }) {
+                                    self.mode = Mode::Scrolling;
+                                }
+                            } else if pos.is_finite()
+                                && !env.tool
+                                && env.area.is_some_and(|a| a.contains(*pos))
+                                && !(env.covered)(*pos)
+                                && !(env.second_tap)(*pos)
+                            {
+                                self.mode = Mode::Undecided { id: *id, start: *pos, since: now, stopper: env.coasting };
+                            } else {
+                                self.mode = Mode::Pressed;
+                            }
+                        }
+                        TouchPhase::Move => {
+                            if let Mode::Undecided { id: held, start, .. } = &self.mode
+                                && held == id
+                                && pos.is_finite()
+                                && start.distance(*pos) > SLOP
+                            {
+                                self.mode = Mode::Scrolling;
+                            }
+                        }
+                        TouchPhase::End | TouchPhase::Cancel => {
+                            self.down.retain(|d| d != id);
+                            match std::mem::take(&mut self.mode) {
+                                Mode::Undecided { id: held, start, stopper, .. } if held == *id => {
+                                    // The finger lifted without travelling: a tap, unless it only stopped
+                                    // a coast (or was cancelled).
+                                    out.push(e.clone());
+                                    if *phase == TouchPhase::End && !stopper {
+                                        out.extend([Event::PointerMoved(start), button(start, true), button(start, false)]);
+                                    }
+                                    self.mode = Mode::Releasing;
+                                    continue;
+                                }
+                                Mode::Scrolling if self.down.is_empty() => self.mode = Mode::Releasing,
+                                Mode::Pressed if self.down.is_empty() => self.mode = Mode::Free,
+                                other => self.mode = other,
+                            }
+                        }
+                    }
+                    out.push(e);
+                }
+                // Held back, or belonging to a touch that was settled without a press.
+                Event::PointerMoved(_) | Event::PointerButton { .. }
+                    if matches!(self.mode, Mode::Undecided { .. } | Mode::Scrolling | Mode::Releasing) => {}
+                _ => out.push(e),
+            }
+        }
+        let mut wake = None;
+        if let Mode::Undecided { start, since, .. } = self.mode {
+            if now - since >= HOLD {
+                out.extend([Event::PointerMoved(start), button(start, true)]);
+                self.mode = Mode::Pressed;
+            } else {
+                wake = Some((since + HOLD - now).max(0.0));
+            }
+        }
+        if self.mode == Mode::Releasing {
+            self.mode = if self.down.is_empty() { Mode::Free } else { Mode::Scrolling };
+        }
+        *events = out;
+        wake
     }
 }
 
@@ -328,5 +495,213 @@ mod tests {
             }
         }
         assert!(pan.idle());
+    }
+
+    // ---- the gate ----
+
+    fn button(pos: Pos2, pressed: bool) -> Event {
+        Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE }
+    }
+
+    /// What egui-winit sends for the first finger going down, moving and lifting.
+    fn down(id: u64, pos: Pos2) -> Vec<Event> {
+        vec![touch(id, TouchPhase::Start, pos), Event::PointerMoved(pos), button(pos, true)]
+    }
+    fn moved(id: u64, pos: Pos2) -> Vec<Event> {
+        vec![touch(id, TouchPhase::Move, pos), Event::PointerMoved(pos)]
+    }
+    fn up(id: u64, pos: Pos2) -> Vec<Event> {
+        vec![touch(id, TouchPhase::End, pos), button(pos, false), Event::PointerGone]
+    }
+
+    struct World {
+        tool: bool,
+        coasting: bool,
+        second_tap: bool,
+        covered: bool,
+    }
+
+    const CALM: World = World { tool: false, coasting: false, second_tap: false, covered: false };
+
+    fn gate(g: &mut Gate, mut events: Vec<Event>, now: f64, w: &World) -> (Vec<Event>, Option<f64>) {
+        let second_tap = |_: Pos2| w.second_tap;
+        let covered = |_: Pos2| w.covered;
+        let env = Env { area: Some(area()), tool: w.tool, coasting: w.coasting, second_tap: &second_tap, covered: &covered };
+        let wake = g.filter(&mut events, now, &env);
+        (events, wake)
+    }
+
+    fn mouse_events(events: &[Event]) -> Vec<&Event> {
+        events.iter().filter(|e| !matches!(e, Event::Touch { .. })).collect()
+    }
+
+    #[test]
+    fn a_tap_reaches_the_page_as_a_press_and_a_release_when_the_finger_lifts() {
+        let mut g = Gate::default();
+        let p = pos2(300.0, 400.0);
+        let (out, wake) = gate(&mut g, down(1, p), 0.0, &CALM);
+        assert_eq!(out, vec![touch(1, TouchPhase::Start, p)], "only the touch: the press is held back");
+        assert_eq!(wake, Some(HOLD), "a frame is wanted when the finger would become a hold");
+        // Jitter within the slop changes nothing.
+        let (out, _) = gate(&mut g, moved(1, pos2(303.0, 402.0)), 0.05, &CALM);
+        assert_eq!(out, vec![touch(1, TouchPhase::Move, pos2(303.0, 402.0))]);
+        let (out, wake) = gate(&mut g, up(1, pos2(303.0, 402.0)), 0.1, &CALM);
+        assert_eq!(wake, None);
+        assert_eq!(
+            out,
+            vec![touch(1, TouchPhase::End, pos2(303.0, 402.0)), Event::PointerMoved(p), button(p, true), button(p, false), Event::PointerGone],
+            "the page gets the tap where the finger landed, once"
+        );
+        // Everything is back to normal for the next touch.
+        let (out, _) = gate(&mut g, down(2, p), 1.0, &CALM);
+        assert_eq!(mouse_events(&out).len(), 0);
+    }
+
+    #[test]
+    fn a_scroll_never_reaches_the_page_as_a_press() {
+        let mut g = Gate::default();
+        let p = pos2(300.0, 400.0);
+        gate(&mut g, down(1, p), 0.0, &CALM);
+        let (out, _) = gate(&mut g, moved(1, pos2(300.0, 380.0)), 0.02, &CALM);
+        assert_eq!(out, vec![touch(1, TouchPhase::Move, pos2(300.0, 380.0))], "past the slop: a scroll, the mouse events stay held");
+        let (out, wake) = gate(&mut g, moved(1, pos2(300.0, 300.0)), 0.05, &CALM);
+        assert_eq!((mouse_events(&out).len(), wake), (0, None));
+        // A scroll that rests for longer than a hold is still a scroll.
+        let (out, _) = gate(&mut g, Vec::new(), 1.0, &CALM);
+        assert!(out.is_empty());
+        let (out, _) = gate(&mut g, up(1, pos2(300.0, 300.0)), 1.1, &CALM);
+        assert_eq!(out, vec![touch(1, TouchPhase::End, pos2(300.0, 300.0)), Event::PointerGone], "no release for a press the page never got");
+    }
+
+    #[test]
+    fn a_finger_that_rests_gives_the_page_its_press_as_a_hold() {
+        let mut g = Gate::default();
+        let p = pos2(300.0, 400.0);
+        gate(&mut g, down(1, p), 0.0, &CALM);
+        let (out, wake) = gate(&mut g, Vec::new(), HOLD - 0.05, &CALM);
+        assert_eq!((out.len(), wake.is_some()), (0, true), "not yet");
+        let (out, wake) = gate(&mut g, Vec::new(), HOLD + 0.01, &CALM);
+        assert_eq!(out, vec![Event::PointerMoved(p), button(p, true)]);
+        assert_eq!(wake, None);
+        // From now on the finger is the page's: moves and the release go through.
+        let (out, _) = gate(&mut g, moved(1, pos2(305.0, 400.0)), 0.3, &CALM);
+        assert_eq!(out, moved(1, pos2(305.0, 400.0)));
+        let (out, _) = gate(&mut g, up(1, pos2(305.0, 400.0)), 0.6, &CALM);
+        assert_eq!(out, up(1, pos2(305.0, 400.0)), "the press the page got is released");
+    }
+
+    #[test]
+    fn a_second_finger_makes_it_a_pinch_and_no_press() {
+        let mut g = Gate::default();
+        let (a, b) = (pos2(300.0, 400.0), pos2(500.0, 400.0));
+        // Two fingers in the same frame (the first's mouse events come with it).
+        let mut both = down(1, a);
+        both.push(touch(2, TouchPhase::Start, b));
+        let (out, _) = gate(&mut g, both, 0.0, &CALM);
+        assert_eq!(mouse_events(&out).len(), 0);
+        let (out, _) = gate(&mut g, up(1, a), 0.1, &CALM);
+        assert_eq!(out, vec![touch(1, TouchPhase::End, a), Event::PointerGone]);
+        let (out, _) = gate(&mut g, vec![touch(2, TouchPhase::End, b)], 0.1, &CALM);
+        assert_eq!(out.len(), 1);
+        // The next finger is a fresh start.
+        let (out, wake) = gate(&mut g, down(3, a), 1.0, &CALM);
+        assert_eq!((mouse_events(&out).len(), wake.is_some()), (0, true));
+        // A second finger after a hold: the press the page got is still released.
+        let mut g = Gate::default();
+        gate(&mut g, down(1, a), 0.0, &CALM);
+        gate(&mut g, Vec::new(), 0.3, &CALM);
+        gate(&mut g, vec![touch(2, TouchPhase::Start, b)], 0.35, &CALM);
+        let (out, _) = gate(&mut g, up(1, a), 0.4, &CALM);
+        assert!(out.contains(&button(a, false)));
+    }
+
+    #[test]
+    fn touches_that_are_not_the_pages_or_need_the_press_at_once_pass_through() {
+        let p = pos2(300.0, 400.0);
+        for (name, w) in [
+            ("a tool", World { tool: true, ..CALM }),
+            ("a second tap", World { second_tap: true, ..CALM }),
+            ("a dialog over the page", World { covered: true, ..CALM }),
+        ] {
+            let mut g = Gate::default();
+            let (out, wake) = gate(&mut g, down(1, p), 0.0, &w);
+            assert_eq!(out, down(1, p), "{name}");
+            assert_eq!(wake, None, "{name}");
+            let (out, _) = gate(&mut g, up(1, p), 0.1, &w);
+            assert_eq!(out, up(1, p), "{name}");
+        }
+        // The ribbon, the status bar: outside the page.
+        let mut g = Gate::default();
+        let outside = pos2(300.0, 700.0);
+        let (out, _) = gate(&mut g, down(1, outside), 0.0, &CALM);
+        assert_eq!(out, down(1, outside));
+        // A position that is not a number is not held either.
+        let mut g = Gate::default();
+        let bad = pos2(f32::NAN, 5.0);
+        let (out, _) = gate(&mut g, vec![touch(1, TouchPhase::Start, bad)], 0.0, &CALM);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn a_touch_that_stops_a_coast_does_nothing_more() {
+        let mut g = Gate::default();
+        let p = pos2(300.0, 400.0);
+        let w = World { coasting: true, ..CALM };
+        gate(&mut g, down(1, p), 0.0, &w);
+        let (out, _) = gate(&mut g, up(1, p), 0.05, &w);
+        assert_eq!(out, vec![touch(1, TouchPhase::End, p), Event::PointerGone], "no tap: it only stopped the page");
+        // A finger that lands on a coasting page and scrolls is a scroll as usual.
+        let mut g = Gate::default();
+        gate(&mut g, down(1, p), 0.0, &w);
+        let (out, _) = gate(&mut g, moved(1, pos2(300.0, 350.0)), 0.05, &w);
+        assert_eq!(mouse_events(&out).len(), 0);
+    }
+
+    #[test]
+    fn a_cancelled_touch_is_not_a_tap() {
+        let mut g = Gate::default();
+        let p = pos2(300.0, 400.0);
+        gate(&mut g, down(1, p), 0.0, &CALM);
+        let (out, _) = gate(&mut g, vec![touch(1, TouchPhase::Cancel, p), Event::PointerGone], 0.05, &CALM);
+        assert_eq!(out, vec![touch(1, TouchPhase::Cancel, p), Event::PointerGone]);
+    }
+
+    #[test]
+    fn a_third_finger_is_not_a_scroll_of_its_own() {
+        let mut pan = Pan::default();
+        let (a, b, c) = (pos2(100.0, 100.0), pos2(200.0, 100.0), pos2(300.0, 100.0));
+        run(&mut pan, &[touch(1, TouchPhase::Start, a), touch(2, TouchPhase::Start, b)]);
+        run(&mut pan, &[touch(1, TouchPhase::End, a)]);
+        // Fingers 2 and 3 are down: finger 3 doesn't scroll on its own on top of the two finger scroll.
+        run(&mut pan, &[touch(3, TouchPhase::Start, c)]);
+        let s = run(&mut pan, &[touch(3, TouchPhase::Move, pos2(300.0, 20.0))]);
+        assert_eq!(s.delta, Vec2::ZERO);
+        assert!(!pan.panning());
+        // All up: the next finger scrolls again.
+        run(&mut pan, &[touch(2, TouchPhase::End, b), touch(3, TouchPhase::End, c)]);
+        run(&mut pan, &[touch(4, TouchPhase::Start, a)]);
+        let s = run(&mut pan, &[touch(4, TouchPhase::Move, pos2(100.0, 50.0))]);
+        assert_eq!(s.delta, vec2(0.0, -50.0));
+    }
+
+    #[test]
+    fn a_long_frame_does_not_throw_the_page() {
+        let mut pan = Pan::default();
+        run(&mut pan, &[touch(1, TouchPhase::Start, pos2(300.0, 400.0))]);
+        for y in [380.0, 350.0, 320.0, 290.0] {
+            run(&mut pan, &[touch(1, TouchPhase::Move, pos2(300.0, y))]);
+        }
+        run(&mut pan, &[touch(1, TouchPhase::End, pos2(300.0, 290.0))]);
+        // A five second frame (the app was paused) moves the page about as far as 50 ms would.
+        let long = pan.frame(&[], area(), |_| false, false, &sel(), 5.0);
+        let mut pan2 = Pan::default();
+        run(&mut pan2, &[touch(1, TouchPhase::Start, pos2(300.0, 400.0))]);
+        for y in [380.0, 350.0, 320.0, 290.0] {
+            run(&mut pan2, &[touch(1, TouchPhase::Move, pos2(300.0, y))]);
+        }
+        run(&mut pan2, &[touch(1, TouchPhase::End, pos2(300.0, 290.0))]);
+        let short = pan2.frame(&[], area(), |_| false, false, &sel(), MAX_DT);
+        assert_eq!(long.delta, short.delta);
+        assert!(long.delta.length() < 400.0, "{:?}", long.delta);
     }
 }

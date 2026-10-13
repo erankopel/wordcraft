@@ -126,6 +126,17 @@ pub fn backspaces_by_char(c: char) -> bool {
         | 0xAA60..=0xAA7F) // Myanmar Extended-A
 }
 
+/// Where Backspace at `off` in `text` deletes from: the previous character in the Brahmic scripts
+/// ([`backspaces_by_char`]), otherwise the previous caret stop ([`prev_cluster`]). `off` is a byte
+/// offset (clamped to the text and to a character boundary); 0 stays 0.
+pub fn backspace_from(text: &str, off: usize) -> usize {
+    let off = char_floor(text, off);
+    match text.get(..off).and_then(|t| t.char_indices().next_back()) {
+        Some((i, c)) if backspaces_by_char(c) => i,
+        _ => prev_cluster(text, off),
+    }
+}
+
 /// A Myanmar character that starts a syllable: a consonant (with the Mon, Shan and Karen ones),
 /// an independent vowel, the great sa.
 fn myanmar_syllable_start(c: char) -> bool {

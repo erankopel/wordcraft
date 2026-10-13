@@ -100,6 +100,10 @@ pub struct CanvasState {
     pub(crate) wheel: crate::scroll::CanvasScroll,
     /// A finger scrolling the page on a touch screen, and the coast after it lets go (`touch`).
     pub(crate) pan: crate::touch::Pan,
+    /// Holds back the press a finger makes until it is known to be a tap or a hold (`touch`).
+    pub(crate) gate: crate::touch::Gate,
+    /// The layer the page is drawn on (a dialog or a menu is another one), as of last frame.
+    pub(crate) layer: Option<egui::LayerId>,
     /// The scroll offset and its maximum at the end of last frame.
     pub(crate) scroll_offset: egui::Vec2,
     scroll_max: egui::Vec2,
@@ -197,6 +201,8 @@ impl Default for CanvasState {
             swallow_text: false,
             wheel: Default::default(),
             pan: Default::default(),
+            gate: Default::default(),
+            layer: None,
             scroll_offset: egui::Vec2::ZERO,
             scroll_max: egui::Vec2::ZERO,
             scroll_request: None,
@@ -747,6 +753,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         (None, None, full)
     };
     app.canvas.canvas_rect = Some(area);
+    app.canvas.layer = Some(ui.layer_id());
     // Ctrl/⌘ + wheel (and trackpad pinch) zooms the document, like Word. egui reports both as a
     // zoom factor and doesn't scroll for them. Start from the shown scale so fit modes zoom too.
     // With animation effects off the wheel zooms in whole steps, each at once.
@@ -870,9 +877,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // Dragging a selection near the viewport's edge scrolls on (#688): from a crawl at the margin
     // to full speed at the edge, through the same offset the wheel writes.
     let (down, pointer, dt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos(), i.stable_dt));
+    // A finger that only rests (a long press near the edge) is not dragging a selection.
+    let resting_finger = ui.input(|i| i.any_touches() && !i.pointer.is_decidedly_dragging());
     let auto_delta = if !app.session.view.read_mode
         && app.canvas.drag_selecting()
         && down
+        && !resting_finger
         && let Some(vp) = app.canvas.viewport
         && let Some(p) = pointer
     {
@@ -1758,8 +1768,31 @@ fn edge_scroll(p: f32, lo: f32, hi: f32, dt: f32) -> f32 {
     }
 }
 
-/// The scroll offset after `delta` (the wheel's convention) reaches `before`: clamped to the
-/// scrollable range, so a document shorter than the viewport never moves.
+/// Hold back the mouse events a finger makes on the page until it is known to be a tap or a hold
+/// (`touch::Gate`); a scroll never reaches the page as a press. Called on a touch screen host's raw
+/// input before the frame. Returns how long until a finger that rests becomes a press and hold, so
+/// a frame is drawn then.
+pub(crate) fn gate_touches(app: &mut WordApp, ctx: &egui::Context, raw: &mut egui::RawInput) -> Option<f64> {
+    if app.session.view.read_mode {
+        app.canvas.gate.cancel();
+        return None;
+    }
+    let time = raw.time.unwrap_or(0.0);
+    let (delay, dist) = ctx.options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
+    let last_press = app.canvas.last_press;
+    let page_layer = app.canvas.layer;
+    let second_tap = |at: Pos2| press_count(last_press, time, at, delay, dist) >= 2;
+    let covered = |at: Pos2| page_layer.is_some_and(|page| ctx.layer_id_at(at).is_some_and(|layer| layer != page));
+    let env = crate::touch::Env {
+        area: app.canvas.canvas_rect,
+        tool: crate::ink::pen_active(app) || app.canvas.table_tool.is_some() || app.canvas.ink.is_some(),
+        coasting: app.canvas.pan.coasting(),
+        second_tap: &second_tap,
+        covered: &covered,
+    };
+    app.canvas.gate.filter(&mut raw.events, time, &env)
+}
+
 /// How far a finger scrolls the page this frame (and the coast after it lets go): see `touch`.
 /// Reading view turns its columns itself, so a finger leaves it alone there.
 fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
@@ -1783,6 +1816,8 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
     let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
     let last_press = app.canvas.last_press;
     let tool_busy = app.canvas.obj_drag.is_some()
+        || crate::ink::pen_active(app)
+        || app.canvas.ink_ui.lasso.is_some()
         || app.canvas.table_resize.is_some()
         || app.canvas.table_stroke.is_some()
         || app.canvas.ink.is_some()
@@ -1806,6 +1841,8 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
     step.delta + two.unwrap_or(egui::Vec2::ZERO)
 }
 
+/// The scroll offset after `delta` (the wheel's convention) reaches `before`: clamped to the
+/// scrollable range, so a document shorter than the viewport never moves.
 fn clamped_scroll(before: egui::Vec2, delta: egui::Vec2, max: egui::Vec2) -> egui::Vec2 {
     (before - delta).clamp(egui::Vec2::ZERO, max)
 }

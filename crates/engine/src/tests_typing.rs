@@ -841,3 +841,25 @@ fn typing_rtl_letters_into_an_empty_paragraph_makes_it_rtl() {
     let x = doc.layout().caret(&doc.sel.focus).map(|c| c.x).unwrap_or(f32::MAX);
     assert!(x < 300.0, "left-to-right paragraph: caret at {x}");
 }
+
+/// An on-screen keyboard commits whole words. The Android build hands them to the editor word by
+/// word and one space, punctuation mark or quote at a time (`typing_pieces` in
+/// `apps/wordcraft-android/src/ime.rs`), which is what AutoCorrect, smart quotes and the list
+/// AutoFormat act on: the same results as typing the characters one by one.
+#[test]
+fn a_soft_keyboard_gets_autocorrect_smart_quotes_and_lists() {
+    let pieces = |pieces: &[&str]| {
+        let mut s = s();
+        for piece in pieces {
+            run(&mut s, "text.insert", json!({"text": piece}));
+        }
+        s
+    };
+    assert_eq!(paras(&pieces(&["teh", " ", "end"])), vec![para("The end", None)]);
+    assert_eq!(paras(&pieces(&["don", "'", "t", " ", "\"", "go", "\""])), vec![para("Don\u{2019}t \u{201C}go\u{201D}", None)]);
+    assert_eq!(paras(&pieces(&["*", " ", "item"])), vec![para("item", Some(0))]);
+    assert_eq!(paras(&pieces(&["1", ".", " ", "one"])), vec![para("one", Some(0))]);
+    // The same words committed whole, in one insert, would have kept every typo and straight quote.
+    let whole = pieces(&["teh end"]);
+    assert_eq!(paras(&whole), vec![para("teh end", None)]);
+}

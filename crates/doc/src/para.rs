@@ -1218,11 +1218,7 @@ impl Paragraph {
     /// (Myanmar, Khmer, Devanagari, Thai…), where it removes one vowel sign or stacked consonant
     /// at a time, otherwise the previous caret stop.
     pub fn backspace_from(&self, off: usize) -> usize {
-        let off = self.clamp(off);
-        match self.text.get(..off).and_then(|t| t.char_indices().next_back()) {
-            Some((i, c)) if crate::cluster::backspaces_by_char(c) => i,
-            _ => self.prev_boundary(off),
-        }
+        crate::cluster::backspace_from(&self.text, self.clamp(off))
     }
     /// Start of the word at or before `off` (Ctrl+Left).
     pub fn word_start(&self, off: usize) -> usize {

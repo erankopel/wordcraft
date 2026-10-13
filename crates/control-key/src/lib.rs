@@ -2,11 +2,26 @@
 //! (which reads it): `<settings>/control-key.<instance>`. See `docs/control-protocol.md`, Keys.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
-/// The app's settings folder (preferences, logs, key files): macOS
+/// The folder a host chose for the settings ([`set_settings_dir`]).
+static HOST_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Make `dir` the settings folder, for a host whose system decides where an app keeps its files:
+/// Android hands the app a private folder and has no `$HOME`. Only the first call counts (it
+/// returns whether this one did); call it before anything asks for [`settings_dir`].
+pub fn set_settings_dir(dir: PathBuf) -> bool {
+    HOST_DIR.set(dir).is_ok()
+}
+
+/// The app's settings folder (preferences, logs, key files): the host's choice
+/// ([`set_settings_dir`]) when it made one, otherwise macOS
 /// `~/Library/Application Support/WordCraft`, Windows `%APPDATA%\WordCraft`, otherwise
 /// `$XDG_CONFIG_HOME/wordcraft` or `~/.config/wordcraft`.
 pub fn settings_dir() -> Option<PathBuf> {
+    if let Some(dir) = HOST_DIR.get() {
+        return Some(dir.clone());
+    }
     if cfg!(target_os = "macos") {
         std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support/WordCraft"))
     } else if cfg!(windows) {
@@ -71,6 +86,16 @@ mod tests {
         if instance_id().is_none() {
             assert_eq!(key_path(dir, 7981), dir.join("control-key.local-7981"));
         }
+    }
+
+    /// The only test that sets the host's folder (it is process-wide); its name keeps
+    /// `settings_dir_is_the_apps_folder` true whichever runs first.
+    #[test]
+    fn the_hosts_settings_folder_wins_and_only_the_first_call_counts() {
+        let dir = Path::new("/data/user/0/app/files/wordcraft");
+        assert!(set_settings_dir(dir.to_path_buf()));
+        assert!(!set_settings_dir(Path::new("/elsewhere/wordcraft").to_path_buf()));
+        assert_eq!(settings_dir().as_deref(), Some(dir));
     }
 
     #[test]

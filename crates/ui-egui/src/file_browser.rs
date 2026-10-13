@@ -85,8 +85,15 @@ pub(crate) fn list_dir(dir: &Path, exts: &[String], cap: usize) -> std::io::Resu
     Ok(listing)
 }
 
-/// The user's home folder.
+/// The shared storage Android shows as the device's files (Documents, Download, DCIM…); the
+/// app can list it once the user has given it All files access in Settings.
+const ANDROID_SHARED_STORAGE: &str = "/storage/emulated/0";
+
+/// The user's home folder; on Android, which has none, the shared storage.
 pub(crate) fn home() -> Option<PathBuf> {
+    if cfg!(target_os = "android") {
+        return Some(PathBuf::from(ANDROID_SHARED_STORAGE));
+    }
     std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).filter(|h| !h.is_empty()).map(PathBuf::from)
 }
 

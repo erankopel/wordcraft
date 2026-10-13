@@ -1,0 +1,168 @@
+//! The eframe app on Android: [`WordApp`] plus what only a phone needs (saving preferences and a
+//! recovery copy when the app is left, since Android may end it without asking).
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use android_activity::AndroidApp;
+use wordcraft_engine::Session;
+use wordcraft_ui_egui::{UiState, WordApp};
+
+use crate::host;
+use crate::storage::{self, Dirs, Plan, Recovery};
+
+/// Run the editor until the activity ends.
+pub fn run(android: AndroidApp) -> Result<(), String> {
+    let files = android.internal_data_path().ok_or_else(|| "the system gave the app no private folder".to_owned())?;
+    let dirs = Dirs::new(&files);
+    // Before anything asks where the settings are (fonts, preferences, the dictionary).
+    wordcraft_control_key::set_settings_dir(dirs.root().to_path_buf());
+    crate::logging::attach_dir(&dirs.logs());
+    log::info!("settings folder {}", dirs.root().display());
+    load_user_fonts(&dirs);
+
+    let options = eframe::NativeOptions { android_app: Some(android), ..Default::default() };
+    eframe::run_native(
+        "WordCraft",
+        options,
+        Box::new(move |_cc| {
+            let region = wordcraft_ui_egui::i18n::system_region();
+            let mut session = Session::new(wordcraft_engine::blank_document(&region));
+            session.system_region = region;
+            let mut app = WordApp::new(session, host::services());
+            load_prefs(&mut app, &dirs);
+            load_user_dictionary(&mut app, &dirs);
+            let mut recovery = Recovery::default();
+            if restore_unsaved(&mut app, &dirs) {
+                recovery.restored();
+            } else {
+                // Nothing to carry on with: start on File › Home, as the desktop app does.
+                app.start_screen();
+            }
+            Ok(Box::new(Shell { app, dirs, recovery, left: false }))
+        }),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// The editor and what keeps its work safe.
+struct Shell {
+    app: WordApp,
+    dirs: Dirs,
+    recovery: Recovery,
+    /// The app lost focus since the last frame: Android may end it next.
+    left: bool,
+}
+
+impl eframe::App for Shell {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.app.logic(ctx);
+        if std::mem::take(&mut self.left) {
+            save_prefs(&self.app, &self.dirs);
+            self.keep_recovery(true);
+        } else {
+            self.keep_recovery(false);
+        }
+        if self.app.quit_requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.app.raw_input_hook(raw);
+        self.left |= raw.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)));
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.app.ui(ui);
+    }
+
+    fn on_exit(&mut self) {
+        save_prefs(&self.app, &self.dirs);
+        self.keep_recovery(true);
+    }
+}
+
+impl Shell {
+    /// Keep the recovery copy of unsaved work in step with the document ([`Recovery`]).
+    fn keep_recovery(&mut self, leaving: bool) {
+        let session = &self.app.session;
+        let stamp = (session.document_id(), session.rev());
+        let now = now_ms();
+        match self.recovery.plan(session.dirty, stamp, now, leaving) {
+            Plan::Nothing => {}
+            Plan::Clear => storage::remove_quietly(&self.dirs.recovery()),
+            Plan::Write => {
+                let written = wordcraft_engine::io::save_bytes(storage::RECOVERY_FILE, &session.doc)
+                    .and_then(|bytes| storage::write_atomic(&self.dirs.recovery(), &bytes).map_err(|e| e.to_string()));
+                match written {
+                    Ok(()) => self.recovery.wrote(stamp, now),
+                    Err(e) => {
+                        log::warn!("recovery copy: {e}");
+                        self.recovery.failed(now);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Milliseconds since the epoch.
+fn now_ms() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+}
+
+/// Open the recovery copy a previous run left, as an unsaved document. True when there was one.
+fn restore_unsaved(app: &mut WordApp, dirs: &Dirs) -> bool {
+    let path = dirs.recovery();
+    let Some(bytes) = storage::read_limited(&path, storage::MAX_FILE_BYTES) else { return false };
+    match wordcraft_engine::io::open_bytes(storage::RECOVERY_FILE, &bytes) {
+        Ok(doc) => {
+            app.session.set_document(doc);
+            app.session.path = None;
+            app.session.dirty = true;
+            app.status("Your unsaved work from the last time was recovered. Save it to keep it.");
+            log::info!("restored the recovery copy ({} bytes)", bytes.len());
+            true
+        }
+        Err(e) => {
+            // Never offered again: a copy that can't be read would otherwise fail on every start.
+            log::warn!("the recovery copy can't be read: {e}");
+            storage::remove_quietly(&path);
+            false
+        }
+    }
+}
+
+/// Fonts the user added live in `fonts` in the settings folder.
+fn load_user_fonts(dirs: &Dirs) {
+    let (loaded, skipped) = wordcraft_fonts::FontDb::global().load_user_fonts(&dirs.fonts());
+    if !loaded.is_empty() || !skipped.is_empty() {
+        log::info!("user fonts: {} loaded, {} skipped from {}", loaded.len(), skipped.len(), dirs.fonts().display());
+    }
+}
+
+fn load_prefs(app: &mut WordApp, dirs: &Dirs) {
+    if let Some(bytes) = storage::read_limited(&dirs.prefs(), storage::MAX_FILE_BYTES)
+        && let Some(ui) = UiState::from_json(&bytes)
+    {
+        app.apply_prefs(ui);
+    }
+}
+
+fn save_prefs(app: &WordApp, dirs: &Dirs) {
+    match serde_json::to_vec_pretty(&app.prefs()) {
+        Ok(bytes) => {
+            if let Err(e) = storage::write_atomic(&dirs.prefs(), &bytes) {
+                log::warn!("preferences not saved: {e}");
+            }
+        }
+        Err(e) => log::warn!("preferences not saved: {e}"),
+    }
+}
+
+/// The words Add to Dictionary kept.
+fn load_user_dictionary(app: &mut WordApp, dirs: &Dirs) {
+    let path = dirs.dictionary(Session::USER_DICT_FILE);
+    wordcraft_proof::load_user_dictionary(&path);
+    app.session.user_dict_path = Some(path);
+}

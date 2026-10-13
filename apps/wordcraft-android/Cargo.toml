@@ -1,0 +1,44 @@
+[package]
+name = "wordcraft-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "WordCraft for Android: the native library the APK loads (GameActivity entry point); packaging/android builds the APK"
+
+# Not `[lints] workspace = true`. Android starts a native app through one exported symbol,
+# `android_main`, and exporting a symbol is an unsafe attribute, which the workspace forbids
+# (`unsafe_code = "forbid"` cannot be relaxed per item). This crate denies unsafe code instead and
+# allows it on that one item (`src/lib.rs`); everything else, here and in every other crate,
+# stays safe. The clippy lines repeat the workspace's.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+# `cdylib` is what the APK ships (`libwordcraft_android.so`). On every other target the crate is
+# empty (`src/lib.rs`), so `cargo check --workspace` on a desktop still passes.
+[lib]
+name = "wordcraft_android"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+log = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+wordcraft-engine = { workspace = true }
+wordcraft-fonts = { workspace = true }
+wordcraft-proof = { workspace = true }
+wordcraft-ui-egui = { workspace = true }
+wordcraft-control-key = { workspace = true }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "android-game-activity"] }
+egui = { workspace = true }
+# GameActivity, not NativeActivity: only it delivers soft keyboard text (composing text from
+# Samsung Keyboard and the like) to winit as IME events.
+android-activity = { version = "0.6", features = ["game-activity"] }
+android_logger = "0.15"
+serde_json = { workspace = true }

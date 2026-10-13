@@ -219,12 +219,13 @@ side_commit "$UP" crates/a/src/other.rs 'pub fn three() {}\n' "upstream"
 side_commit "$UP" crates/a/Cargo.toml '[package]\nname = "a"\nversion = "0.2.0"\nedition = "2021"\n' "upstream bumps the version"
 before="$(tip "$WORK")"
 run_sync --push
-check "conflict (the manifest cannot be merged or resolved), nothing pushed" test "$STATUS" = conflict -a "$RC" = 1
+check "error (the merged workspace does not resolve), nothing pushed" test "$STATUS" = error -a "$RC" = 1
 check "work unchanged" test "$(tip "$WORK")" = "$before"
 
 echo "origin refuses workflow changes"
 new_world refuse
 work_commit crates/a/src/extra.rs 'pub fn two() {}\n' "fork commit"
+git -C "$WORK" push -q origin HEAD:main # as in CI: the checkout is origin's tip
 side_commit "$UP" crates/a/src/other.rs 'pub fn three() {}\n' "upstream"
 # shellcheck disable=SC2016 # the backticks are part of GitHub's message
 printf '#!/bin/sh\necho "remote: refusing to allow a GitHub App to create or update workflow `.github/workflows/x.yml` without `workflows` permission" >&2\nexit 1\n' >"$ORIGIN/hooks/pre-receive"
@@ -232,6 +233,11 @@ chmod +x "$ORIGIN/hooks/pre-receive"
 run_sync --push
 check "push-needs-token, exit 1" test "$STATUS" = push-needs-token -a "$RC" = 1
 check "report explains the secret" contains "$REPORT" "SYNC_TOKEN"
+check "the output sha is the branch as it is on origin" test "$(sed -n 's/^sha=//p' "$OUT" | tail -n 1)" = "$(tip "$ORIGIN" main)"
+git -C "$WORK" reset -q --hard "$(tip "$ORIGIN" main)"
+side_commit "$UP" crates/a/src/other2.rs 'pub fn four() {}\n' "upstream again"
+SYNC_TOKEN_IN_USE=1 run_sync --push
+check "with SYNC_TOKEN set the report says the token lacks permission" contains "$REPORT" "SYNC_TOKEN is set, but GitHub still refused"
 
 echo "the branch moves while syncing"
 new_world race
@@ -280,6 +286,79 @@ new_world original
 export UPSTREAM_REPO="file://$ORIGIN"
 run_sync --push
 check "nothing to do" test "$STATUS" = up-to-date -a "$RC" = 0
+
+echo "a pure mirror does not fast forward over workflow changes"
+new_world mirror
+side_commit "$UP" .github/workflows/ci.yml 'name: CI\non: [push, pull_request]\n' "upstream edits ci"
+side_commit "$UP" crates/a/src/other.rs 'pub fn three() {}\n' "upstream real change"
+ci_before="$(cat "$WORK/.github/workflows/ci.yml")"
+run_sync --push
+check "merged with a commit, not fast-forwarded" test "$STATUS" = merged -a "$RC" = 0
+check "ci.yml as before" test "$(cat "$WORK/.github/workflows/ci.yml")" = "$ci_before"
+
+echo "workflows the fork deleted stay deleted"
+new_world deleted
+git -C "$WORK" rm -q .github/workflows/ci.yml
+git -C "$WORK" commit -q -m "fork deletes the upstream workflow"
+work_commit .github/workflows/android.yml 'name: Android\non: workflow_dispatch\n' "fork workflow"
+side_commit "$UP" .github/workflows/ci.yml 'name: CI\non: [push, pull_request]\n' "upstream edits ci"
+side_commit "$UP" crates/a/src/other.rs 'pub fn three() {}\n' "upstream real change"
+run_sync --push
+check "merged (a modify/delete conflict in workflows is not a stop)" test "$STATUS" = merged -a "$RC" = 0
+check "ci.yml still deleted" test ! -e "$WORK/.github/workflows/ci.yml"
+check "android.yml kept" test -f "$WORK/.github/workflows/android.yml"
+
+echo "status lines: upstream's one is kept"
+new_world status
+side_commit "$UP" docs/gaps.md '> **Last reviewed:** 2026-10-01 · **Last updated:** 2026-10-01\n\n# Gaps\n\nline one\n' "give the doc a status line"
+git -C "$WORK" pull -q origin main
+work_commit docs/gaps.md '> **Last reviewed:** 2026-10-01 · **Last updated:** 2026-10-13 · **Change:** fork\n\n# Gaps\n\nline one\n' "fork bumps the status line"
+side_commit "$UP" docs/gaps.md '> **Last reviewed:** 2026-10-01 · **Last updated:** 2026-10-12 · **Change:** upstream\n\n# Gaps\n\nline one\n' "upstream bumps the status line"
+run_sync --push
+check "merged" test "$STATUS" = merged -a "$RC" = 0
+check "one status line" test "$(grep -c '^> \*\*Last reviewed' "$WORK/docs/gaps.md")" = 1
+check "and it is upstream's" contains "$WORK/docs/gaps.md" "Change:** upstream"
+
+echo "--keep-conflicts leaves the merge to finish by hand"
+new_world keep
+mkdir -p "$WORK/.github/workflows"
+work_commit .github/workflows/android.yml 'name: Android\non: workflow_dispatch\n' "fork workflow"
+work_commit crates/a/src/lib.rs 'pub fn one() -> u32 {\n    11\n}\n' "fork changes the line"
+work_commit ROADMAP.md '| date | note |\n|---|---|\n| 2026-10-13 | fork row |\n| 2026-10-01 | first |\n' "fork row"
+side_commit "$UP" crates/a/src/lib.rs 'pub fn one() -> u32 {\n    111\n}\n' "upstream changes the line"
+side_commit "$UP" ROADMAP.md '| date | note |\n|---|---|\n| 2026-10-12 | upstream row |\n| 2026-10-01 | first |\n' "upstream row"
+side_commit "$UP" .github/workflows/new.yml 'name: New\non: push\n' "upstream adds new.yml"
+run_sync --keep-conflicts
+check "status conflict, exit 1" test "$STATUS" = conflict -a "$RC" = 1
+check "the merge is still in progress" test -e "$WORK/.git/MERGE_HEAD"
+check "only the source file is unmerged" test "$(git -C "$WORK" diff --name-only --diff-filter=U)" = "crates/a/src/lib.rs"
+check "docs were united" bash -c "grep -q 'fork row' '$WORK/ROADMAP.md' && grep -q 'upstream row' '$WORK/ROADMAP.md'"
+check "upstream's new workflow is not there" test ! -e "$WORK/.github/workflows/new.yml"
+check "the report names the command" contains "$REPORT" "--keep-conflicts"
+# Finishing by hand works.
+printf 'pub fn one() -> u32 {\n    1111\n}\n' >"$WORK/crates/a/src/lib.rs"
+check "git add and commit finish it" bash -c "cd '$WORK' && git add -A && git commit -q -m done && test ! -e .git/MERGE_HEAD"
+
+echo "upstream cannot run code in the sync job through cargo configuration"
+new_world hostile
+side_commit "$UP" .cargo/config.toml "[build]\nrustc-wrapper = \"$W/evil.sh\"\n" "upstream adds a cargo config with a rustc wrapper"
+printf '#!/bin/sh\ntouch "%s/pwned"\nexec "$@"\n' "$W" >"$W/evil.sh"
+chmod +x "$W/evil.sh"
+side_commit "$UP" crates/a/Cargo.toml '[package]\nname = "a"\nversion = "0.2.0"\nedition = "2021"\n' "upstream bumps a version"
+work_commit crates/a/src/extra.rs 'pub fn two() {}\n' "fork commit"
+run_sync --push
+check "merged" test "$STATUS" = merged -a "$RC" = 0
+check "the wrapper never ran" test ! -e "$W/pwned"
+
+echo "a workspace cargo cannot resolve is an error with cargo's message, not a conflict"
+new_world unresolved
+side_commit "$UP" crates/a/Cargo.toml '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nnot-there = { path = "../nowhere" }\n' "upstream adds a dependency that does not exist"
+work_commit crates/a/src/extra.rs 'pub fn two() {}\n' "fork commit"
+before="$(tip "$WORK")"
+run_sync --push
+check "status error, exit 1" test "$STATUS" = error -a "$RC" = 1
+check "branch unchanged, nothing pushed" test "$(tip "$WORK")" = "$before"
+check "the report has cargo's message" contains "$REPORT" "cargo cannot resolve"
 
 echo
 echo "passed: $PASS, failed: $FAIL"

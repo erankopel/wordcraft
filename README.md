@@ -312,8 +312,9 @@ For example `yay -S wordcraft-bin` or `paru -S wordcraft-bin`.
 
 ### Android (sideload only)
 
-WordCraft also has an unofficial Android build, for personal use. It is not part of the GitHub
-releases and is not published anywhere else: you build the APK yourself with
+WordCraft also has an unofficial Android build, for personal use. It is not part of this
+project's GitHub releases (a fork can publish its own pre-release of it, which is off by default and
+public in a public fork): you build the APK yourself with
 `packaging/android/package.sh`, or run the Android workflow (`.github/workflows/android.yml`) on
 GitHub (a fork can first merge the original's newest commits, and keep itself current with the Sync
 upstream workflow), and install it on your own device. Build and sideload steps are in

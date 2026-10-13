@@ -26,7 +26,7 @@ produce unsigned builds with a warning, so forks still build.
 Local packaging: `packaging/macos/package.sh --arch universal`, `packaging/windows/package.ps1`,
 `packaging/linux/package.sh` (then `packaging/linux/flatpak-bundle.sh` for the Flatpak), `packaging/web/package.sh`.
 
-The Android APK is not part of a release: it is for personal sideloading, built locally with
+The Android APK is not part of a release of this repository: it is for personal sideloading, built locally with
 `packaging/android/package.sh` or on demand by `.github/workflows/android.yml` (see the Android
 section of the README).
 

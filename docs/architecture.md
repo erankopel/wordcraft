@@ -65,7 +65,7 @@ winit or rfd. Apps and `xtask` are exempt from the layer rules, the Android app 
 - `cargo xtask parity` regenerates [`parity-checklist.md`](parity-checklist.md); a test keeps the
   catalog percentage above a floor that only rises.
 - GitHub Actions on PRs: packaging lint, and FreeBSD / Windows ARM64 when build files change;
-  release builds on pushes to `release`. The Android workflow (`.github/workflows/android.yml`) runs only on demand and is not part of the releases.
+  release builds on pushes to `release`. The Android workflow (`.github/workflows/android.yml`) runs only on demand and is not part of this repository's releases.
 
 ## Revision history
 

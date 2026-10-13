@@ -5,6 +5,9 @@
 #
 #   --push         push the result to origin (without it the merge stays in your local checkout)
 #   --branch NAME  the branch to bring up to date (default: the current branch)
+#   --keep-conflicts  when only source conflicts are left, do not undo the merge: leave it unfinished in
+#                  the working tree with the policies below already applied, so you fix just those files
+#                  (git add them, git commit, git push). For doing the merge by hand.
 #
 # The original repository is, in order: $UPSTREAM_REPO (owner/name or a git URL), the parent of this
 # repository on GitHub (when `gh` is logged in and $GITHUB_REPOSITORY is set), the repository field
@@ -18,10 +21,12 @@
 #
 # Conflicts it settles itself, because the fork's changes there are not worth stopping for:
 #   * .github/workflows: the fork's own workflows are kept as they are (upstream's CI needs its
-#     organisation's secrets and does nothing here). This also means a push needs no token with the
-#     workflow permission.
+#     organisation's secrets and does nothing here). The merge commit then changes no workflow file, which
+#     usually means a push needs no token with the workflow permission (not guaranteed: GitHub may
+#     still refuse a push whose history touches workflow files, see push-needs-token below).
 #   * README.md, ROADMAP.md, AGENTS.md, CLAUDE.md, ATTRIBUTION.md, docs/*.md: both sides' lines are
-#     kept (git's union merge), which suits the progress logs and tables that everyone appends to.
+#     kept (git's union merge), which suits the progress logs and tables that everyone appends to;
+#     where that leaves several Last reviewed status lines, upstream's one is kept.
 #   * docs/parity-checklist.md (generated): upstream's version.
 #   * Cargo.lock: upstream's, then cargo adds what the fork's crates need. After any merge that
 #     touches a Cargo.toml or the lock, cargo must still resolve the workspace, or the merge is undone.
@@ -34,10 +39,13 @@
 set -euo pipefail
 
 PUSH=0
+KEEP=0
+KEPT_MERGE=0
 BRANCH=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --push) PUSH=1 ;;
+    --keep-conflicts) KEEP=1 ;;
     --branch)
       [ $# -ge 2 ] || { echo "error: --branch needs a name" >&2; exit 2; }
       BRANCH="$2"
@@ -72,7 +80,12 @@ restore_attrs() {
   rm -f "$ATTRS_BAK"
   ATTRS_BAK=""
 }
-trap restore_attrs EXIT
+cleanup() {
+  restore_attrs
+  # An unexpected failure (a hook, signing, a git error) must not leave a half done merge behind.
+  if [ "$KEPT_MERGE" = 0 ] && git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then git merge --abort >/dev/null 2>&1 || true; fi
+}
+trap cleanup EXIT
 
 say() { printf '%s\n' "$*"; }
 
@@ -104,22 +117,28 @@ write_report() {
         # shellcheck disable=SC2016 # the backticks are Markdown
         printf -- '- `%s`\n' "${CONFLICTS[@]}"
         echo
-        echo "The branch was left as it was. To merge by hand, in a clone of your fork:"
+        echo "The branch was left as it was. To merge by hand, in a clone of your fork (or ask for it in a"
+        echo "Claude Code session): this leaves the merge unfinished with everything the script settles by"
+        echo "itself already settled, so only the files above need your eyes."
         echo
         echo '```sh'
-        echo "git remote add upstream $UP_URL   # once"
-        echo "git fetch upstream"
         echo "git switch $branch_name && git pull"
-        echo "git merge upstream/$UP_BRANCH     # fix the files above, then git add them"
-        echo "git commit && git push"
+        echo ".github/scripts/sync-upstream.sh --keep-conflicts   # fix the files above, then:"
+        echo "git add -A && git commit && git push"
         echo '```'
         ;;
       push-needs-token)
         echo
-        echo "The merge changes a workflow file and the workflow's own token may not push those. Either"
-        echo "add a repository secret SYNC_TOKEN (a fine-grained personal access token for this"
-        echo "repository with Contents and Workflows read and write), or use GitHub's Sync fork button"
-        echo "on the repository page (not Discard commits: that would throw your changes away)."
+        if [ -n "${SYNC_TOKEN_IN_USE:-}" ]; then
+          echo "SYNC_TOKEN is set, but GitHub still refused: the token lacks Contents or Workflows read and"
+          echo "write on this repository, or has expired. Make a new fine-grained personal access token for"
+          echo "this repository with both permissions and store it as the repository secret SYNC_TOKEN."
+        else
+          echo "The merge brings in commits that change a workflow file and the workflow's own token may not"
+          echo "push those. Add a repository secret SYNC_TOKEN (a fine-grained personal access token for this"
+          echo "repository with Contents and Workflows read and write), or use GitHub's Sync fork button on the"
+          echo "repository page (not Discard commits: that would throw your changes away)."
+        fi
         echo
         echo '```'
         echo "$PUSH_ERR_TEXT"
@@ -141,6 +160,11 @@ finish() {
   STATUS="$1"
   local sha
   sha="$(git rev-parse HEAD 2>/dev/null || true)"
+  # After a failure the branch on origin is where it was before the merge (a merge that was made but
+  # not pushed is not there): that is the commit a build should take.
+  case "$STATUS" in
+    push-needs-token | push-rejected | error) [ -z "$PRE" ] || sha="$PRE" ;;
+  esac
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
     {
       echo "status=$STATUS"
@@ -243,8 +267,9 @@ keep_own_workflows() {
 }
 
 settle_cargo() {
-  local touched=0
-  if git diff --name-only "$PRE" "$UP" | grep -Eq '(^|/)Cargo\.(toml|lock)$'; then touched=1; fi
+  local touched=0 base
+  base="$(git merge-base "$PRE" "$UP")"
+  if ! git diff --quiet "$base" "$UP" -- ':(glob)**/Cargo.toml' ':(glob)**/Cargo.lock'; then touched=1; fi
   local lock_conflict=0
   if git ls-files -u -- Cargo.lock | grep -q .; then lock_conflict=1; fi
   [ "$touched" = 1 ] || [ "$lock_conflict" = 1 ] || return 0
@@ -262,18 +287,25 @@ settle_cargo() {
     NOTES+=("cargo is not installed here, so the merged Cargo.lock was not checked")
     return 0
   fi
-  local err before after
+  local err before after root neutral
   err="$(mktemp)"
+  root="$(pwd)"
+  neutral="$(mktemp -d)"
   before="$(git hash-object Cargo.lock 2>/dev/null || true)"
-  if ! cargo metadata --format-version 1 --quiet >/dev/null 2>"$err"; then
-    PUSH_ERR_TEXT="cargo cannot resolve the merged workspace: $(tail -n 5 "$err")"
+  # Upstream controls .cargo/config.toml (build.rustc-wrapper runs a program) and rust-toolchain.toml
+  # (a path toolchain runs its cargo and rustc), and cargo and rustup read both from the current
+  # directory, not from the manifest's. So run cargo from an empty directory, without the tokens.
+  if ! (cd "$neutral" && env -u GH_TOKEN -u GITHUB_TOKEN -u SYNC_TOKEN cargo metadata --manifest-path "$root/Cargo.toml" --format-version 1 --quiet >/dev/null 2>"$err"); then
+    rmdir "$neutral" 2>/dev/null || true
+    cat "$err" >&2
+    local msg
+    msg="cargo cannot resolve the merged workspace (a network or registry problem: run again; or a real incompatibility): $(tail -n 5 "$err")"
     rm -f "$err"
     git merge --abort 2>/dev/null || git reset -q --hard "$PRE"
-    NOTES+=("the merged workspace does not resolve with cargo")
-    CONFLICTS=("Cargo.toml / Cargo.lock")
-    finish conflict
+    fail "$msg"
   fi
   rm -f "$err"
+  rmdir "$neutral" 2>/dev/null || true
   after="$(git hash-object Cargo.lock 2>/dev/null || true)"
   if [ "$lock_conflict" = 1 ]; then
     NOTES+=("Cargo.lock conflicted: took upstream's and let cargo add what this fork's crates need")
@@ -281,6 +313,23 @@ settle_cargo() {
     NOTES+=("Cargo.lock was adjusted by cargo after the merge")
   fi
   git add -- Cargo.lock
+}
+
+# Union merging keeps both sides' version of the one line nearly every upstream change edits, the
+# Last reviewed status line of a doc. Where that left more than one, keep upstream's.
+fix_status_lines() {
+  local f first
+  for f in README.md ROADMAP.md AGENTS.md CLAUDE.md ATTRIBUTION.md docs/*.md; do
+    [ -f "$f" ] || continue
+    [ "$(grep -c '^> \*\*Last reviewed:\*\*' "$f" || true)" -gt 1 ] || continue
+    first="$(git show "$UP:$f" 2>/dev/null | grep -m1 '^> \*\*Last reviewed:\*\*' || true)"
+    [ -n "$first" ] || continue
+    awk -v keep="$first" '
+      /^> \*\*Last reviewed:\*\*/ { if (!done) { print keep; done = 1 } ; next }
+      { print }' "$f" >"$f.tmp" && mv -f "$f.tmp" "$f"
+    git add -- "$f"
+    NOTES+=("$f: several status lines after the union merge, kept upstream's")
+  done
 }
 
 merge_with_policies() {
@@ -291,6 +340,7 @@ merge_with_policies() {
   fi
   mkdir -p "$(dirname "$ATTRS")"
   {
+    echo
     echo "README.md merge=union"
     echo "ROADMAP.md merge=union"
     echo "AGENTS.md merge=union"
@@ -300,12 +350,14 @@ merge_with_policies() {
     echo "docs/parity-checklist.md !merge"
   } >>"$ATTRS"
 
-  local rc=0
-  git merge --no-ff --no-commit -q "$UP" >/dev/null 2>&1 || rc=$?
+  local rc=0 merge_err
+  merge_err="$(mktemp)"
+  git merge --no-ff --no-commit -q "$UP" >/dev/null 2>"$merge_err" || rc=$?
   restore_attrs
   if [ "$rc" != 0 ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
-    fail "git merge failed before it could start (exit $rc)"
+    fail "git merge failed before it could start (exit $rc): $(tail -n 3 "$merge_err")"
   fi
+  rm -f "$merge_err"
 
   keep_own_workflows
   if git ls-files -u -- docs/parity-checklist.md | grep -q .; then
@@ -319,9 +371,15 @@ merge_with_policies() {
   left="$(unmerged)"
   if [ -n "$left" ]; then
     while IFS= read -r f; do CONFLICTS+=("$f"); done <<<"$left"
-    git merge --abort
+    if [ "$KEEP" = 1 ]; then
+      KEPT_MERGE=1
+      say "the merge is left unfinished: fix ${#CONFLICTS[@]} file(s), git add them, git commit"
+    else
+      git merge --abort
+    fi
     finish conflict
   fi
+  fix_status_lines
 
   if [ -z "$(git config user.email || true)" ]; then
     export GIT_AUTHOR_NAME="github-actions[bot]" GIT_COMMITTER_NAME="github-actions[bot]"
@@ -329,7 +387,10 @@ merge_with_policies() {
   fi
   local body=""
   if [ ${#NOTES[@]} -gt 0 ]; then body="$(printf -- '- %s\n' "${NOTES[@]}")"; fi
-  git commit -q -m "Merge $(norm "$UP_URL") $UP_BRANCH into $BRANCH ($BEHIND commits)" ${body:+-m "$body"}
+  if ! git commit -q -m "Merge $(norm "$UP_URL") $UP_BRANCH into $BRANCH ($BEHIND commits)" ${body:+-m "$body"} 2>/dev/null; then
+    git merge --abort 2>/dev/null || true
+    fail "git commit failed (a commit hook or commit signing?)"
+  fi
   STATUS=merged
 }
 
@@ -340,7 +401,9 @@ integrate() {
     STATUS=up-to-date
     return 0
   fi
-  if git merge-base --is-ancestor "$PRE" "$UP"; then
+  # A fast forward would take upstream's workflow files as they are: only when there are none that
+  # differ from ours.
+  if git merge-base --is-ancestor "$PRE" "$UP" && git diff --quiet "$PRE" "$UP" -- .github/workflows; then
     git merge --ff-only -q "$UP"
     STATUS=fast-forwarded
     return 0

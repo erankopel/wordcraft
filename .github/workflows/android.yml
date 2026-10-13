@@ -1,32 +1,37 @@
 name: Android
 
 # Builds the unofficial Android APK (packaging/android) when you run it, from an up to date copy of
-# this fork. Not part of the release workflow: the APK is for sideloading on your own device.
+# this fork. Not part of the original's release workflow: the APK is for sideloading on your own device.
 #
 # Run it: Actions tab, Android, Run workflow. Choose the branch to build (normally main) and:
 #   sync     merge the original repository's newest commits into that branch first (the same merge
 #            as the Sync upstream workflow, see .github/scripts/sync-upstream.sh). If git cannot
-#            combine a file the run stops there and says which; run it again with sync off to build
-#            what the branch has.
+#            combine a file, the branch is built as it was and the run says so in its summary
+#            (the build is then older than the original): merge by hand with the command in the
+#            summary, or ask for the merge in a Claude Code session, and run again.
 #   release  also publish the APK on the android-latest release (a pre-release that each run
 #            replaces), so that the phone can download the .apk from the Releases page without the
-#            zip an artifact comes in. In a public repository that page is public: anyone can
-#            download the build. If you publish modified builds, read docs/brand/LICENSE-brand.txt
-#            (the ArtCraft name and marks may not appear in them). Only with your own signing key (below).
-# The APK is also attached to the run as an artifact (readable by anyone who can read the
-# repository), with its SHA-256 file.
+#            zip an artifact comes in. Only from the default branch and with your own signing key
+#            (below); both are checked first, before the long build.
+# The APK and its SHA-256 file are also attached to the run as an artifact for 30 days. In a PUBLIC
+# repository both the artifact and the release are readable by anyone: leaving release off does not
+# keep the build private. If you publish modified builds, read docs/brand/LICENSE-brand.txt (the
+# ArtCraft name and marks may not appear in them).
 #
 # Signing: without secrets the APK is signed with a key made for this run, so it installs but can't
 # update an earlier build, and it is never published as a release. To keep one signature, add the
-# repository secrets ANDROID_KEYSTORE_BASE64 (base64 of your .jks file) and ANDROID_KEYSTORE_PASSWORD
-# (also the key password); the key's alias must be wordcraft (see packaging/android/README.md). Anyone
-# who can run workflows on a branch of the repository can make a run that reads those secrets: don't
-# keep a key you care about in a repository other people can write to. The code that is built is the
-# code of the original repository you merged, with your key: you are trusting it as you trust any
-# project you build.
+# repository secrets ANDROID_KEYSTORE_BASE64 (base64 of your .jks file, one line) and
+# ANDROID_KEYSTORE_PASSWORD (also the key password); the key's alias must be wordcraft (see
+# packaging/android/README.md). Anyone who can run workflows on a branch of the repository can make a
+# run that reads those secrets: don't keep a key you care about in a repository other people can
+# write to. The Rust build runs the build scripts of hundreds of crates: the step below only keeps
+# the key out of their environment by accident; a build script that goes looking could still find it.
+# The code that is built is the code of the original repository you merged, with your key: you are
+# trusting it as you trust any project you build.
 #
-# This workflow has not been run yet: the first run may need fixing (the runner's SDK, the first
-# build's time against the timeout below).
+# This workflow has not been run yet: the first run may need fixing (the first build's time against
+# the timeout below). The runner image is pinned (ubuntu-24.04: JDK 17, the SDK pieces package.sh needs);
+# ubuntu-latest moves to a newer image whose default JDK is 25.
 
 on:
   workflow_dispatch:
@@ -47,7 +52,7 @@ jobs:
   sync:
     # Not in the original repository itself: it has nothing to merge from.
     if: ${{ inputs.sync && github.repository != 'storytold/wordcraft' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write
@@ -62,12 +67,11 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.SYNC_TOKEN || github.token }}
 
-      - uses: dtolnay/rust-toolchain@stable
-
       - name: Merge the original repository's newest commits
         id: sync
         env:
           GH_TOKEN: ${{ github.token }}
+          SYNC_TOKEN_IN_USE: ${{ secrets.SYNC_TOKEN && '1' || '' }}
           UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO }}
           REPORT_FILE: ${{ runner.temp }}/sync-report.md
         run: .github/scripts/sync-upstream.sh --push
@@ -79,9 +83,10 @@ jobs:
 
   apk:
     needs: sync
-    # Build after a sync, or when the sync was not asked for; not when it failed or was cancelled.
-    if: ${{ !cancelled() && (needs.sync.result == 'success' || needs.sync.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    # Build after a sync, when the sync was not asked for, and also when it failed (then the branch as
+    # it was, with a warning); not when the run was cancelled.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     concurrency:
       group: android-${{ github.ref }}
@@ -90,6 +95,29 @@ jobs:
       signed: ${{ steps.build.outputs.signed }}
       sha: ${{ steps.rev.outputs.sha }}
     steps:
+      # A release needs your signing key and the default branch: say so now, not after the build.
+      - name: Check what a release needs
+        if: ${{ inputs.release }}
+        env:
+          HAVE_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
+          ON_DEFAULT_BRANCH: ${{ github.ref_name == github.event.repository.default_branch }}
+        run: |
+          if [ "$HAVE_KEY" != true ]; then
+            echo "::error::release is ticked, but the repository secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD are not both set (an APK signed with a key made for the run is never published). Run again with release off, or add the secrets."
+            exit 1
+          fi
+          if [ "$ON_DEFAULT_BRANCH" != true ]; then
+            echo "::error::release is ticked, but a release can only be published from the default branch (a branch whose workflow files differ from it is refused). Run it on the default branch or leave release off."
+            exit 1
+          fi
+
+      - name: Say so when the sync did not happen
+        if: ${{ needs.sync.result == 'failure' }}
+        run: |
+          echo "::warning::The sync failed, so this APK is built from the branch as it was: it does not have the original's newest commits. See the summary of the sync job."
+          echo "### Built without the sync" >> "$GITHUB_STEP_SUMMARY"
+          echo "The sync job failed (see its summary). This APK is built from the branch as it was." >> "$GITHUB_STEP_SUMMARY"
+
       # The commit the sync left the branch at, or the branch as it was when the run started. No
       # credentials are kept in the checkout: the build runs other people's build scripts.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,14 +135,13 @@ jobs:
 
       - name: Build the APK
         id: build
-        # The key is decoded and passed in this step only (not through GITHUB_ENV): package.sh
-        # hands it to Gradle alone, never to the Rust build, whose crates' build scripts must not
-        # see it. --install-sdk accepts the Android SDK licences for the runner's SDK, as every
-        # Android CI does.
+        # The key is decoded and passed in this step only (not through GITHUB_ENV), and package.sh
+        # hands it to Gradle alone: that keeps it out of the Rust build's environment, which is not
+        # a defence against a build script that looks for it. --install-sdk accepts the Android SDK
+        # licences for the runner's SDK, as every Android CI does.
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           WORDCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          WANT_RELEASE: ${{ inputs.release }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ] && [ -n "$WORDCRAFT_KEYSTORE_PASSWORD" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/wordcraft.jks"
@@ -124,9 +151,6 @@ jobs:
             unset WORDCRAFT_KEYSTORE_PASSWORD
             echo "signed=false" >> "$GITHUB_OUTPUT"
             echo "::warning::No signing secrets: signing with a key made for this run, so this APK can't update an earlier build."
-            if [ "$WANT_RELEASE" = true ]; then
-              echo "::warning::The APK is not published as a release: it is not signed with your own key."
-            fi
           fi
           unset KEYSTORE_BASE64
           packaging/android/package.sh --install-sdk
@@ -142,12 +166,13 @@ jobs:
             dist/release/*.apk
             dist/release/*.apk.sha256
           retention-days: 30
+          overwrite: true
           if-no-files-found: error
 
   release:
     needs: apk
     if: ${{ !cancelled() && inputs.release && needs.apk.result == 'success' && needs.apk.outputs.signed == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -168,11 +193,13 @@ jobs:
           printf 'Built from `%s` of `%s` on %s.\n\nSigned with the repository owner'"'"'s key, so it installs over an earlier build signed with it.\n\nSHA-256:\n\n```\n%s\n```\n' \
             "$SHA" "$BRANCH" "$(date -u +%F)" "$(cat out/*.apk.sha256)" > notes.md
           if gh release view "$tag" >/dev/null 2>&1; then
+            # The new files first, so a failure later leaves a working download; then the old ones
+            # that have another name; then the tag and the notes.
+            gh release upload "$tag" out/* --clobber
             for asset in $(gh release view "$tag" --json assets --jq '.assets[].name'); do
-              gh release delete-asset "$tag" "$asset" --yes
+              if [ ! -e "out/$asset" ]; then gh release delete-asset "$tag" "$asset" --yes; fi
             done
             gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$tag" -f sha="$SHA" -F force=true >/dev/null
-            gh release upload "$tag" out/* --clobber
             gh release edit "$tag" --notes-file notes.md --prerelease
           else
             gh release create "$tag" out/* --target "$SHA" --title "WordCraft for Android (latest build)" --notes-file notes.md --prerelease

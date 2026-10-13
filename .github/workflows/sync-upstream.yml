@@ -1,59 +1,80 @@
 name: Sync upstream
 
 # For a fork: every day, and whenever you run it, merge the original repository's newest commits
-# into this branch (the default branch, normally main), so the fork never falls behind. Nothing of
-# yours is lost: it makes a merge commit, never a rebase or a force push. When git cannot combine
-# a source file the run fails, says which files, and leaves the branch as it was (see the job
-# summary); GitHub emails you about a failed scheduled run.
+# into this branch (the default branch, normally main), so the fork does not fall far behind. Nothing
+# of yours is lost: it makes a merge commit, never a rebase or a force push. When git cannot combine
+# a source file the run fails, says which files in the job summary, leaves the branch as it was, and
+# opens one issue (see below); fix it by hand with the command in the summary.
 #
-# The rules, and what is settled without stopping, are at the top of .github/scripts/sync-upstream.sh:
-# this fork's own .github/workflows are kept, docs keep both sides' lines, Cargo.lock is settled with
-# cargo. The Android workflow can do the same merge first (its sync input).
+# Expect that to happen: the Android changes edit files the original edits every day, so a conflict in
+# crates/ui-egui comes up after a day or two, and from then on every run fails until you merge by hand
+# (or ask for the merge in a Claude Code session). Between those moments it keeps up by itself.
 #
-# Setup, once: Actions tab, enable workflows on the fork (GitHub switches them off in new forks).
-# Optional: a repository secret SYNC_TOKEN (a fine-grained personal access token for this repository
-# with Contents and Workflows read and write) is used for the push instead of the workflow's own
-# token. It is only needed if GitHub refuses a push that changes a workflow file, which the rule of
-# keeping this fork's workflows avoids. A push made with a token of your own also starts the
-# workflows that react to pushes, a push made with the workflow's token does not.
+# What is settled without stopping is at the top of .github/scripts/sync-upstream.sh: this fork's own
+# .github/workflows are kept, docs keep both sides' lines, Cargo.lock is settled with cargo. The Android
+# workflow can do the same merge first (its sync input).
 #
-# GitHub stops scheduled workflows of a public repository after 60 days without activity; the last
-# step asks GitHub to enable this workflow again each day, which should restart that clock (best
-# effort: if the schedule ever stops, run this workflow once by hand).
+# Setup, once: Actions tab, enable workflows on the fork (GitHub switches them off in new forks), then
+# run this workflow by hand and read its summary. Recommended: a repository secret SYNC_TOKEN, a
+# fine-grained personal access token for this repository with Contents and Workflows read and write,
+# used for the push instead of the workflow's own token. GitHub does not let the workflow's token push
+# a change to a workflow file, and the original's commits touch them about three times a day: if GitHub
+# also refuses a push whose history merely contains such commits, this is the only way to push at all
+# (the run then says so). A push made with a token of your own starts the workflows that react to pushes.
+#
+# Notification: a failed scheduled run is NOT reliably emailed to you. The issue is: turn on Issues in
+# the repository settings (forks have them off), and GitHub mails you about a new issue.
+#
+# GitHub stops the schedule of a public repository after 60 days without activity. While the original
+# is active the daily merges are that activity. If the schedule ever stops, run this workflow once.
 
 on:
   schedule:
     - cron: "17 4 * * *"
   workflow_dispatch:
+  # A change to the script runs its tests.
+  push:
+    branches: [main]
+    paths: [".github/scripts/**"]
 
 permissions:
-  contents: write
-  actions: write
-
-concurrency:
-  group: upstream-sync-${{ github.ref }}
-  cancel-in-progress: false
+  contents: read
 
 jobs:
+  test:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test the sync script against local repositories
+        run: .github/scripts/test-sync-upstream.sh
+
   sync:
     # Never in the original repository itself: it has nothing to merge from.
-    if: ${{ github.repository != 'storytold/wordcraft' }}
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' && github.repository != 'storytold/wordcraft' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: write
+      issues: write
+    concurrency:
+      group: upstream-sync-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ secrets.SYNC_TOKEN || github.token }}
 
-      # cargo settles Cargo.lock after a merge (it reads manifests and the registry index only; it
-      # runs no build script).
-      - uses: dtolnay/rust-toolchain@stable
-
+      # (cargo and rustup come with the runner image; cargo settles Cargo.lock after a merge. The
+      # script runs it from an empty folder without the tokens, so nothing the original's files say
+      # about wrappers or toolchains can run.)
       - name: Merge the original repository's newest commits
         id: sync
         env:
           GH_TOKEN: ${{ github.token }}
+          SYNC_TOKEN_IN_USE: ${{ secrets.SYNC_TOKEN && '1' || '' }}
           # Optional repository variable: owner/name of the original, when it is not this repository's parent.
           UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO }}
           REPORT_FILE: ${{ runner.temp }}/sync-report.md
@@ -64,9 +85,26 @@ jobs:
         run: |
           if [ -f "$RUNNER_TEMP/sync-report.md" ]; then cat "$RUNNER_TEMP/sync-report.md" >> "$GITHUB_STEP_SUMMARY"; fi
 
-      - name: Keep the schedule alive
-        if: ${{ always() }}
+      # One open issue while the sync is stuck (not one per day), closed when it works again. Needs
+      # Issues turned on for the repository; without them this step only logs.
+      - name: Open an issue when the sync is stuck
+        if: ${{ failure() }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow enable sync-upstream.yml
+        run: |
+          label=upstream-sync
+          gh label create "$label" --color BFD4F2 --description "Syncing with the original repository needs a manual step" 2>/dev/null || true
+          if [ -z "$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')" ]; then
+            gh issue create --title "Sync upstream needs a manual step" --label "$label" --body-file "$RUNNER_TEMP/sync-report.md"
+          fi
+
+      - name: Close the issue when the sync works again
+        if: ${{ success() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh issue list --label upstream-sync --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "The sync works again."
+          done

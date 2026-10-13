@@ -1,6 +1,6 @@
 # Typing parity with Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-12 · **Change:** trivial (Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-13 · **Change:** trivial (on-screen keyboard typing on Android; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 What Word does when you type, observed black-box (same keystrokes typed into Word and
 WordCraft, results read back paragraph by paragraph) and pinned by tests in
@@ -143,6 +143,17 @@ Word.
   `myanmar_typing_steps_by_syllable_and_backspaces_by_sign`,
   `indic_and_khmer_backspace_removes_one_character`).
 
+## On-screen keyboard (the Android build)
+
+A soft keyboard commits whole words, not keys. The Android build hands the editor what the keyboard
+typed one piece at a time: each word whole, and each space, punctuation mark and quote on its own
+(`typing_pieces` in `apps/wordcraft-android/src/ime.rs`), because AutoCorrect, smart quotes and the
+list and dash AutoFormat act on a single typed space, punctuation mark or quote. So `teh ` becomes
+`The `, quotes turn curly and `* ` or `1. ` at a paragraph's start begins a list, as when each key is
+typed (`a_soft_keyboard_gets_autocorrect_smart_quotes_and_lists`). A word still being composed is
+shown at the caret and typed where it was if a touch or a cursor key moves the caret. Backspace is
+counted as the editor performs it (one grapheme cluster per press). Not tried on a device.
+
 ## Known gaps
 
 - Word's body font Aptos isn't installed outside Office; our substitute (Carlito, else Helvetica
@@ -168,6 +179,7 @@ Word.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | trivial | On-screen keyboard (Android build): committed words reach the editor word by word with each space, punctuation mark and quote separate, so AutoCorrect, smart quotes and list AutoFormat apply |
 | 2026-10-12 | trivial | Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864) |
 | 2026-10-12 | minor | AutoCorrect: Correct TWo INitial CApitals, accidental cAPS LOCK, capitalize first letter of table cells (#544) |
 | 2026-10-11 | minor | Text direction: right-to-left letters typed into an empty paragraph make it right-to-left; existing paragraphs keep theirs (#713) |

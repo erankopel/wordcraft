@@ -5,8 +5,13 @@ name: Android
 #
 # Signing: without secrets the APK is signed with a key made for this run, so it installs but can't
 # update an earlier build. To keep one signature, add the repository secrets ANDROID_KEYSTORE_BASE64
-# (base64 of your .jks file) and ANDROID_KEYSTORE_PASSWORD (also the key password). The artifact of a
-# run is readable by anyone who can read the repository: don't use a key you care about in a public one.
+# (base64 of your .jks file) and ANDROID_KEYSTORE_PASSWORD (also the key password). Anyone who can
+# run workflows on a branch of the repository can make a run that reads those secrets, and the
+# artifact of a run is readable by anyone who can read the repository: don't keep a key you care
+# about in a repository other people can write to.
+#
+# This workflow has not been run yet: the first dispatch may need fixing (the runner's SDK, the
+# first build's time against the timeout below).
 
 on:
   workflow_dispatch:
@@ -33,23 +38,24 @@ jobs:
         with:
           key: android
 
-      - name: Signing key from the repository secrets
+      - name: Build the APK
+        # The key is decoded and passed in this step only (not through GITHUB_ENV): package.sh
+        # hands it to Gradle alone, never to the Rust build, whose crates' build scripts must not
+        # see it. --install-sdk accepts the Android SDK licences for the runner's SDK, as every
+        # Android CI does.
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          WORDCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
-            echo "::add-mask::$KEYSTORE_PASSWORD"
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$WORDCRAFT_KEYSTORE_PASSWORD" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/wordcraft.jks"
-            echo "WORDCRAFT_KEYSTORE=$RUNNER_TEMP/wordcraft.jks" >> "$GITHUB_ENV"
-            echo "WORDCRAFT_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            export WORDCRAFT_KEYSTORE="$RUNNER_TEMP/wordcraft.jks"
           else
+            unset WORDCRAFT_KEYSTORE_PASSWORD
             echo "::warning::No signing secrets: signing with a key made for this run, so this APK can't update an earlier build."
           fi
-
-      - name: Build the APK
-        # --install-sdk accepts the Android SDK licences for the runner's SDK, as every Android CI does.
-        run: packaging/android/package.sh --install-sdk
+          unset KEYSTORE_BASE64
+          packaging/android/package.sh --install-sdk
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

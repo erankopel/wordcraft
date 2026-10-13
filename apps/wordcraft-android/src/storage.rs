@@ -2,8 +2,8 @@
 //!
 //! Everything lives under one folder the system gives the app (`AndroidApp::internal_data_path`,
 //! `/data/user/0/<package>/files`): preferences (`ui.json`), the custom dictionary, fonts the user
-//! added, logs, and `recovery/unsaved.docx`. Nothing here needs a storage permission, and
-//! uninstalling the app removes it all.
+//! added, and `recovery/unsaved.docx`. Nothing here needs a storage permission, and uninstalling
+//! the app removes it all. The log goes to a folder a person can reach (see `logging`).
 //!
 //! Android ends a backgrounded app when it needs the memory, without calling the app first, so a
 //! document with unsaved changes would be lost for good. [`Recovery`] decides when to keep a copy
@@ -24,6 +24,8 @@ pub const RECOVERY_IDLE_MS: f64 = 1_500.0;
 pub const RECOVERY_RETRY_MS: f64 = 10_000.0;
 /// A recovery copy or preferences file bigger than this is ignored (hostile or corrupt).
 pub const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
+/// Where the log goes when All files access is granted: a folder any file manager can open.
+pub const SHARED_LOG_DIR: &str = "/storage/emulated/0/Documents/WordCraft/logs";
 /// The recovery copy's file name; the extension picks the format it is written in.
 pub const RECOVERY_FILE: &str = "unsaved.docx";
 /// While a recovery copy is being opened it is called this, so a start that dies in the middle

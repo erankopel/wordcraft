@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn spans_are_utf16_units_and_junk_is_clamped() {
-        // An emoji is two UTF-16 units but one character: composing "a" and the emoji is units 1..4.
+        // An emoji is two UTF-16 units but one character: composing the letter a and the emoji is units 1..4.
         let s = Snapshot::from_utf16_spans("xa😀".into(), Some((1, 4)), None);
         assert_eq!(s.compose, Some((1, 3)));
         assert_eq!(Snapshot::from_utf16_spans("abc".into(), Some((2, 99)), None).compose, Some((2, 3)));

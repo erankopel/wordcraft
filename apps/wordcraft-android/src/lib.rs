@@ -7,16 +7,17 @@
 //!
 //! - [`logging`]: `log::` records go to logcat (`adb logcat -s WordCraft`) and a log file.
 //! - [`ime`] and `keyboard`: typing on the on-screen keyboard (winit drops its text, so the
-//!   keyboard's state is read and turned into the editor's own input events).
+//!   keyboard's state is read and turned into the editor's own input events, and its buffer is
+//!   kept filled with the text before the caret).
 //! - [`storage`]: preferences, the custom dictionary and added fonts in the app's private
 //!   folder, and a recovery copy of unsaved work (Android ends a backgrounded app without asking).
 //! - `host`: the [`Services`](wordcraft_ui_egui::Services) an Android host offers (the built-in
 //!   file browser stands in for the system's file dialog; no printing, no system clipboard yet).
 //! - `app`: the eframe app around [`WordApp`](wordcraft_ui_egui::WordApp).
 //!
-//! Only the entry point and `app` and `host` need Android; `logging` and `storage` are plain code
-//! with tests that run anywhere, and the rest is empty on other targets, so `cargo check
-//! --workspace` works on a desktop.
+//! Only the entry point, `app`, `host` and `keyboard` need Android; `ime`, `logging` and `storage`
+//! are plain code with tests that run anywhere, and the rest is left out on other targets, so
+//! `cargo check --workspace` works on a desktop.
 //!
 //! # Unsafe code
 //!

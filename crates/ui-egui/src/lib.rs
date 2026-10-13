@@ -2258,6 +2258,31 @@ mod tests {
         }
     }
 
+    /// The tab strip folds Share, Editing and Comments into a menu below 1,100 points and the
+    /// title bar drops the AutoSave label below 640 points of its own width (a window under about
+    /// 800 points, the window buttons and margins take the rest); a wide window has them as before.
+    #[test]
+    fn the_tab_strip_and_title_bar_adapt_to_the_window_width() {
+        for (width, narrow_title, narrow_tabs) in [(411.0_f32, true, true), (666.0, true, true), (832.0, false, true), (1280.0, false, false)] {
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(width, 760.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    app.logic(ui.ctx());
+                    app.ui(ui);
+                },
+                app(),
+            );
+            for _ in 0..4 {
+                h.step();
+            }
+            assert_eq!(h.query_by_label("\u{2026}").is_some(), narrow_tabs, "{width}: the menu holding Share, Editing and Comments");
+            assert_eq!(h.query_by_label("AutoSave").is_some(), !narrow_title, "{width}: the AutoSave label");
+            if let Some(menu) = h.query_by_label("\u{2026}") {
+                let r = menu.rect();
+                assert!(r.min.x >= 0.0 && r.max.x <= width + 0.5, "{width}: the menu button {r:?} is inside the window");
+            }
+        }
+    }
+
     /// A finger dragging across the page scrolls it and leaves the caret alone; a tap places the
     /// caret and doesn't scroll (touch screens, `touch`).
     #[test]

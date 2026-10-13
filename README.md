@@ -181,9 +181,10 @@ that with env_logger-style directives, for example `RUST_LOG=debug`,
 covers every target starting with it (`wordcraft*=debug`). The logger is
 `apps/wordcraft/src/logging.rs`.
 
-On Android the log goes to logcat and to `wordcraft.log` in the app's folder on shared storage
-(`Android/data/ai.storyteller.wordcraft/files/logs/`, which the system file manager can open and
-share; the private `files/wordcraft/logs/` when the system gives the app no such folder). From a
+On Android the log goes to logcat and to `wordcraft.log` in the first of these folders the app can
+write: `Documents/WordCraft/logs/` on shared storage (once All files access is granted, so any file
+manager can open and share it), `Android/data/ai.storyteller.wordcraft/files/logs/` (newer Android
+versions hide that folder from the file manager), or the private `files/wordcraft/logs/`. From a
 computer, `adb logcat -s WordCraft` shows the same records. Each start moves the
 previous log to `wordcraft.1.log`, and a log stops growing at 4 MiB. Levels are fixed (`info` for
 WordCraft's own crates, `warn` for the rest; `RUST_LOG` is not read), and a panic message leaves
@@ -325,17 +326,27 @@ structure of the APK is checked statically. It has not been run on a physical de
 emulator, because none was available where it was built, so everything below is untested on
 hardware.
 
-- **Touch:** one finger dragging on the page scrolls it and the page coasts after release; a double
-  tap then a drag selects by words; a long press selects the word and opens the context menu; two
-  fingers pinch zoom. In a narrow window (the Fold's outer screen) the ribbon's tabs scroll sideways
-  and dialogs scroll inside the window. The ribbon, menus and dialogs keep their desktop sizes
-  (the first start sets the interface size to 125 percent), so touch targets are small, and there
-  are no selection handles and no stylus work.
+- **Touch:** one finger dragging on the page scrolls it and the page coasts after release; a tap
+  places the caret (the page gets the press when the finger lifts, so a swipe never edits what it
+  starts on); a double tap then a drag selects by words; resting a finger for a moment gives the
+  page its press, a little longer selects the word and opens the context menu, and a picture or a
+  table border held that way can be dragged; two fingers pinch zoom. In a narrow window (the Fold's
+  outer screen) the ribbon's tabs scroll sideways and dialogs scroll inside the window. The ribbon,
+  menus and dialogs keep their desktop sizes (the first start sets the interface size to 125
+  percent on a screen 600 dp wide or more, 100 percent on a narrower one), so touch targets are
+  small, and there are no selection handles and no stylus work. Hyperlinks can't be followed (that
+  needs Ctrl+click); a Bluetooth mouse or DeX pointer is treated as a finger, so click-dragging
+  scrolls and the wheel does nothing.
 - **On-screen keyboard:** winit drops the text GameActivity delivers, so the app reads the
   keyboard's buffer itself and turns it into the editor's input events (`ime.rs`, `keyboard.rs`;
-  the text diffing has host tests, including a randomized simulation). A keyboard button at the
-  right end of the status bar brings the keyboard back after it was dismissed. Typing, composing
-  text included, has not been tried on a device.
+  the text diffing has host tests, including a randomized simulation against a model of Android's
+  text buffer). The buffer is kept filled with the text before the caret, so Backspace, capital
+  letters and suggestions follow the document, and typed words reach the editor one space or
+  punctuation mark at a time, so AutoCorrect, smart quotes and list AutoFormat apply. A keyboard
+  button at the right end of the status bar brings the keyboard back after it was dismissed.
+  Moving the keyboard's own cursor (a swipe on the space bar) restarts its buffer at the editor's
+  caret instead; pasting more than 64 KiB through the keyboard's clipboard suggestion can crash the
+  app. Typing, composing text included, has not been tried on a device.
 - **Hardware keyboards:** letters and the arrow, Home, End and Page keys work, but Ctrl, Shift and
   Alt are never reported by winit's Android backend, so shortcuts that use them (Ctrl+B, Ctrl+C,
   Shift+arrows) do nothing; use the ribbon and the context menu. Fixing that means a small patch to
@@ -348,13 +359,18 @@ hardware.
   you stop typing, and at the latest 10 seconds into continuous typing (Android can end a
   backgrounded app without asking, and a paused app draws no frames, so nothing waits for the app
   to be left); the next start offers it back. Closing the app (File, Close) after saving or
-  discarding removes it, and a copy that can't be opened is kept as `unreadable.docx` instead of
-  being deleted. Settings, the custom dictionary, added fonts and the recovery copy
+  discarding removes it, and a copy that can't be opened is set aside as `unreadable.docx` in the
+  app's private folder instead of being deleted (which also means it can't be reached without a
+  tool that reads app data). Settings, the custom dictionary, added fonts and the recovery copy
   live in the app's private folder, and uninstalling the app removes them. Fonts are read from
-  `/system/fonts`, `/system_ext/fonts`, `/product/fonts` and `/vendor/fonts`.
+  `/system/fonts`, `/system_ext/fonts`, `/product/fonts`, `/vendor/fonts` and `/odm/fonts`. The app
+  and its process end together (File, Close, or when the system finishes the activity), since the
+  windowing library can't start a second window in one process; unsaved work comes back from the
+  recovery copy at the next start.
 - **Not there yet:** a system clipboard bridge (copy and paste work inside the app only), printing,
   opening documents from other apps, the system file picker, selection handles, finger sized
-  controls, an accessibility bridge (TalkBack), and the hardware keyboard modifiers above.
+  controls, following hyperlinks, an accessibility bridge (TalkBack), and the hardware keyboard
+  modifiers above. The GitHub workflow that builds the APK has not been run yet.
 
 ## The Crafting Apps
 

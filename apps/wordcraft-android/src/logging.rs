@@ -2,9 +2,11 @@
 //!
 //! Without a logger every `log::warn!` in the workspace (an unreadable part of a .docx, a font a
 //! PDF export had to leave out) vanishes, and an Android app has no terminal. Records go to logcat
-//! (`adb logcat -s WordCraft`) and, once [`attach_dir`] has run, to `wordcraft.log` in the folder it
-//! is given: `Android/data/<package>/files/logs`, which the system file manager can open, or the
-//! private settings folder's `logs` when the system gave the app no such folder. Each start moves
+//! (`adb logcat -s WordCraft`) and, once [`attach_dirs`] has run, to `wordcraft.log` in the first
+//! folder it can write: `Documents/WordCraft/logs` on shared storage (when All files access is
+//! granted, so every file manager can open and share it), else `Android/data/<package>/files/logs`
+//! (which newer Android versions hide from the file manager), else the private settings folder's
+//! `logs`. Each start moves
 //! the previous log to `wordcraft.1.log`, so the log of a run that was killed survives the next
 //! launch. Levels follow the desktop app: `info` for WordCraft's own crates, `warn` for the rest
 //! (wgpu and naga are chatty).
@@ -149,18 +151,22 @@ mod android {
         }
     }
 
-    /// Also write the log to `dir`, once the settings folder is known.
-    pub fn attach_dir(dir: &Path) {
+    /// Also write the log to the first of `dirs` that can be written, once the settings folder is
+    /// known. The first attach wins: opening a second sink would rotate the log the first writes.
+    pub fn attach_dirs(dirs: &[&Path]) {
         let Some(logger) = LOGGER.get() else { return };
-        // The first attach wins; opening a second sink would rotate the log the first one writes.
         if logger.file.get().is_some() {
             return;
         }
-        match FileSink::open(dir) {
-            Ok(sink) => {
-                let _ = logger.file.set(sink);
+        for dir in dirs {
+            match FileSink::open(dir) {
+                Ok(sink) => {
+                    let _ = logger.file.set(sink);
+                    log::info!("log file in {}", dir.display());
+                    return;
+                }
+                Err(e) => log::info!("no log file in {}: {e}", dir.display()),
             }
-            Err(e) => log::warn!("no log file in {}: {e}", dir.display()),
         }
     }
 
@@ -175,7 +181,7 @@ mod android {
 }
 
 #[cfg(target_os = "android")]
-pub use android::{attach_dir, init};
+pub use android::{attach_dirs, init};
 
 #[cfg(test)]
 mod tests {

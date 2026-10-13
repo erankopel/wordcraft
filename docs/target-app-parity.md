@@ -23,7 +23,7 @@ The generated ribbon checklist is [`parity-checklist.md`](parity-checklist.md).
 | Remaining effort to full parity with Word desktop | **~750–1,250 h** | estimated |
 | Commands | 431 engine commands (+ `ui.*` commands in the front end) | measured (source count) |
 | Tests | 852 `#[test]` functions + 10 `proptest!` blocks | measured (source count) |
-| Code | ~88,700 lines of Rust in 15 crates, 3 apps and xtask | measured (`wc -l`) |
+| Code | ~88,700 lines of Rust in 15 crates, 3 apps and xtask, counted before the Android app (`apps/wordcraft-android`, about 2,100 lines with its tests) was added | measured (`wc -l`) |
 
 **Stage: alpha.** All six core workflows pass the [alpha gate](roadmap.md#alpha-gate-core-workflows); see [`ROADMAP.md`](../ROADMAP.md) for why it isn't beta, and the distance.
 

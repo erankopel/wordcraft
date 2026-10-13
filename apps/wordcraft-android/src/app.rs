@@ -2,6 +2,7 @@
 //! recovery copy of unsaved work on disk as it changes, since Android may end the app without
 //! asking, and without drawing another frame).
 
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use android_activity::AndroidApp;
@@ -23,10 +24,16 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
     let dirs = Dirs::new(&files);
     // Before anything asks where the settings are (fonts, preferences, the dictionary).
     wordcraft_control_key::set_settings_dir(dirs.root().to_path_buf());
-    // The log goes where a person can reach it without a computer's adb: the app's folder on shared
-    // storage (Android/data/<package>/files/logs, which the system file manager can open and
-    // share), else the private folder.
-    crate::logging::attach_dir(&android.external_data_path().map_or_else(|| dirs.logs(), |p| p.join("logs")));
+    // The log goes where a person can reach it without a computer's adb: Documents/WordCraft/logs
+    // on shared storage when All files access is granted (any file manager can open and share it),
+    // else the app's folder there, else the private folder.
+    let shared_logs = PathBuf::from(storage::SHARED_LOG_DIR);
+    let app_logs = android.external_data_path().map(|p| p.join("logs"));
+    let private_logs = dirs.logs();
+    let mut candidates: Vec<&Path> = vec![&shared_logs];
+    candidates.extend(app_logs.as_deref());
+    candidates.push(&private_logs);
+    crate::logging::attach_dirs(&candidates);
     log::info!("settings folder {}", dirs.root().display());
     load_user_fonts(&dirs);
 

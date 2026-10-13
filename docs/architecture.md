@@ -32,7 +32,7 @@ winit or rfd. Apps and `xtask` are exempt from the layer rules, the Android app 
 | apps | `wordcraft` | 1.6k | Desktop app (eframe + wgpu; logging, window geometry, file associations) |
 | apps | `wordcraft-cli` | 0.4k | `convert`, `text`, `inspect`, `run`, `commands`, `parity`, `mcp`, `zotero` |
 | apps | `wordcraft-web` | 0.3k | Browser build (eframe web runner, WebGPU with WebGL2 fallback) |
-| apps | `wordcraft-android` | 1.0k | Android build: a `cdylib` (`libwordcraft_android.so`) that Android loads through GameActivity, entry point `android_main`; the same `wordcraft-ui-egui` over the engine on eframe with wgpu (Vulkan); settings, custom dictionary, added fonts and a recovery copy of unsaved work in the app's private folder, the log in the app's folder on shared storage; the on-screen keyboard's text is read from GameActivity's buffer and turned into egui input events; the built-in file browser stands in for the system file dialog; empty on non-Android targets. Unofficial, for personal sideloading |
+| apps | `wordcraft-android` | 2.1k (with its tests) | Android build: a `cdylib` (`libwordcraft_android.so`) that Android loads through GameActivity, entry point `android_main`; the same `wordcraft-ui-egui` over the engine on eframe with wgpu (Vulkan); settings, custom dictionary, added fonts and a recovery copy of unsaved work in the app's private folder, the log in the app's folder on shared storage; the on-screen keyboard's text is read from GameActivity's buffer and turned into egui input events; the built-in file browser stands in for the system file dialog; on other targets only the plain modules (`ime`, `logging`, `storage`) compile. Unofficial, for personal sideloading |
 
 ## Android
 
@@ -71,7 +71,7 @@ winit or rfd. Apps and `xtask` are exempt from the layer rules, the Android app 
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-13 | trivial | Android section: the keyboard bridge, the process ending with the activity, and the recovery copy's write timing and restore protocol (after review) |
-| 2026-10-13 | minor | `wordcraft-android` added to the apps and an Android section: the `android_main` unsafe exemption, what is in the crate, packaging and what is verified (compiles and links for `aarch64-linux-android`; not run on a device); `ui-egui` gains `touch.rs` |
+| 2026-10-13 | trivial | Android section: the keyboard bridge (buffer kept filled with the text before the caret, cluster-aware Backspace, text one typing piece at a time), the touch gate in `ui-egui`, the process ending with the activity, and the recovery copy's write timing and restore protocol (after review); the line count is with tests, counted with `wc -l` |
+| 2026-10-13 | minor | `wordcraft-android` added to the apps and an Android section: the `android_main` unsafe exemption, what is in the crate, packaging and what is verified (compiles and links for `aarch64-linux-android`; not run on a device); `ui-egui` gains `touch.rs` (the finger scroll and, after review, the press gate) |
 | 2026-10-10 | minor | `proof`: proofing languages (English, Polish), affix engine, Polish patterns; layout and engine route each run by its language |
 | 2026-10-10 | major | First committed architecture doc, from the crates' sources and `AGENTS.md` |

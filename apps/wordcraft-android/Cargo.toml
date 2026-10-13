@@ -20,8 +20,9 @@ todo = "warn"
 too_many_arguments = "allow"
 type_complexity = "allow"
 
-# `cdylib` is what the APK ships (`libwordcraft_android.so`). On every other target the crate is
-# empty (`src/lib.rs`), so `cargo check --workspace` on a desktop still passes.
+# `cdylib` is what the APK ships (`libwordcraft_android.so`). On every other target only the plain
+# modules (`ime`, `logging`, `storage`) compile, which is what the desktop tests run, so
+# `cargo check --workspace` still passes.
 [lib]
 name = "wordcraft_android"
 crate-type = ["cdylib", "lib"]

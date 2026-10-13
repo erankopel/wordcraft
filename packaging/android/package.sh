@@ -6,14 +6,16 @@
 #   --install-sdk   install the Android SDK pieces that are missing (platform, build tools, NDK) with
 #                   sdkmanager. That accepts the Android SDK licence agreements for you: read them first
 #                   (https://developer.android.com/studio/terms).
-#   --skip-native   reuse the native library from the last run instead of building it again.
+#   --skip-native   reuse the native library from the last run instead of building it again (it warns
+#                   when that library was built from another commit or from a changed tree).
 #
 # Needs: a JDK 17 or newer (JAVA_HOME, or java on PATH), rustup with the aarch64-linux-android target
 # (rustup target add aarch64-linux-android), git, curl, unzip, and the Android SDK in ANDROID_HOME
-# (default ~/Android/Sdk) with platform android-37.0, build-tools 36.1.0 and NDK 29.0.14206865.
+# (default ~/Android/Sdk) with platform android-37.0, build-tools 36.1.0 and NDK 29.0.14206865
+# (--install-sdk fetches those with the Android command line tools, which must be in ANDROID_HOME).
 # cargo-ndk is installed with `cargo install` when it is missing.
 #
-# The APK is signed with a key kept outside the repository (WORDCRAFT_KEYSTORE and
+# The APK is signed with a key kept outside the repository (WORDCRAFT_KEYSTORE, an absolute path, and
 # WORDCRAFT_KEYSTORE_PASSWORD, or a key this script creates in ~/.config/wordcraft/android on first
 # use). Back that folder up: a build signed with another key cannot be installed over this one.
 # Details and sideload steps: packaging/android/README.md.
@@ -28,10 +30,16 @@ for arg in "$@"; do
   case "$arg" in
     --install-sdk) INSTALL_SDK=1 ;;
     --skip-native) SKIP_NATIVE=1 ;;
-    -h | --help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h | --help) sed -n '2,/^[^#]/{/^#/p}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "error: unknown option $arg" >&2; exit 2 ;;
   esac
 done
+
+# The signing key's settings stay out of the environment of everything but Gradle: the Rust build
+# runs hundreds of build scripts of other people's crates, which must not see a password.
+USER_KEYSTORE="${WORDCRAFT_KEYSTORE:-}"
+USER_KEYSTORE_PASSWORD="${WORDCRAFT_KEYSTORE_PASSWORD:-}"
+unset WORDCRAFT_KEYSTORE WORDCRAFT_KEYSTORE_PASSWORD
 
 # Versions this build was verified with. Changing one is a build change: re-run and check the APK.
 PLATFORM="android-37.0"
@@ -73,18 +81,74 @@ if missing_sdk; then
 fi
 export ANDROID_NDK_HOME="$NDK"
 
+# --- JDK and signing key: checked before the long native build, so a mistake shows at once ------
+JAVA_BIN="java"
+[ -n "${JAVA_HOME:-}" ] && JAVA_BIN="$JAVA_HOME/bin/java"
+command -v "$JAVA_BIN" >/dev/null || { echo "error: java not found (a JDK 17 or newer; set JAVA_HOME)" >&2; exit 1; }
+JAVA_MAJOR="$("$JAVA_BIN" -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
+[ "${JAVA_MAJOR:-0}" -ge 17 ] || { echo "error: a JDK 17 or newer is needed (found major version ${JAVA_MAJOR:-unknown})" >&2; exit 1; }
+KEYTOOL="keytool"
+[ -n "${JAVA_HOME:-}" ] && KEYTOOL="$JAVA_HOME/bin/keytool"
+command -v "$KEYTOOL" >/dev/null || { echo "error: keytool (part of the JDK) not found" >&2; exit 1; }
+KEY_ALIAS="${WORDCRAFT_KEY_ALIAS:-wordcraft}"
+
+KEYSTORE="$USER_KEYSTORE"
+KEYSTORE_PASSWORD="$USER_KEYSTORE_PASSWORD"
+if [ -z "$KEYSTORE" ]; then
+  KEYDIR="${WORDCRAFT_ANDROID_KEY_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/wordcraft/android}"
+  KEYSTORE="$KEYDIR/wordcraft-release.jks"
+  PASSFILE="$KEYDIR/keystore.pass"
+  if [ ! -f "$KEYSTORE" ]; then
+    mkdir -p "$KEYDIR"
+    chmod 700 "$KEYDIR"
+    # One run creates the key: a second first run at the same time waits for it (and then finds it).
+    LOCK="$KEYDIR/.creating"
+    for _ in $(seq 1 60); do
+      if mkdir "$LOCK" 2>/dev/null; then break; fi
+      sleep 1
+    done
+    if [ ! -f "$KEYSTORE" ]; then
+      (umask 077 && head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$PASSFILE.new")
+      KEYSTORE_PASSWORD="$(cat "$PASSFILE.new")" "$KEYTOOL" -genkeypair -keystore "$KEYSTORE.new" -storetype PKCS12 -alias "$KEY_ALIAS" \
+        -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=WordCraft personal build, O=Self" \
+        -storepass:env KEYSTORE_PASSWORD -keypass:env KEYSTORE_PASSWORD
+      # The password first, then the key: a key without its password is never visible.
+      /bin/mv -f "$PASSFILE.new" "$PASSFILE"
+      /bin/mv -f "$KEYSTORE.new" "$KEYSTORE"
+      warn "created a new signing key in $KEYDIR; back it up, because a build signed with another key can't be installed over this one"
+    fi
+    rmdir "$LOCK" 2>/dev/null || true
+  fi
+  [ -n "$KEYSTORE_PASSWORD" ] || KEYSTORE_PASSWORD="$(cat "$PASSFILE")"
+fi
+# Gradle runs in another directory: the key's path must not depend on this one.
+case "$KEYSTORE" in /*) ;; *) KEYSTORE="$(cd "$(dirname "$KEYSTORE")" 2>/dev/null && pwd)/$(basename "$KEYSTORE")" ;; esac
+[ -f "$KEYSTORE" ] || { echo "error: signing key $KEYSTORE not found" >&2; exit 1; }
+[ -n "$KEYSTORE_PASSWORD" ] || { echo "error: set WORDCRAFT_KEYSTORE_PASSWORD for $KEYSTORE" >&2; exit 1; }
+KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" "$KEYTOOL" -list -keystore "$KEYSTORE" -alias "$KEY_ALIAS" -storepass:env KEYSTORE_PASSWORD >/dev/null 2>&1 \
+  || { echo "error: $KEYSTORE can't be opened with that password, or has no key named $KEY_ALIAS (WORDCRAFT_KEY_ALIAS)" >&2; exit 1; }
+
 # --- native library -----------------------------------------------------------------------------
 if ! command -v cargo-ndk >/dev/null; then
   cargo install cargo-ndk --locked --version "$CARGO_NDK_VERSION"
 fi
 rustup target add aarch64-linux-android >/dev/null
 JNI="$WORK/jniLibs"
+# What the library is built from, to tell a --skip-native run when it reuses a stale one.
+native_stamp() {
+  printf '%s\n%s\n%s\n' "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" \
+    "$( (git -C "$ROOT" status --porcelain 2>/dev/null; git -C "$ROOT" diff HEAD 2>/dev/null) | cksum)" "${CRAFT_FONTS_DIR:-}"
+}
 if [ "$SKIP_NATIVE" = 0 ]; then
   rm -rf "$JNI"
   # Release profile of the workspace (opt-level 3, thin LTO). Linked 16 KB page aligned by NDK r28+.
   (cd "$ROOT" && cargo ndk --platform "$MIN_API" -t arm64-v8a -o "$JNI" build --release --locked -p wordcraft-android)
+  native_stamp >"$JNI/arm64-v8a/.built-from"
 fi
 [ -f "$JNI/arm64-v8a/libwordcraft_android.so" ] || { echo "error: $JNI/arm64-v8a/libwordcraft_android.so missing" >&2; exit 1; }
+if [ "$SKIP_NATIVE" = 1 ] && [ "$(cat "$JNI/arm64-v8a/.built-from" 2>/dev/null)" != "$(native_stamp)" ]; then
+  warn "--skip-native reuses a native library built from another commit, a changed tree or other fonts: the APK may run old code"
+fi
 
 # --- Gradle (a pinned distribution, checked against its published checksum) -----------------------
 GRADLE_ZIP="$TOOLS/gradle-$GRADLE_VERSION-bin.zip"
@@ -102,38 +166,21 @@ if [ ! -x "$GRADLE" ]; then
   unzip -q -o "$GRADLE_ZIP" -d "$TOOLS"
 fi
 
-# --- signing key --------------------------------------------------------------------------------
-if [ -z "${WORDCRAFT_KEYSTORE:-}" ]; then
-  KEYDIR="${WORDCRAFT_ANDROID_KEY_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/wordcraft/android}"
-  WORDCRAFT_KEYSTORE="$KEYDIR/wordcraft-release.jks"
-  PASSFILE="$KEYDIR/keystore.pass"
-  if [ ! -f "$WORDCRAFT_KEYSTORE" ]; then
-    command -v keytool >/dev/null || { echo "error: keytool (part of the JDK) not found" >&2; exit 1; }
-    mkdir -p "$KEYDIR"
-    chmod 700 "$KEYDIR"
-    (umask 077 && head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$PASSFILE")
-    KEYSTORE_PASSWORD="$(cat "$PASSFILE")" keytool -genkeypair -keystore "$WORDCRAFT_KEYSTORE" -storetype PKCS12 -alias wordcraft \
-      -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=WordCraft personal build, O=Self" \
-      -storepass:env KEYSTORE_PASSWORD -keypass:env KEYSTORE_PASSWORD
-    warn "created a new signing key in $KEYDIR; back it up, because a build signed with another key can't be installed over this one"
-  fi
-  WORDCRAFT_KEYSTORE_PASSWORD="${WORDCRAFT_KEYSTORE_PASSWORD:-$(cat "$PASSFILE")}"
-fi
-[ -f "$WORDCRAFT_KEYSTORE" ] || { echo "error: signing key $WORDCRAFT_KEYSTORE not found" >&2; exit 1; }
-[ -n "${WORDCRAFT_KEYSTORE_PASSWORD:-}" ] || { echo "error: set WORDCRAFT_KEYSTORE_PASSWORD for $WORDCRAFT_KEYSTORE" >&2; exit 1; }
-export WORDCRAFT_KEYSTORE WORDCRAFT_KEYSTORE_PASSWORD
-
 # --- APK ----------------------------------------------------------------------------------------
 # The version code grows with the build time (minutes since 2026-01-01), so a newer build always
 # installs over an older one made with the same key.
-export WORDCRAFT_VERSION_NAME="$VERSION"
-export WORDCRAFT_VERSION_CODE="${WORDCRAFT_VERSION_CODE:-$(($(date -u +%s) / 60 - 29453760))}"
+VERSION_CODE="${WORDCRAFT_VERSION_CODE:-$(($(date -u +%s) / 60 - 29453760))}"
 rm -rf "$PROJECT"
 mkdir -p "$PROJECT"
 cp -R "$HERE/gradle/." "$PROJECT/"
 mkdir -p "$PROJECT/app/src/main/jniLibs"
 cp -R "$JNI/arm64-v8a" "$PROJECT/app/src/main/jniLibs/"
-(cd "$PROJECT" && "$GRADLE" --no-daemon --console=plain :app:assembleRelease)
+# The key reaches Gradle only (a subshell), never the Rust build above.
+(
+  export WORDCRAFT_VERSION_NAME="$VERSION" WORDCRAFT_VERSION_CODE="$VERSION_CODE"
+  export WORDCRAFT_KEYSTORE="$KEYSTORE" WORDCRAFT_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" WORDCRAFT_KEY_ALIAS="$KEY_ALIAS"
+  cd "$PROJECT" && "$GRADLE" --no-daemon --console=plain :app:assembleRelease
+)
 
 BUILT="$PROJECT/app/build/outputs/apk/release/app-release.apk"
 [ -f "$BUILT" ] || { echo "error: $BUILT missing" >&2; exit 1; }

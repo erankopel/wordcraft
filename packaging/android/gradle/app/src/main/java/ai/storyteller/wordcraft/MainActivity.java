@@ -24,9 +24,10 @@ import com.google.androidgamesdk.GameActivity;
  * (its windowing library allows one event loop, and does not stop it when the activity is
  * destroyed), so an activity started again in a process that lived on would fail at once; and
  * GameActivity's own onDestroy waits for the native thread to return, which that library never
- * does for a destroy the system started. WordCraft is one activity with no services, and nothing
- * is unsaved at this point: closing the app saved or discarded the document first, and the recovery
- * copy of unsaved work is written while the person types, not when the app is left.
+ * does for a destroy the system started. WordCraft is one activity with no services. Unsaved work
+ * is protected by the recovery copy, which is written while the person types (at most 1.5 seconds
+ * after a pause, 10 seconds into continuous typing), not when the app is left; File, Close
+ * removes it after saving or discarding.
  */
 public class MainActivity extends GameActivity {
     @Override

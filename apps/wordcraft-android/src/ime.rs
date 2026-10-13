@@ -271,7 +271,7 @@ mod tests {
                 }
                 let mut text = committed.clone();
                 text.extend(&composing);
-                let compose = (!composing.is_empty()).then(|| (committed.len(), text.len()));
+                let compose = (!composing.is_empty()).then_some((committed.len(), text.len()));
                 let outputs = bridge.observe(&Snapshot { text: text.iter().collect(), compose });
                 apply(&outputs, &mut doc, &mut preedit);
                 if bridge.should_reset() {

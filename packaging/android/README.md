@@ -69,7 +69,7 @@ there only. Neither has run on GitHub yet.
    switches on the original's own workflows that the fork inherited (FreeBSD and Windows ARM64 with a
    nightly schedule, Printing, Release, Packaging lint): they do nothing useful in a fork and cost
    build time. Disable them, once: Actions tab, the workflow, the three dots, Disable workflow (or
-   delete their files in the fork: the sync keeps a deleted workflow deleted).
+   delete their files in the fork, as was done in this one: the sync keeps a deleted workflow deleted).
 2. Put the Android work on the fork's `main`, if it is on another branch: merge it in the web UI (or
    `git switch main && git merge <that branch> && git push`; a push that adds a workflow file needs
    the workflow scope: `gh auth refresh -s workflow`).

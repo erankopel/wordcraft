@@ -131,7 +131,8 @@ before changing anything.
 
 ## Not there yet
 
-A system clipboard bridge (copy and paste work inside WordCraft only), printing, opening documents
+Composing text is not drawn while an equation is edited (it appears when the word is finished), a
+system clipboard bridge (copy and paste work inside WordCraft only), printing, opening documents
 from other apps, the system file picker, a TalkBack bridge, Read Aloud, Zotero, hunspell
 dictionaries for Polish and Portuguese (English spelling works), and finger sized controls (the
 ribbon, menus and dialogs keep their desktop sizes, and there are no selection handles).

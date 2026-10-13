@@ -758,7 +758,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         (None, None, full)
     };
     app.canvas.canvas_rect = Some(area);
-    app.canvas.touch_rect = Some(touch_area(area));
+    app.canvas.touch_rect = Some(touch_area(area, app.canvas.scroll_max));
     app.canvas.layer = Some(ui.layer_id());
     // Ctrl/⌘ + wheel (and trackpad pinch) zooms the document, like Word. egui reports both as a
     // zoom factor and doesn't scroll for them. Start from the shown scale so fit modes zoom too.
@@ -766,14 +766,30 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let animate = app.animations_on();
     let opts = ui.ctx().options(|o| o.input_options);
     let zoom_delta = ui.input(|i| app.canvas.wheel.zoom(i, &opts, animate));
+    // A pinch keeps what is under the fingers under them: where the fingers are (relative to the
+    // page area) and how far they moved together, with the scale before the zoom.
+    let mut pinch = None;
     if (zoom_delta - 1.0).abs() > 1e-3 && ui.rect_contains_pointer(area) {
         let reading = app.session.view.read_mode;
         let pct = (app.canvas.scale / PX_PER_PT * zoom_delta * 100.0).clamp(if reading { 75.0 } else { 10.0 }, if reading { 150.0 } else { 500.0 });
         let id = if reading { "view.readTextSize" } else { "view.zoom" };
+        if !reading && let Some(touch) = ui.input(|i| i.multi_touch()) {
+            pinch = Some((touch.center_pos - area.min, touch.translation_delta, app.canvas.scale));
+        }
         let _ = app.run(id, json!({"value": pct}));
     }
     let avail = if app.session.view.read_mode { area.size() } else { area.size() - vec2(14.0, 0.0) };
     let geo = geometry(app, &layout, avail);
+    if let Some((centre, moved, old_scale)) = pinch {
+        let k = geo.scale / old_scale;
+        let target = (app.canvas.scroll_offset + centre) * k - centre - moved;
+        if k.is_finite() && k > 0.0 && target.x.is_finite() && target.y.is_finite() {
+            // The offset that keeps the point under the fingers there; the room to scroll to is this
+            // frame's, not last frame's (a zoom in makes more of it).
+            app.canvas.scroll_max = (geo.size - area.size()).max(egui::Vec2::ZERO);
+            app.canvas.scroll_request = Some(target);
+        }
+    }
     // A pane or toolbar resize changes the reachable last column immediately. Navigation must
     // clamp against this frame's geometry, not the previous frame's scroll maximum.
     if app.session.view.read_mode {
@@ -921,6 +937,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         };
         if after == before && wheel_delta != egui::Vec2::ZERO {
             app.canvas.wheel.hit_edge();
+        }
+        if after == before && touch_delta != egui::Vec2::ZERO {
+            // A coast against the start or the end of the document is over (a tap then is a tap).
+            app.canvas.pan.hit_edge();
         }
         if auto_delta != egui::Vec2::ZERO && after != before {
             // The scroll keeps going without new input.
@@ -1786,9 +1806,13 @@ fn edge_scroll(p: f32, lo: f32, hi: f32, dt: f32) -> f32 {
 /// finger there drags the bar (egui's), so it is not a scroll of the page.
 const SCROLLBAR_STRIP: f32 = 18.0;
 
-/// The part of the page area where a finger scrolls the page and its press waits for the gate.
-fn touch_area(area: Rect) -> Rect {
-    Rect::from_min_max(area.min, pos2((area.max.x - SCROLLBAR_STRIP).max(area.min.x), (area.max.y - SCROLLBAR_STRIP).max(area.min.y)))
+/// The part of the page area where a finger scrolls the page and its press waits for the gate: not
+/// the strips along the edges where a scroll bar is (egui shows one only on an axis the page
+/// overflows, as of last frame's `scroll_max`).
+fn touch_area(area: Rect, scroll_max: egui::Vec2) -> Rect {
+    let right = if scroll_max.y > 0.5 { SCROLLBAR_STRIP } else { 0.0 };
+    let bottom = if scroll_max.x > 0.5 { SCROLLBAR_STRIP } else { 0.0 };
+    Rect::from_min_max(area.min, pos2((area.max.x - right).max(area.min.x), (area.max.y - bottom).max(area.min.y)))
 }
 
 /// Hold back the mouse events a finger makes on the page until it is known to be a tap or a hold
@@ -1823,7 +1847,7 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
         app.canvas.pan.cancel();
         return egui::Vec2::ZERO;
     }
-    let area = touch_area(area);
+    let area = touch_area(area, app.canvas.scroll_max);
     // The window lost focus (the app was paused): a finger that was down won't report its lift.
     if ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)))) {
         app.canvas.pan.cancel();
@@ -1848,6 +1872,9 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
     let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
     let last_press = app.canvas.last_press;
     let tool_busy = app.canvas.obj_drag.is_some()
+        // The context menu a long press opened owns the pointer: a drift of the resting finger
+        // isn't the start of a scroll (which would give back the selection the menu is for).
+        || app.canvas.context_menu_open
         || crate::ink::pen_active(app)
         || app.canvas.ink_ui.lasso.is_some()
         || app.canvas.table_resize.is_some()
@@ -2156,9 +2183,10 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             let _ = app.run("edit.pasteFormat", json!({}));
         }
     }
-    // Hover a link: show its target.
+    // Hover a link: show its target (not under a finger: its hint is a Ctrl+click).
     if resp.hovered()
         && !app.canvas.dragging
+        && !ui.input(|i| i.any_touches())
         && let Some(pos) = layout.hit(page, x, y, story)
         && let Some(link) = link_under(app, layout, page, x, y, &pos)
     {

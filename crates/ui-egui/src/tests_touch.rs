@@ -509,3 +509,95 @@ fn a_resting_finger_asks_for_its_hold_frame() {
     assert_eq!(r.a.gate_touches(&r.ctx, &mut raw), None);
     assert!(raw.events.contains(&button(c, true)), "the press is delivered at the hold");
 }
+
+#[test]
+fn a_pinch_keeps_the_page_under_the_fingers() {
+    let mut r = Rig::new(1280.0, 700.0);
+    r.long_doc();
+    // The caret is under the fingers: a tap puts it there.
+    r.tap(r.canvas().center() + vec2(0.0, 60.0));
+    let (centre, _) = crate::canvas::caret_screen(&mut r.a).expect("the caret is on screen");
+    let (a, b) = (centre + vec2(-50.0, 0.0), centre + vec2(50.0, 0.0));
+    let mut first = down(1, a);
+    first.push(touch(2, TouchPhase::Start, b));
+    r.frame(first);
+    r.frames(2);
+    let z0 = r.a.canvas.scale;
+    for i in 1..=10 {
+        let d = i as f32 * 8.0;
+        r.frame(vec![
+            touch(1, TouchPhase::Move, a - vec2(d, 0.0)),
+            Event::PointerMoved(a - vec2(d, 0.0)),
+            touch(2, TouchPhase::Move, b + vec2(d, 0.0)),
+        ]);
+    }
+    r.frame(vec![touch(2, TouchPhase::End, b + vec2(80.0, 0.0))]);
+    r.frame(up(1, a - vec2(80.0, 0.0)));
+    r.frames(8);
+    assert!(r.a.canvas.scale > z0 * 1.4, "it zoomed in: {z0} to {}", r.a.canvas.scale);
+    let (after, _) = crate::canvas::caret_screen(&mut r.a).expect("the caret is still on screen");
+    assert!((after - centre).length() < 60.0, "the point under the fingers stayed under them: {centre:?} to {after:?}");
+}
+
+#[test]
+fn the_bottom_strip_is_the_pages_unless_a_bar_is_there() {
+    let mut r = Rig::new(1280.0, 700.0);
+    r.long_doc();
+    let c = r.canvas();
+    // The page fits the width: no horizontal bar, so the bottom edge is no bar's.
+    let low = pos2(c.center().x, c.max.y - 6.0);
+    assert!(!r.probe(down(1, low)).contains(&button(low, true)), "held back like any touch on the page");
+}
+
+#[test]
+fn a_coast_against_the_end_of_the_document_stops() {
+    let mut r = Rig::new(1280.0, 600.0);
+    r.long_doc();
+    // At the top, a hard flick downwards has nowhere to go.
+    r.swipe(r.canvas().center(), vec2(0.0, 40.0), 6);
+    r.frames(3);
+    assert!(r.a.canvas.pan.idle(), "no coast against the start of the document");
+    let caret = r.a.session.sel.clone();
+    r.tap(r.canvas().center() + vec2(50.0, 0.0));
+    assert_ne!(r.a.session.sel, caret, "so the next tap places the caret");
+}
+
+#[test]
+fn a_finger_that_drifts_after_the_menu_opened_keeps_the_words_selection() {
+    let mut r = Rig::new(1280.0, 600.0);
+    r.long_doc();
+    r.a.run("select.text", json!({"text": "A line of text"})).unwrap();
+    r.frames(2);
+    let c = r.canvas().center() + vec2(0.0, 40.0);
+    r.frame(down(1, c));
+    for _ in 0..70 {
+        r.frame(Vec::new());
+    }
+    assert!(r.a.canvas.context_menu_open);
+    let word = r.a.session.sel.clone();
+    let start = r.offset();
+    for i in 1..=4 {
+        r.frame(moved(1, c + vec2(0.0, -6.0 * i as f32)));
+    }
+    r.frames(3);
+    assert_eq!(r.a.session.sel, word, "the word the menu is for is still selected");
+    assert!((r.offset() - start).abs() < 1.0, "and the page stayed under the open menu");
+}
+
+#[test]
+fn a_cancelled_hold_on_a_picture_leaves_no_drag_behind() {
+    let (mut r, center) = picture_rig();
+    r.frame(down(1, center));
+    for _ in 0..20 {
+        r.frame(Vec::new());
+    }
+    assert!(r.a.canvas.obj_drag.is_some(), "the held picture is being dragged");
+    // Android cancels the touch: egui-winit sends the cancel and the pointer's departure only.
+    r.frame(vec![touch(1, TouchPhase::Cancel, center), Event::PointerGone]);
+    r.frames(3);
+    assert!(r.a.canvas.obj_drag.is_none(), "the drag ended with the cancelled touch");
+    let start = r.offset();
+    r.swipe(r.canvas().center() + vec2(100.0, 100.0), vec2(0.0, -30.0), 8);
+    r.frames(4);
+    assert!(r.offset() > start + 100.0, "and a swipe scrolls: {start} to {}", r.offset());
+}

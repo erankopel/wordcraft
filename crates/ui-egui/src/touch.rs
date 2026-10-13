@@ -78,6 +78,13 @@ impl Pan {
         self.just_ended || self.finger.as_ref().is_some_and(|f| f.panning)
     }
 
+    /// The page has run into the start or the end of the document: the coast is over.
+    pub fn hit_edge(&mut self) {
+        if self.finger.is_none() {
+            self.fling = Vec2::ZERO;
+        }
+    }
+
     /// The page is coasting on its own (no finger is down).
     pub fn coasting(&self) -> bool {
         self.finger.is_none() && self.fling != Vec2::ZERO
@@ -224,7 +231,7 @@ pub(crate) struct Env<'a> {
     /// Whether a touch at this point is the second tap of a double tap, which selects a word as it
     /// goes down (and then by words as it drags).
     pub second_tap: &'a dyn Fn(Pos2) -> bool,
-    /// Whether a dialog, a menu or the mini toolbar drawn over the page is under this point.
+    /// Whether a dialog or a menu drawn over the page is under this point.
     pub covered: &'a dyn Fn(Pos2) -> bool,
 }
 
@@ -253,8 +260,9 @@ pub(crate) struct Gate {
     mode: Mode,
     /// Every finger that is down.
     down: Vec<TouchId>,
-    /// When a touch event last came.
+    /// When a touch event last came, and where.
     last_touch: f64,
+    last_pos: Pos2,
     /// Events for the next frame: a tap's release comes one frame after its press, as a real tap's
     /// does, so what reacts to the press in its own frame (a drag begun on a picture or a table, a
     /// selection area) sees it end.
@@ -282,15 +290,24 @@ impl Gate {
         out.reserve(input.len() + 3);
         for e in input {
             match &e {
-                // The window lost focus: a finger that was down won't report its lift.
+                // The window lost focus: a finger that was down won't report its lift. The press the
+                // page has is released, or what it started (a drag) would never end.
                 Event::WindowFocused(false) => {
+                    if self.mode == Mode::Pressed {
+                        out.push(button(self.last_pos, false));
+                    }
                     self.cancel();
                     out.push(e);
                 }
                 Event::Touch { id, phase, pos, .. } => {
                     self.last_touch = now;
+                    if pos.is_finite() {
+                        self.last_pos = *pos;
+                    }
                     match phase {
                         TouchPhase::Start => {
+                            // A tap of this batch has its release before the next finger lands.
+                            out.append(&mut self.queued);
                             if !self.down.contains(id) {
                                 self.down.push(*id);
                             }
@@ -328,6 +345,8 @@ impl Gate {
                                     if *phase == TouchPhase::End && !stopper {
                                         // The finger lifted without travelling: a tap. The press now, the
                                         // release (and the pointer leaving) with the next frame.
+                                        // (An earlier tap of this same batch has its release before this press.)
+                                        out.append(&mut self.queued);
                                         out.extend([Event::PointerMoved(start), button(start, true)]);
                                         self.queued = vec![button(start, false), Event::PointerGone];
                                         self.mode = Mode::Releasing { own_gone: true };
@@ -338,7 +357,16 @@ impl Gate {
                                     continue;
                                 }
                                 Mode::Scrolling if self.down.is_empty() => self.mode = Mode::Releasing { own_gone: false },
-                                Mode::Pressed if self.down.is_empty() => self.mode = Mode::Free,
+                                Mode::Pressed if self.down.is_empty() => {
+                                    // A cancelled touch comes with no release (egui-winit sends only the
+                                    // pointer's departure): the press the page has is released here.
+                                    if *phase == TouchPhase::Cancel {
+                                        out.extend([e.clone(), button(self.last_pos, false)]);
+                                        self.mode = Mode::Free;
+                                        continue;
+                                    }
+                                    self.mode = Mode::Free;
+                                }
                                 other => self.mode = other,
                             }
                         }
@@ -780,5 +808,49 @@ mod tests {
         run(&mut pan, &[touch(2, TouchPhase::Start, p)]);
         let s = run(&mut pan, &[touch(2, TouchPhase::Move, pos2(300.0, 350.0))]);
         assert_eq!(s.delta, vec2(0.0, -50.0));
+    }
+
+    #[test]
+    fn a_cancelled_or_abandoned_press_is_released() {
+        let p = pos2(300.0, 400.0);
+        // A hold gave the page its press; Android then cancels the touch (egui-winit sends only the
+        // pointer's departure).
+        let mut g = Gate::default();
+        gate(&mut g, down(1, p), 0.0, &CALM);
+        let (out, _) = gate(&mut g, Vec::new(), 0.3, &CALM);
+        assert!(out.contains(&button(p, true)));
+        let (out, _) = gate(&mut g, vec![touch(1, TouchPhase::Cancel, p), Event::PointerGone], 0.4, &CALM);
+        assert_eq!(out, vec![touch(1, TouchPhase::Cancel, p), button(p, false), Event::PointerGone], "the press is released");
+        // The window loses focus with a finger down on the page's press.
+        let mut g = Gate::default();
+        gate(&mut g, down(1, p), 0.0, &CALM);
+        gate(&mut g, Vec::new(), 0.3, &CALM);
+        let (out, _) = gate(&mut g, vec![Event::WindowFocused(false)], 0.4, &CALM);
+        assert_eq!(out, vec![button(p, false), Event::WindowFocused(false)]);
+        // A finger the gate held back has no press to release.
+        let mut g = Gate::default();
+        gate(&mut g, down(1, p), 0.0, &CALM);
+        let (out, _) = gate(&mut g, vec![Event::WindowFocused(false)], 0.1, &CALM);
+        assert_eq!(out, vec![Event::WindowFocused(false)]);
+    }
+
+    #[test]
+    fn two_taps_in_one_batch_each_keep_their_own_release() {
+        let (a, b) = (pos2(100.0, 100.0), pos2(500.0, 300.0));
+        let mut g = Gate::default();
+        let mut batch = down(1, a);
+        batch.extend(up(1, a));
+        batch.extend(down(2, b));
+        batch.extend(up(2, b));
+        let (out, _) = gate(&mut g, batch, 0.0, &CALM);
+        let buttons: Vec<&Event> = out.iter().filter(|e| matches!(e, Event::PointerButton { .. })).collect();
+        assert_eq!(
+            buttons,
+            vec![&button(a, true), &button(a, false), &button(b, true)],
+            "press, release, press, in that order and at their own places"
+        );
+        // The second tap's release comes with the next frame.
+        let (out, _) = gate(&mut g, Vec::new(), 0.016, &CALM);
+        assert_eq!(out, vec![button(b, false), Event::PointerGone]);
     }
 }

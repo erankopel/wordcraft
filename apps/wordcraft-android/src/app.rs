@@ -139,7 +139,7 @@ impl eframe::App for Shell {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
-        let page_owns = self.page_owns_keyboard(ctx);
+        let page_owns = self.page_owns_keyboard();
         self.keyboard.tick(|| if page_owns { context_before_caret(&self.app) } else { FIELD_CONTEXT.to_owned() });
         let leaving = std::mem::take(&mut self.left);
         self.keep_prefs(leaving);
@@ -153,7 +153,7 @@ impl eframe::App for Shell {
         // (The frame is requested in `logic`: egui drops a delayed request made before its pass.)
         self.wake = self.app.gate_touches(ctx, raw);
         // What the keyboard typed goes first: it was typed before this frame's touches and keys.
-        let page_owns = self.page_owns_keyboard(ctx);
+        let page_owns = self.page_owns_keyboard();
         let typed = self.keyboard.events(&raw.events, &mut self.app, page_owns);
         raw.events.splice(0..0, typed);
         self.left |= raw.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)));
@@ -179,9 +179,10 @@ impl eframe::App for Shell {
 
 impl Shell {
     /// The page (not a text field of a dialog, Find or the file browser) has the keyboard: what the
-    /// keyboard types goes into the document, and the buffer holds its text before the caret.
-    fn page_owns_keyboard(&self, ctx: &egui::Context) -> bool {
-        self.app.canvas.focused && !ctx.egui_wants_keyboard_input() && !self.app.session.view.read_mode
+    /// keyboard types goes into the document, and the buffer holds its text before the caret. egui's
+    /// focus is exclusive, so the page being focused already means no text field is.
+    fn page_owns_keyboard(&self) -> bool {
+        self.app.canvas.focused && !self.app.session.view.read_mode
     }
 
     fn now_ms(&self) -> f64 {

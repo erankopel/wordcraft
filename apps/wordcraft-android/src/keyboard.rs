@@ -66,6 +66,9 @@ struct Shared {
 struct Settle {
     expect: Snapshot,
     until: Instant,
+    /// The texts the buffer held before the write: a read that equals one of them is the old buffer
+    /// (not yet replaced); a read that starts with `expect` and is none of them is new typing.
+    stale: Vec<String>,
 }
 
 /// The keyboard's input, as events for the UI.
@@ -77,6 +80,8 @@ pub struct Keyboard {
     /// Frames until the buffer is filled with the text before the caret (it is empty until then).
     seed_in: u8,
     settle: Option<Settle>,
+    /// The text of the newest snapshot taken.
+    last_text: String,
     last_change: Instant,
 }
 
@@ -101,7 +106,16 @@ impl Keyboard {
         if let Err(e) = thread {
             log::error!("the keyboard can't be read: {e}");
         }
-        Keyboard { android, ctx: ctx.clone(), shared, bridge: Bridge::default(), seed_in: 0, settle: None, last_change: Instant::now() }
+        Keyboard {
+            android,
+            ctx: ctx.clone(),
+            shared,
+            bridge: Bridge::default(),
+            seed_in: 0,
+            settle: None,
+            last_text: String::new(),
+            last_change: Instant::now(),
+        }
     }
 
     /// Whether the editor wants typed text now; the keyboard is read only then.
@@ -166,10 +180,13 @@ impl Keyboard {
             return;
         }
         let text = context();
-        let differs = text != self.bridge.given_text();
-        // After a quiet moment any difference is put right; a run short buffer is refilled at once
-        // when the document has more before the caret (the keyboard deleted its way through).
-        if differs && (quiet || text.chars().count() > have + 4) {
+        let wanted = text.chars().count();
+        // After a quiet moment a buffer whose length is off is put right (an Undo, a Paste, a
+        // correction that changed the length: the next Backspace would delete the wrong amount);
+        // one that differs only in letters (a capital, a curly quote) is left, since rewriting it
+        // would risk a key typed just then. A run short buffer is refilled at once when the
+        // document has more before the caret (the keyboard deleted its way through).
+        if (quiet && wanted != have) || (have < MIN_BUFFER_CHARS && wanted > have + 4) {
             self.seed(&text);
         }
         if quiet {
@@ -181,7 +198,11 @@ impl Keyboard {
     /// The caret may have moved (or the keyboard's buffer is out of step with it): empty the buffer
     /// until [`Keyboard::tick`] fills it again.
     fn restart(&mut self) {
-        self.write_state(TextInputState::default(), Snapshot { text: String::new(), compose: None, at_end: true });
+        // A press and its release (a tap) are two frames: the buffer is emptied once, and filled
+        // after the second.
+        if self.seed_in == 0 {
+            self.write_state(TextInputState::default(), Snapshot { text: String::new(), compose: None, at_end: true });
+        }
         self.seed_in = 2;
         self.ctx.request_repaint();
     }
@@ -201,8 +222,10 @@ impl Keyboard {
     fn write_state(&mut self, state: TextInputState, expect: Snapshot) {
         self.shared.generation.fetch_add(1, Ordering::SeqCst);
         self.android.set_text_input_state(state);
-        *self.shared.latest.lock().unwrap_or_else(PoisonError::into_inner) = None;
-        self.settle = Some(Settle { expect, until: Instant::now() + SETTLE });
+        let pending = self.shared.latest.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let mut stale = vec![self.last_text.clone()];
+        stale.extend(pending.map(|s| s.text));
+        self.settle = Some(Settle { expect, until: Instant::now() + SETTLE, stale });
     }
 
     /// The newest buffer the thread stored, unless it is doubted (just after the buffer was
@@ -210,11 +233,18 @@ impl Keyboard {
     /// thread is asked to publish the buffer as it is (what was read in between may be stale).
     fn take_snapshot(&mut self) -> Option<Snapshot> {
         let latest = self.shared.latest.lock().unwrap_or_else(PoisonError::into_inner).take();
-        let Some(settle) = self.settle.as_ref() else { return latest };
+        let Some(settle) = self.settle.as_ref() else {
+            if let Some(s) = &latest {
+                self.last_text.clone_from(&s.text);
+            }
+            return latest;
+        };
         let waited = Instant::now() >= settle.until;
         match latest {
-            Some(s) if waited || (s.at_end && s.text == settle.expect.text) => {
+            // What was written, or typing on top of it (a read that is none of the old buffer's texts).
+            Some(s) if waited || (s.at_end && s.text.starts_with(&settle.expect.text) && !settle.stale.contains(&s.text)) => {
                 self.settle = None;
+                self.last_text.clone_from(&s.text);
                 Some(s)
             }
             Some(_) => None,
@@ -298,12 +328,15 @@ fn type_now(app: &mut WordApp, outputs: Vec<Output>) {
                 }
             }
             Output::Backspace(n) => {
+                // (In an equation the editing keys are the equation's own, as for the keys.)
+                let id = if app.session.math.is_some() { "equation.backspace" } else { "text.backspace" };
                 for _ in 0..n.min(MAX_BACKSPACES) {
-                    let _ = app.run("text.backspace", serde_json::json!({}));
+                    let _ = app.run(id, serde_json::json!({}));
                 }
             }
             Output::Enter => {
-                let _ = app.run("text.newParagraph", serde_json::json!({}));
+                let id = if app.session.math.is_some() { "equation.enter" } else { "text.newParagraph" };
+                let _ = app.run(id, serde_json::json!({}));
             }
             // The word being composed is committed with the rest; the editor shows no preedit now.
             Output::Preedit(_) => {}

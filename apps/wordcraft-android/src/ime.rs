@@ -81,10 +81,10 @@ pub fn utf16_to_char(text: &str, offset: usize) -> usize {
     text.chars().count()
 }
 
-/// More characters than this deleted from the keyboard's buffer in one change are not a deletion:
-/// they are a buffer that was replaced or could not be read (a person deletes a word, not a
-/// paragraph, between two reads of 30 ms).
-const MAX_DELETE_CHARS: usize = 24;
+/// More characters than this (a little more than the context the buffer is filled with) deleted
+/// from the keyboard's buffer in one change are not a deletion: they are a buffer that was
+/// replaced. A buffer that could not be read reads as empty and is caught by the empty rule.
+const MAX_DELETE_CHARS: usize = 160;
 
 /// Remembers what has been given to the editor.
 #[derive(Debug, Default)]
@@ -451,13 +451,12 @@ mod tests {
         // A Backspace, a word: edits.
         assert!(!b.out_of_step(&cut(1)));
         assert!(!b.out_of_step(&cut(10)));
-        assert!(!b.out_of_step(&cut(24)));
-        // A paragraph at once, or an unreadable buffer (it reads as empty): not a deletion.
-        assert!(b.out_of_step(&cut(25)));
+        assert!(!b.out_of_step(&cut(len - 2)), "a long URL deleted at once is a deletion");
+        // An unreadable buffer (it reads as empty): not a deletion.
         assert!(b.out_of_step(&Snapshot::default()));
         // An older, shorter buffer replacing a newer one is out of step as well.
         let mut b = Bridge::default();
-        b.seed(&"x".repeat(60));
+        b.seed(&"x".repeat(200));
         assert!(b.out_of_step(&Snapshot { text: "y".into(), compose: None, at_end: true }));
         // An empty buffer after a single character is the character's deletion.
         let mut b = Bridge::default();

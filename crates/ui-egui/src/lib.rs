@@ -924,6 +924,13 @@ impl WordApp {
         self.desktop_theme = desktop_theme::DesktopTheme::start(move || ctx.request_repaint());
     }
 
+    /// The system's light or dark appearance, from a host whose windowing library doesn't report it
+    /// (Android: the configuration's night mode). `None` says it doesn't know. What the Interface
+    /// theme setting `System` follows when winit and the desktop portal are silent.
+    pub fn set_system_dark(&mut self, dark: Option<bool>) {
+        self.desktop_dark = dark;
+    }
+
     /// Whether the interface theme setting currently resolves to dark (`System` asks the OS).
     pub fn ui_is_dark(&self) -> bool {
         self.ui.theme.is_dark(self.ctx.as_ref().and_then(|ctx| system_theme(ctx, self.desktop_dark)))

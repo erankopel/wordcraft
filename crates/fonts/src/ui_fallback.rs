@@ -89,6 +89,12 @@ fn candidates(hans: bool) -> Vec<&'static str> {
             ],
             &["ヒラギノ角ゴシック W3.ttc", "Hiragino Sans W3.ttc"],
         )
+    } else if cfg!(target_os = "android") {
+        // The system's fonts sit flat in /system/fonts (and the other font partitions).
+        (
+            &["NotoSansCJK-Regular.ttc", "NotoSansSC-Regular.otf", "NotoSansSC-Regular.ttf", "DroidSansFallbackFull.ttf", "DroidSansFallback.ttf"],
+            &["NotoSansCJK-Regular.ttc", "NotoSansJP-Regular.otf", "NotoSansJP-Regular.ttf"],
+        )
     } else {
         (
             &[

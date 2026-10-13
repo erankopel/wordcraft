@@ -4,6 +4,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use android_activity::AndroidApp;
+use android_activity::ndk::configuration::UiModeNight;
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{UiState, WordApp};
 
@@ -20,7 +21,10 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
     let dirs = Dirs::new(&files);
     // Before anything asks where the settings are (fonts, preferences, the dictionary).
     wordcraft_control_key::set_settings_dir(dirs.root().to_path_buf());
-    crate::logging::attach_dir(&dirs.logs());
+    // The log goes where a person can reach it without a computer's adb: the app's folder on shared
+    // storage (Android/data/<package>/files/logs, which the system file manager can open and
+    // share), else the private folder.
+    crate::logging::attach_dir(&android.external_data_path().map_or_else(|| dirs.logs(), |p| p.join("logs")));
     log::info!("settings folder {}", dirs.root().display());
     load_user_fonts(&dirs);
 
@@ -48,8 +52,8 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
                 // Nothing to carry on with: start on File › Home, as the desktop app does.
                 app.start_screen();
             }
-            let keyboard = Keyboard::new(android, &cc.egui_ctx);
-            Ok(Box::new(Shell { app, dirs, recovery, keyboard, left: false }))
+            let keyboard = Keyboard::new(android.clone(), &cc.egui_ctx);
+            Ok(Box::new(Shell { android, app, dirs, recovery, keyboard, left: false }))
         }),
     )
     .map_err(|e| e.to_string())
@@ -57,6 +61,7 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
 
 /// The editor and what keeps its work safe.
 struct Shell {
+    android: AndroidApp,
     app: WordApp,
     dirs: Dirs,
     recovery: Recovery,
@@ -68,6 +73,12 @@ struct Shell {
 impl eframe::App for Shell {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.app.logic(ctx);
+        // Follow the system's light or dark appearance (winit doesn't report it on Android).
+        self.app.set_system_dark(match self.android.config().ui_mode_night() {
+            UiModeNight::Yes => Some(true),
+            UiModeNight::No => Some(false),
+            _ => None,
+        });
         // The keyboard is read while the page or a text field has focus.
         self.keyboard.want(self.app.canvas.focused || ctx.egui_wants_keyboard_input());
         if std::mem::take(&mut self.left) {

@@ -512,6 +512,7 @@ fn speak(text: &str, rate: f32, changed: &dyn Fn() -> bool) -> Spoken {
     use std::process::{Command, Stdio};
     let wpm = ((BASE_WPM * rate).round() as i64).to_string();
     // The text goes in on stdin so it can never be taken for an option.
+    #[cfg_attr(target_os = "android", allow(unused_mut))]
     let mut tries: Vec<Command> = Vec::new();
     #[cfg(target_os = "macos")]
     {
@@ -530,7 +531,9 @@ fn speak(text: &str, rate: f32, changed: &dyn Fn() -> bool) -> Spoken {
         c.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
         tries.push(c);
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
+    // Android has no such program (its own speech service isn't called yet): nothing is tried and
+    // Read Aloud says there is no speech program.
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
     {
         for prog in ["espeak-ng", "espeak"] {
             let mut c = Command::new(prog);

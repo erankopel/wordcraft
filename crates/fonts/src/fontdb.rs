@@ -709,7 +709,7 @@ pub fn system_font_dirs() -> Vec<std::path::PathBuf> {
         }
     } else if cfg!(target_os = "android") {
         // The system's own fonts (Roboto, Noto, the maker's): the partitions Android keeps them on.
-        dirs.extend(["/system/fonts", "/system_ext/fonts", "/product/fonts", "/vendor/fonts"].map(Into::into));
+        dirs.extend(["/system/fonts", "/system_ext/fonts", "/product/fonts", "/vendor/fonts", "/odm/fonts"].map(Into::into));
     } else {
         dirs.extend(["/usr/share/fonts", "/usr/local/share/fonts"].map(Into::into));
         if let Some(h) = &home {

@@ -1,0 +1,60 @@
+name: Android
+
+# Builds the unofficial Android APK (packaging/android) on demand and attaches it to the run. It is
+# not part of the release workflow: the APK is for sideloading on your own device.
+#
+# Signing: without secrets the APK is signed with a key made for this run, so it installs but can't
+# update an earlier build. To keep one signature, add the repository secrets ANDROID_KEYSTORE_BASE64
+# (base64 of your .jks file) and ANDROID_KEYSTORE_PASSWORD (also the key password). The artifact of a
+# run is readable by anyone who can read the repository: don't use a key you care about in a public one.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: android
+
+      - name: Signing key from the repository secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "::add-mask::$KEYSTORE_PASSWORD"
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/wordcraft.jks"
+            echo "WORDCRAFT_KEYSTORE=$RUNNER_TEMP/wordcraft.jks" >> "$GITHUB_ENV"
+            echo "WORDCRAFT_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No signing secrets: signing with a key made for this run, so this APK can't update an earlier build."
+          fi
+
+      - name: Build the APK
+        # --install-sdk accepts the Android SDK licences for the runner's SDK, as every Android CI does.
+        run: packaging/android/package.sh --install-sdk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wordcraft-android-apk
+          path: |
+            dist/release/*.apk
+            dist/release/*.apk.sha256
+          if-no-files-found: error

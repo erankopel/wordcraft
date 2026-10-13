@@ -18,7 +18,13 @@ pub(super) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     replace_with(path, private, |file| {
         file.write_all(bytes)?;
         if let Some(permissions) = permissions {
-            file.set_permissions(permissions)?;
+            let applied = file.set_permissions(permissions);
+            // Android's shared storage is a FUSE mount that refuses chmod and keeps the mode it
+            // chose for every file; a save there must not fail over it.
+            #[cfg(not(target_os = "android"))]
+            applied?;
+            #[cfg(target_os = "android")]
+            let _ = applied;
         }
         // Synchronize the prepared file before replacing the destination. Directory durability
         // and network-filesystem/power-loss guarantees are outside this operation's contract.

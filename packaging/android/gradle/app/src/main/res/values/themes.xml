@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- GameActivity extends AppCompatActivity, so the theme must descend from Theme.AppCompat. The
+         window is edge to edge (the system enforces it from API 35; MainActivity turns the insets
+         into padding), so the bars are transparent over the window background. -->
+    <style name="Theme.WordCraft" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/wordcraft_window_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

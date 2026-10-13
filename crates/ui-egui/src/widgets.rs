@@ -92,8 +92,9 @@ fn keytip_badge(ui: &Ui, rect: Rect, id: &str, name: &str) {
 pub fn enabled(app: &WordApp, id: &str) -> bool {
     match app.session.registry.get(id) {
         Some(s) => (s.enabled)(&app.session).is_none(),
-        // Zotero: one command at a time, and only in the desktop app.
-        None if id.starts_with("ui.zotero.") => app.zotero.busy.is_none() && !cfg!(target_arch = "wasm32"),
+        // Zotero: one command at a time, and only in the desktop app (it talks to Zotero over a
+        // port on this computer, which a phone doesn't have).
+        None if id.starts_with("ui.zotero.") => app.zotero.busy.is_none() && !cfg!(target_arch = "wasm32") && !cfg!(target_os = "android"),
         None if id == "ui.linkTextBox" => enabled(app, "shape.link"),
         None => id.starts_with("ui."),
     }

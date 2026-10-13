@@ -113,7 +113,10 @@ impl Bridge {
             }
         }
         self.given = committed;
-        if composing != self.preedit {
+        // Committing text clears the preedit the editor shows, so a word still being composed is
+        // sent again after it.
+        let cleared = out.iter().any(|o| matches!(o, Output::Commit(_)));
+        if composing != self.preedit || (cleared && !composing.is_empty()) {
             out.push(Output::Preedit(composing.clone()));
             self.preedit = composing;
         }
@@ -169,6 +172,15 @@ mod tests {
     }
 
     #[test]
+    fn a_word_still_being_composed_survives_a_commit_before_it() {
+        let mut b = Bridge::default();
+        b.observe(&snap("one 😀", Some((4, 5))));
+        // The keyboard corrects the committed text and keeps composing: committing clears the
+        // editor's preedit, so it is sent again.
+        assert_eq!(b.observe(&snap("one! 😀", Some((5, 6)))), vec![Output::Backspace(1), Output::Commit("! ".into()), Output::Preedit("😀".into())]);
+    }
+
+    #[test]
     fn a_line_break_is_the_enter_key() {
         let mut b = Bridge::default();
         assert_eq!(b.observe(&snap("one\ntwo", None)), vec![Output::Commit("one".into()), Output::Enter, Output::Commit("two".into())]);
@@ -204,6 +216,89 @@ mod tests {
         // A composing span beyond the text is ignored rather than slicing out of range.
         let mut b = Bridge::default();
         assert_eq!(b.observe(&snap("ab", Some((1, 9)))), vec![Output::Commit("ab".into())]);
+    }
+
+    /// A keyboard simulated against the bridge: whatever the keyboard does to its buffer (type,
+    /// compose, delete, autocorrect, be reset by a touch), the editor ends up with the text the
+    /// buffer holds on top of what was there at the last reset.
+    #[test]
+    fn the_editor_always_ends_up_with_what_the_keyboard_typed() {
+        struct Lcg(u64);
+        impl Lcg {
+            fn next(&mut self, n: usize) -> usize {
+                self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                ((self.0 >> 33) as usize) % n.max(1)
+            }
+        }
+        const WORDS: [&str; 7] = ["a", "he", "teh", "שלום", "x y", "😀", "line\nbreak"];
+        for seed in 0..300u64 {
+            let mut rng = Lcg(seed + 1);
+            let mut bridge = Bridge::default();
+            // The keyboard's buffer: committed text, then the word being composed (if any).
+            let (mut committed, mut composing): (Vec<char>, Vec<char>) = (Vec::new(), Vec::new());
+            // The editor: its text, the preedit it shows, and what was there at the last reset.
+            let (mut doc, mut preedit, mut base): (Vec<char>, String, Vec<char>) = (Vec::new(), String::new(), Vec::new());
+            for step in 0..200 {
+                let word: Vec<char> = WORDS[rng.next(WORDS.len())].chars().collect();
+                match rng.next(6) {
+                    // Compose: the word grows or is replaced.
+                    0 | 1 => composing = word,
+                    // Commit the composition, plus what the keyboard adds with it.
+                    2 => {
+                        committed.append(&mut composing);
+                        committed.extend(word);
+                        committed.push(' ');
+                    }
+                    // Backspace: shortens the composition, or the committed text.
+                    3 => {
+                        if composing.pop().is_none() {
+                            committed.pop();
+                        }
+                    }
+                    // Autocorrect: the last few committed characters are replaced.
+                    4 => {
+                        let cut = rng.next(committed.len().min(6) + 1);
+                        committed.truncate(committed.len() - cut);
+                        committed.extend(word);
+                    }
+                    // A touch: the composition is committed where it was typed and the keyboard starts over.
+                    _ => {
+                        apply(&bridge.reset(), &mut doc, &mut preedit);
+                        committed.clear();
+                        composing.clear();
+                        base = doc.clone();
+                    }
+                }
+                let mut text = committed.clone();
+                text.extend(&composing);
+                let compose = (!composing.is_empty()).then(|| (committed.len(), text.len()));
+                let outputs = bridge.observe(&Snapshot { text: text.iter().collect(), compose });
+                apply(&outputs, &mut doc, &mut preedit);
+                if bridge.should_reset() {
+                    apply(&bridge.reset(), &mut doc, &mut preedit);
+                    committed.clear();
+                    composing.clear();
+                    base = doc.clone();
+                }
+                let shown: String = doc.iter().collect::<String>() + &preedit;
+                let wanted: String = base.iter().chain(&committed).chain(&composing).collect();
+                assert_eq!(shown, wanted, "seed {seed} step {step}");
+            }
+        }
+
+        fn apply(outputs: &[Output], doc: &mut Vec<char>, preedit: &mut String) {
+            for output in outputs {
+                match output {
+                    Output::Backspace(n) => doc.truncate(doc.len().saturating_sub(*n)),
+                    Output::Commit(text) => {
+                        doc.extend(text.chars());
+                        preedit.clear();
+                    }
+                    Output::Enter => doc.push('\n'),
+                    Output::Preedit(text) => preedit.clone_from(text),
+                }
+            }
+        }
     }
 
     #[test]

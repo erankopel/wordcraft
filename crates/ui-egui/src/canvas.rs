@@ -1743,10 +1743,13 @@ fn finger_scroll(app: &mut WordApp, ui: &Ui, area: Rect) -> egui::Vec2 {
         app.canvas.pan.cancel();
         return egui::Vec2::ZERO;
     }
-    let (events, time, dt) = ui.input(|i| (i.events.clone(), i.time, i.stable_dt));
-    if !events.iter().any(|e| matches!(e, egui::Event::Touch { .. })) && !app.canvas.pan.panning() && app.canvas.pan.idle() {
+    // Nothing to do (and nothing copied) while no finger is down or coasting: every frame of a
+    // mouse or touchpad user.
+    let touching = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. })));
+    if !touching && !app.canvas.pan.panning() && app.canvas.pan.idle() {
         return egui::Vec2::ZERO;
     }
+    let (events, time, dt) = ui.input(|i| (i.events.clone(), i.time, i.stable_dt));
     let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
     let last_press = app.canvas.last_press;
     let tool_busy = app.canvas.obj_drag.is_some()

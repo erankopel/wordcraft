@@ -3,13 +3,14 @@
 An unofficial Android build of WordCraft for your own device, tested on nothing yet: it has been
 compiled, linked, packaged and checked statically (see Status), but not run on a phone, a tablet or
 an emulator, because none was available where it was built. It targets a Samsung Galaxy Z Fold7 on
-Android 17: arm64-v8a only, minSdk 35, targetSdk 34, compileSdk 37. It is not on Google Play and is
+Android 17: arm64-v8a only, minSdk 35, targetSdk 36, compileSdk 37. It is not on Google Play and is
 not part of the GitHub releases.
 
 The app is the same editor as the desktop one (`wordcraft-ui-egui` over `wordcraft-engine`, eframe
 with wgpu on Vulkan). The Android part is the crate [`apps/wordcraft-android`](../../apps/wordcraft-android),
-loaded by Google's GameActivity. This folder holds only what turns that library into an APK; there
-is no Java or Kotlin of ours in it.
+loaded by Google's GameActivity. This folder holds only what turns that library into an APK: a Gradle
+project, the manifest, a launcher icon and one small Java class (`MainActivity`, which turns the
+window insets, the system bars and the keyboard into padding; everything else is Rust).
 
 ## Build the APK
 
@@ -45,7 +46,7 @@ the one before it. The version name is the workspace version.
 
 ### Build on GitHub
 
-The workflow `.github/workflows/android.yml` ("Android", run from the Actions tab) builds the same
+The workflow `.github/workflows/android.yml` (named Android, run from the Actions tab) builds the same
 APK and attaches it to the run as an artifact. Without secrets it signs with a key created for that
 run, so each run's APK has a different signature and can't update the last one: save the key you want
 to keep as the repository secrets `ANDROID_KEYSTORE_BASE64` (the `.jks` file, base64 encoded) and
@@ -59,6 +60,9 @@ repository with a key you care about; the artifact is visible to anyone who can 
    (Settings, Apps, Special app access, Install unknown apps). Google Play Protect may say it has not
    seen the app: choose More details, then Install anyway. The app is signed by your own key, which
    Play Protect can't know.
+   Samsung's Auto Blocker (Settings, Security and privacy) blocks installs from outside the stores
+   and USB commands: if the install is refused, or adb is ignored, switch Auto Blocker off for the
+   install and on again afterwards.
 3. Open WordCraft once, then give it access to files: Settings, Apps, WordCraft, Allow access to
    manage all files (also under Special app access, All files access). The built-in file browser
    needs it to list and save documents in shared storage. Without it the browser shows a hint and

@@ -8,3 +8,7 @@ plan/
 /.claude/
 /target-*/
 /craft-fonts/
+# Android signing keys (package.sh keeps them in ~/.config/wordcraft/android, never in the repo)
+*.jks
+*.keystore
+keystore.pass

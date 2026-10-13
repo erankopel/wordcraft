@@ -57,16 +57,68 @@ installed to know that an update will go over it.
 The version code is the number of minutes since 2026-01-01 at build time, so each build is newer than
 the one before it. The version name is the workspace version.
 
-### Build on GitHub
+### Build on GitHub, from an up to date fork
 
-The workflow `.github/workflows/android.yml` (named Android, run from the Actions tab) builds the same
-APK and attaches it to the run as an artifact. Without secrets it signs with a key created for that
-run, so each run's APK has a different signature and can't update the last one: save the key you want
-to keep as the repository secrets `ANDROID_KEYSTORE_BASE64` (the `.jks` file, base64 encoded) and
-`ANDROID_KEYSTORE_PASSWORD`, and the workflow uses it. Anyone who can run workflows on a branch of
-the repository can make a run that reads those secrets, so keep a key you care about out of a
-repository other people can write to; the artifact is visible to anyone who can read it. This
-workflow has not been run yet, so the first dispatch may need fixing.
+Two workflows (Actions tab) keep a fork current and build the APK when you ask for one. They need
+the Android files on the fork's default branch, because GitHub shows and schedules workflows from
+there only.
+
+**Set up, once**
+
+1. On the fork's Actions tab, enable workflows (GitHub switches them off in a new fork).
+2. Put the Android work on the fork's `main`, if it is on another branch:
+   `git switch main && git merge <that branch> && git push`.
+3. Keep your signing key as repository secrets, so every build is signed with the same key and
+   installs over the last one. Make a key (any JDK has `keytool`; use the same password for the store
+   and the key, press Return when it asks for the key password), then store it:
+
+   ```sh
+   keytool -genkeypair -keystore wordcraft-release.jks -storetype PKCS12 -alias wordcraft \
+     -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=WordCraft personal build, O=Self"
+   base64 -w0 wordcraft-release.jks | gh secret set ANDROID_KEYSTORE_BASE64   # macOS: base64 -i FILE
+   gh secret set ANDROID_KEYSTORE_PASSWORD
+   ```
+
+   (or paste them under Settings, Secrets and variables, Actions). Back the `.jks` file up. The
+   alias must be `wordcraft`. An APK installed from another key (a local `package.sh` run made one in
+   `~/.config/wordcraft/android`) must be uninstalled once before the first build with this key.
+
+**Sync upstream** (`.github/workflows/sync-upstream.yml`) runs every day and when you run it. It
+merges the original repository's newest commits into `main`, as a merge commit (no rebase, no force
+push), and stops with a failed run, a list of the files and the branch untouched when git cannot
+combine a source file: you then merge by hand (the job summary has the commands) or ask for the merge
+in a Claude Code session. What it settles without stopping is listed at the top of
+`.github/scripts/sync-upstream.sh`: your own `.github/workflows` stay as they are (upstream's CI needs
+its organisation's secrets and does nothing in a fork), docs keep both sides' lines, `Cargo.lock` is
+settled with cargo, and a merge after which cargo cannot resolve the workspace is undone. A merge can
+still compile badly even when git was happy: the build tells. GitHub emails you about a failed run.
+The script is tested against local repositories: `.github/scripts/test-sync-upstream.sh`.
+
+GitHub's own Sync fork button on the repository page also works; never use Discard commits there, it
+would throw your Android changes away. If GitHub ever refuses the push because the merge changes a
+workflow file, add the repository secret `SYNC_TOKEN` (a fine-grained personal access token for this
+repository with Contents and Workflows read and write). A public repository's scheduled workflows
+are stopped after 60 days without activity; the last step of the workflow asks GitHub to enable it
+again each day, which should reset that clock, and if the schedule ever stops, run it once by hand.
+
+**Android** (`.github/workflows/android.yml`) builds the APK when you choose: Actions, Android, Run
+workflow, on the branch you want (normally `main`), with the options
+
+- *sync*: merge the original repository's newest commits into that branch first (the same merge),
+  then build exactly the commit that results;
+- *release*: also publish the APK as the `android-latest` pre-release (each run replaces it), so a
+  phone can download the `.apk` from the Releases page, which an artifact's zip does not offer. In a
+  public repository that page is public, and only builds signed with your own key are published.
+
+The build takes about 20 minutes (more the first time). The APK and its `.sha256` are also attached to
+the run as an artifact, readable by anyone who can read the repository. Anyone who can run workflows
+on a branch can make a run that reads the signing secrets, so keep a key you care about out of a
+repository other people can write to. This workflow has not been run on GitHub yet, so the first run
+may need fixing.
+
+A fork of a public repository is public and cannot be made private. The code of the original is
+MIT or Apache-2.0, so a build of it is yours to make; its brand terms (`docs/brand/LICENSE-brand.txt`)
+apply to a modified build you publish.
 
 ## Install on the Fold
 

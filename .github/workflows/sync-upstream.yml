@@ -1,0 +1,72 @@
+name: Sync upstream
+
+# For a fork: every day, and whenever you run it, merge the original repository's newest commits
+# into this branch (the default branch, normally main), so the fork never falls behind. Nothing of
+# yours is lost: it makes a merge commit, never a rebase or a force push. When git cannot combine
+# a source file the run fails, says which files, and leaves the branch as it was (see the job
+# summary); GitHub emails you about a failed scheduled run.
+#
+# The rules, and what is settled without stopping, are at the top of .github/scripts/sync-upstream.sh:
+# this fork's own .github/workflows are kept, docs keep both sides' lines, Cargo.lock is settled with
+# cargo. The Android workflow can do the same merge first (its sync input).
+#
+# Setup, once: Actions tab, enable workflows on the fork (GitHub switches them off in new forks).
+# Optional: a repository secret SYNC_TOKEN (a fine-grained personal access token for this repository
+# with Contents and Workflows read and write) is used for the push instead of the workflow's own
+# token. It is only needed if GitHub refuses a push that changes a workflow file, which the rule of
+# keeping this fork's workflows avoids. A push made with a token of your own also starts the
+# workflows that react to pushes, a push made with the workflow's token does not.
+#
+# GitHub stops scheduled workflows of a public repository after 60 days without activity; the last
+# step asks GitHub to enable this workflow again each day, which should restart that clock (best
+# effort: if the schedule ever stops, run this workflow once by hand).
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: upstream-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # Never in the original repository itself: it has nothing to merge from.
+    if: ${{ github.repository != 'storytold/wordcraft' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      # cargo settles Cargo.lock after a merge (it reads manifests and the registry index only; it
+      # runs no build script).
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Merge the original repository's newest commits
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Optional repository variable: owner/name of the original, when it is not this repository's parent.
+          UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO }}
+          REPORT_FILE: ${{ runner.temp }}/sync-report.md
+        run: .github/scripts/sync-upstream.sh --push
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          if [ -f "$RUNNER_TEMP/sync-report.md" ]; then cat "$RUNNER_TEMP/sync-report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Keep the schedule alive
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow enable sync-upstream.yml

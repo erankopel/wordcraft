@@ -315,7 +315,8 @@ For example `yay -S wordcraft-bin` or `paru -S wordcraft-bin`.
 WordCraft also has an unofficial Android build, for personal use. It is not part of the GitHub
 releases and is not published anywhere else: you build the APK yourself with
 `packaging/android/package.sh`, or run the Android workflow (`.github/workflows/android.yml`) on
-GitHub, and install it on your own device. Build and sideload steps are in
+GitHub (a fork can first merge the original's newest commits, and keep itself current with the Sync
+upstream workflow), and install it on your own device. Build and sideload steps are in
 [`packaging/android/README.md`](packaging/android/README.md). The target is a Samsung Galaxy Z Fold7
 on Android 17 (API 37): minSdk 35, targetSdk 36, compileSdk 37, arm64-v8a only. The app is the same
 editor as on the desktop (`wordcraft-ui-egui` over `wordcraft-engine`, eframe with wgpu on Vulkan),

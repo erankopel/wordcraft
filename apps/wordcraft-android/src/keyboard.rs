@@ -1,7 +1,7 @@
 //! The on-screen keyboard, over GameActivity's text input state (see [`crate::ime`] for why).
 //!
-//! A small thread reads `AndroidApp::text_input_state` while the editor wants text (about thirty
-//! times a second), and when the buffer changes it stores it and wakes the UI, which hands it to
+//! A small thread reads `AndroidApp::text_input_state` while the editor wants text and the app has
+//! a window (about thirty times a second), and when the buffer changes it stores it and wakes the UI, which hands it to
 //! [`Bridge`] on its next frame and adds the resulting input to that frame's events. Only that
 //! thread reads the state (the glue says it isn't safe to read from several), and the UI thread
 //! writes it only to empty the buffer.
@@ -100,7 +100,9 @@ impl Drop for Keyboard {
 fn poll(android: &AndroidApp, shared: &Shared, ctx: &egui::Context) {
     let mut last = Snapshot::default();
     while !shared.stop.load(Ordering::Relaxed) {
-        if !shared.wanted.load(Ordering::Relaxed) {
+        // Frames, which update `wanted`, stop when the app is paused; the window going away
+        // (the app moved to the background) is what stops the reading then.
+        if !shared.wanted.load(Ordering::Relaxed) || android.native_window().is_none() {
             std::thread::sleep(IDLE);
             continue;
         }

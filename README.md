@@ -181,9 +181,10 @@ that with env_logger-style directives, for example `RUST_LOG=debug`,
 covers every target starting with it (`wordcraft*=debug`). The logger is
 `apps/wordcraft/src/logging.rs`.
 
-On Android the log goes to logcat and to `logs/wordcraft.log` in the app's private folder
-(`files/wordcraft/logs/` inside the app's data folder), which other apps and file managers cannot
-open. From a computer, `adb logcat -s WordCraft` shows the same records. Each start moves the
+On Android the log goes to logcat and to `wordcraft.log` in the app's folder on shared storage
+(`Android/data/ai.storyteller.wordcraft/files/logs/`, which the system file manager can open and
+share; the private `files/wordcraft/logs/` when the system gives the app no such folder). From a
+computer, `adb logcat -s WordCraft` shows the same records. Each start moves the
 previous log to `wordcraft.1.log`, and a log stops growing at 4 MiB. Levels are fixed (`info` for
 WordCraft's own crates, `warn` for the rest; `RUST_LOG` is not read), and a panic message leaves
 out the text it quotes, as on the desktop. The logger is `apps/wordcraft-android/src/logging.rs`.
@@ -325,22 +326,35 @@ emulator, because none was available where it was built, so everything below is 
 hardware.
 
 - **Touch:** one finger dragging on the page scrolls it and the page coasts after release; a double
-  tap then a drag selects by words; a long press opens the context menu; two fingers pinch zoom. A
-  keyboard button at the right end of the status bar brings the on-screen keyboard back; typing on
-  it, composing text included, has not been tried on a device. The ribbon, menus and dialogs keep
-  their desktop sizes (the first start sets the interface size to 125 percent), and there is no
-  stylus work.
+  tap then a drag selects by words; a long press selects the word and opens the context menu; two
+  fingers pinch zoom. In a narrow window (the Fold's outer screen) the ribbon's tabs scroll sideways
+  and dialogs scroll inside the window. The ribbon, menus and dialogs keep their desktop sizes
+  (the first start sets the interface size to 125 percent), so touch targets are small, and there
+  are no selection handles and no stylus work.
+- **On-screen keyboard:** winit drops the text GameActivity delivers, so the app reads the
+  keyboard's buffer itself and turns it into the editor's input events (`ime.rs`, `keyboard.rs`;
+  the text diffing has host tests, including a randomized simulation). A keyboard button at the
+  right end of the status bar brings the keyboard back after it was dismissed. Typing, composing
+  text included, has not been tried on a device.
+- **Hardware keyboards:** letters and the arrow, Home, End and Page keys work, but Ctrl, Shift and
+  Alt are never reported by winit's Android backend, so shortcuts that use them (Ctrl+B, Ctrl+C,
+  Shift+arrows) do nothing; use the ribbon and the context menu. Fixing that means a small patch to
+  winit.
 - **Files:** Open and Save use the built-in file browser over `/storage/emulated/0`, because the
   system file picker needs Java and is not called yet. To list and save in shared storage, grant
   All files access (`MANAGE_EXTERNAL_STORAGE`) once in Android Settings under Apps, Special app
   access, All files access.
-- **Your work:** while the document has unsaved changes a recovery copy is written about every 10
-  seconds, and at once when the app loses focus (Android can end a backgrounded app without asking);
-  the next start offers it back. Settings, the custom dictionary, added fonts and the recovery copy
+- **Your work:** while the document has unsaved changes a recovery copy is written a moment after
+  you stop typing, and at the latest 10 seconds into continuous typing (Android can end a
+  backgrounded app without asking, and a paused app draws no frames, so nothing waits for the app
+  to be left); the next start offers it back. Closing the app (File, Close) after saving or
+  discarding removes it, and a copy that can't be opened is kept as `unreadable.docx` instead of
+  being deleted. Settings, the custom dictionary, added fonts and the recovery copy
   live in the app's private folder, and uninstalling the app removes them. Fonts are read from
   `/system/fonts`, `/system_ext/fonts`, `/product/fonts` and `/vendor/fonts`.
 - **Not there yet:** a system clipboard bridge (copy and paste work inside the app only), printing,
-  opening documents from other apps, and an accessibility bridge (TalkBack).
+  opening documents from other apps, the system file picker, selection handles, finger sized
+  controls, an accessibility bridge (TalkBack), and the hardware keyboard modifiers above.
 
 ## The Crafting Apps
 

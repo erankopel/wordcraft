@@ -782,12 +782,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             app.canvas.scroll_to_caret = true;
         }
     }
-    // The on-screen keyboard (or anything else) shortened the window: keep the caret in sight
-    // instead of leaving it behind the keyboard until the next edit.
+    // The on-screen keyboard shortened the window: keep the caret in sight instead of leaving it
+    // behind the keyboard until the next edit. Only on a touch screen, so a desktop window whose
+    // ribbon was expanded doesn't jump back to the caret.
     if let Some(before) = app.canvas.viewport
         && before.height() - area.height() > 80.0
         && app.canvas.focused
         && !app.session.view.read_mode
+        && ui.input(|i| i.has_touch_screen())
     {
         app.canvas.scroll_to_caret = true;
     }

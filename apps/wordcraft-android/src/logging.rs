@@ -1,11 +1,13 @@
-//! `log::` records on Android: logcat and a log file in the app's folder.
+//! `log::` records on Android: logcat and a log file in the app's folder on shared storage.
 //!
 //! Without a logger every `log::warn!` in the workspace (an unreadable part of a .docx, a font a
 //! PDF export had to leave out) vanishes, and an Android app has no terminal. Records go to logcat
-//! (`adb logcat -s WordCraft`) and, once [`attach_dir`] has run, to `<settings>/logs/wordcraft.log`
-//! next to the preferences. Each start moves the previous log to `wordcraft.1.log`, so the log of
-//! a run that was killed survives the next launch. Levels follow the desktop app: `info` for
-//! WordCraft's own crates, `warn` for the rest (wgpu and naga are chatty).
+//! (`adb logcat -s WordCraft`) and, once [`attach_dir`] has run, to `wordcraft.log` in the folder it
+//! is given: `Android/data/<package>/files/logs`, which the system file manager can open, or the
+//! private settings folder's `logs` when the system gave the app no such folder. Each start moves
+//! the previous log to `wordcraft.1.log`, so the log of a run that was killed survives the next
+//! launch. Levels follow the desktop app: `info` for WordCraft's own crates, `warn` for the rest
+//! (wgpu and naga are chatty).
 //!
 //! Writing never panics: a file that can't be created or written leaves logcat as the only sink.
 //! The pieces that need no Android (the file sink, the filter, the panic text) are plain code with
@@ -137,8 +139,7 @@ mod android {
 
     static LOGGER: OnceLock<Tee> = OnceLock::new();
 
-    /// Install the logger and the panic hook; a second call does nothing (the activity can be
-    /// recreated, which runs `android_main` again in the same process).
+    /// Install the logger and the panic hook; a second call does nothing.
     pub fn init() {
         let config = android_logger::Config::default().with_max_level(LevelFilter::Info).with_tag("WordCraft");
         let logger = LOGGER.get_or_init(|| Tee { android: android_logger::AndroidLogger::new(config), file: OnceLock::new() });
@@ -151,9 +152,12 @@ mod android {
     /// Also write the log to `dir`, once the settings folder is known.
     pub fn attach_dir(dir: &Path) {
         let Some(logger) = LOGGER.get() else { return };
+        // The first attach wins; opening a second sink would rotate the log the first one writes.
+        if logger.file.get().is_some() {
+            return;
+        }
         match FileSink::open(dir) {
             Ok(sink) => {
-                // The first attach wins; a recreated activity keeps the log it already has.
                 let _ = logger.file.set(sink);
             }
             Err(e) => log::warn!("no log file in {}: {e}", dir.display()),

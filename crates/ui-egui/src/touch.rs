@@ -97,6 +97,8 @@ impl Pan {
         for event in events {
             let Event::Touch { id, phase, pos, .. } = event else { continue };
             match phase {
+                // A position that isn't a number can't be followed (and would poison the sums below).
+                TouchPhase::Start | TouchPhase::Move if !pos.is_finite() => continue,
                 TouchPhase::Start => {
                     self.fling = Vec2::ZERO;
                     if let Some(first) = self.finger.take() {
@@ -132,6 +134,9 @@ impl Pan {
                     }
                 }
             }
+        }
+        if !moved.is_finite() {
+            moved = Vec2::ZERO;
         }
         step.delta = moved;
         if dt > 0.0 && dt.is_finite() {
@@ -297,5 +302,31 @@ mod tests {
             &sel(),
             f32::NAN,
         );
+    }
+
+    #[test]
+    fn a_position_that_is_not_a_number_is_ignored() {
+        let mut pan = Pan::default();
+        run(&mut pan, &[touch(1, TouchPhase::Start, pos2(300.0, 400.0))]);
+        run(&mut pan, &[touch(1, TouchPhase::Move, pos2(300.0, 350.0))]);
+        assert!(pan.panning());
+        for bad in [pos2(f32::INFINITY, 340.0), pos2(f32::NAN, f32::NAN), pos2(300.0, f32::NEG_INFINITY)] {
+            let s = run(&mut pan, &[touch(1, TouchPhase::Move, bad), touch(1, TouchPhase::Move, pos2(300.0, 340.0))]);
+            assert!(s.delta.is_finite(), "{bad:?}: {:?}", s.delta);
+        }
+        // A start at a bad position never begins a finger; the finger that is down stays ours.
+        let s = run(&mut pan, &[touch(2, TouchPhase::Start, pos2(f32::NAN, 10.0))]);
+        assert_eq!(s, Step::default());
+        assert!(pan.panning());
+        run(&mut pan, &[touch(1, TouchPhase::End, pos2(300.0, 340.0))]);
+        // The coast that follows is a number, and ends.
+        for _ in 0..2_000 {
+            let s = run(&mut pan, &[]);
+            assert!(s.delta.is_finite());
+            if !s.coasting {
+                break;
+            }
+        }
+        assert!(pan.idle());
     }
 }

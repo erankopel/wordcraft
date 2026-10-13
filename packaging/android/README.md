@@ -83,14 +83,18 @@ before changing anything.
 - In a narrow window (the Fold's outer screen) the ribbon's tabs scroll sideways, Share, Editing and
   Comments fold into the menu at the end of the tab strip, and dialogs scroll inside the window.
 - The **keyboard button** at the right end of the status bar brings the on-screen keyboard back
-  after you dismissed it. Tapping the page shows it by itself. A hardware keyboard works as on the
-  desktop.
+  after you dismissed it. Tapping the page shows it by itself. A hardware keyboard types, with the
+  limits under Not there yet.
 - The interface starts at 125 percent; File, Options, General changes it.
 - **Files**: Open and Save use the built-in file browser, which starts in the device's shared
   storage (`/storage/emulated/0`).
-- **Your work**: while a document has unsaved changes, WordCraft writes a recovery copy about every
-  ten seconds and at once when you leave the app, because Android can end a background app without
-  asking. The next start opens it again, marked unsaved. Save to keep it.
+- **Your work**: while a document has unsaved changes, WordCraft writes a recovery copy a moment
+  after you stop typing (and at the latest ten seconds into continuous typing), because Android can
+  end a background app without asking. The next start opens it again, marked unsaved. Save to keep
+  it. File, Close after saving or discarding removes it; a copy that can't be opened is kept as
+  `unreadable.docx` in the app's folder, never deleted.
+- **Closing**: File, Close quits the app, and its process ends with it, so the next launch starts
+  from nothing (the native side can run only once per process).
 
 ## Not there yet
 
@@ -127,4 +131,5 @@ What was checked, and how (nothing was run on a device):
 
 Everything else is unverified until it has run on the device: the GPU start, typing with the
 on-screen keyboard, the file browser over shared storage, folding and unfolding, and long documents
-on the 2 MiB stack Android gives the app thread. If something fails, the log above is what to look at.
+on the roughly 1 MiB stack Android gives the app thread (the engine and UI test suites pass with that
+stack size, so it is a caution, not a known problem). If something fails, the log above is what to look at.

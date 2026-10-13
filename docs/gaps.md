@@ -1,6 +1,6 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (the unofficial Android build is listed as #30; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -44,6 +44,7 @@ Native save reliability: synthetic cases on macOS reproduced loss through the pr
 | 27 | **View windows**: Side by Side, Synchronous Scrolling, Arrange All, Switch Windows | | [parity-checklist.md](parity-checklist.md) (View 25/29) | Comparing documents | 3–5 | [ui-parity.md](ui-parity.md) |
 | 28 | **Dictate** | | `tools.dictate` missing | Dictation users | 8–15 + owner (speech model) | [hardware-parity.md](hardware-parity.md) |
 | 29 | **Equations**: ink equations | | #191 notes; long display equations wrap at operators (#326) | Maths-heavy documents | 2–3 | [layout-parity.md](layout-parity.md) |
+| 30 | **Android build** (unofficial, personal sideload; not scored): never run on a device. Missing: Ctrl, Shift and Alt from a hardware keyboard (winit's Android backend never reports them, needs a patch), a system clipboard bridge, the system file picker (the built-in browser needs All files access), selection handles, finger sized controls, TalkBack, printing | | `apps/wordcraft-android`, `packaging/android`; [hardware-parity.md](hardware-parity.md) Android | The owner's Fold7; anyone sideloading | 25–40 | [hardware-parity.md](hardware-parity.md) |
 
 **Beta needs #1–#7** (~150–230 h with the stability and layout work they imply): they are the
 blocking gaps, and closing them lifts file formats, layout, stability and UI enough to take the
@@ -65,7 +66,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
   desktops (`apps/wordcraft/src/animations.rs`) but hasn't been tried on a Mac or in a real
   GNOME or KDE session yet.
 - **File-format gaps:** #1, #2, #5, #9, #14, #19, #23, #26; embedded fonts; glossary/building blocks.
-- **Hardware gaps:** #6, #12, #28; scanner/Continuity Camera insert; KDE soft text (#140).
+- **Hardware gaps:** #6, #12, #28, #30 (Android); scanner/Continuity Camera insert; KDE soft text (#140).
 - **Localization gaps:** #8, #11, #16, #17; native-speaker review of every catalog (human).
 - **Stability and performance gaps:** #3, #20.
 
@@ -73,6 +74,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | trivial | #30: the unofficial Android build and what it lacks (hardware keyboard modifiers, clipboard, file picker, selection handles, touch target sizes, TalkBack, a run on a device) |
 | 2026-10-11 | trivial | Table column and row markers on the rulers landed (#700): the ruler's column markers are off the UI/UX gaps |
 | 2026-10-11 | trivial | UI/UX gaps: the table context menu landed, its items following the selection as in Word (Delete Cells, Rows, Columns or Table, Merge and Split Cells, Distribute, AutoFit, Text Direction, Insert Caption…, Table Properties…); objects' menus and Border Styles remain |
 | 2026-10-11 | trivial | Tables: ordinary drags, Shift+arrows and Shift+click over cells select a rectangle of whole cells (into or out of a table, whole rows); removed from the UI/UX gaps |

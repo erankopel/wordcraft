@@ -36,9 +36,10 @@ mod keyboard;
 pub mod logging;
 pub mod storage;
 
-/// The entry point `android-activity` calls on its own thread when the activity starts (and again
-/// if the system destroys and recreates the activity). The name and the unmangled symbol are the
-/// contract with the glue; nothing else here is exported.
+/// The entry point `android-activity` calls on its own thread when the activity starts. It runs
+/// once per process: the windowing library allows one event loop, so `MainActivity` ends the
+/// process when the activity is destroyed (`packaging/android`). The name and the unmangled symbol
+/// are the contract with the glue; nothing else here is exported.
 #[cfg(target_os = "android")]
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
@@ -46,7 +47,8 @@ fn android_main(android: android_activity::AndroidApp) {
     logging::init();
     log::info!("WordCraft {} starting", env!("CARGO_PKG_VERSION"));
     if let Err(e) = app::run(android) {
-        // The activity thread ends here; the log says why (a window that can't be created, say).
+        // The activity finishes (and the process with it); the log says why (a window that can't be
+        // created, say).
         log::error!("WordCraft stopped: {e}");
     }
 }

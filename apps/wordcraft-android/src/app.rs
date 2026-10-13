@@ -1,7 +1,8 @@
-//! The eframe app on Android: [`WordApp`] plus what only a phone needs (saving preferences and a
-//! recovery copy when the app is left, since Android may end it without asking).
+//! The eframe app on Android: [`WordApp`] plus what only a phone needs (keeping preferences and a
+//! recovery copy of unsaved work on disk as it changes, since Android may end the app without
+//! asking, and without drawing another frame).
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use android_activity::AndroidApp;
 use android_activity::ndk::configuration::{Keyboard, UiModeNight};
@@ -10,7 +11,7 @@ use wordcraft_ui_egui::{UiState, WordApp};
 
 use crate::host;
 use crate::keyboard::Keyboard as SoftKeyboard;
-use crate::storage::{self, Dirs, Plan, Recovery};
+use crate::storage::{self, Dirs, Plan, Recovery, Restore};
 
 /// The interface size (percent) before the user has chosen one, on a screen 600 dp wide or more
 /// (the unfolded Galaxy Z Fold, a tablet); a phone's narrower screen starts at 100.
@@ -55,18 +56,31 @@ pub fn run(android: AndroidApp) -> Result<(), String> {
             }
             load_user_dictionary(&mut app, &dirs);
             let mut recovery = Recovery::default();
-            if restore_unsaved(&mut app, &dirs) {
-                recovery.restored();
-            } else {
-                // Nothing to carry on with: start on File › Home, as the desktop app does.
-                app.start_screen();
+            if let Some(stamp) = start_document(&mut app, &dirs) {
+                recovery.restored(stamp);
             }
             let keyboard = SoftKeyboard::new(android.clone(), &cc.egui_ctx);
-            Ok(Box::new(Shell { android, app, dirs, recovery, keyboard, left: false }))
+            let prefs_saved = prefs_bytes(&app).unwrap_or_default();
+            let shell = Shell {
+                android,
+                app,
+                dirs,
+                recovery,
+                keyboard,
+                left: false,
+                dark: None,
+                started: Instant::now(),
+                prefs_saved,
+                prefs_checked_ms: 0.0,
+            };
+            Ok(Box::new(shell))
         }),
     )
     .map_err(|e| e.to_string())
 }
+
+/// How often a changed preferences file is written (no more often than this).
+const PREFS_INTERVAL_MS: f64 = 2_000.0;
 
 /// The editor and what keeps its work safe.
 struct Shell {
@@ -77,28 +91,40 @@ struct Shell {
     keyboard: SoftKeyboard,
     /// The app lost focus since the last frame: Android may end it next.
     left: bool,
+    /// The system appearance last reported to the editor.
+    dark: Option<bool>,
+    /// The clock the planners use: milliseconds since start, which never goes backwards.
+    started: Instant,
+    /// The preferences file as last written (or read), to write only when something changed.
+    prefs_saved: Vec<u8>,
+    prefs_checked_ms: f64,
 }
 
 impl eframe::App for Shell {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.app.logic(ctx);
-        // Follow the system's light or dark appearance (winit doesn't report it on Android).
-        self.app.set_system_dark(match self.android.config().ui_mode_night() {
+        // Follow the system's light or dark appearance (winit doesn't report it on Android); a
+        // change draws a frame, since nothing else may.
+        let dark = match self.android.config().ui_mode_night() {
             UiModeNight::Yes => Some(true),
             UiModeNight::No => Some(false),
             _ => None,
-        });
+        };
+        if dark != self.dark {
+            self.dark = dark;
+            ctx.request_repaint();
+        }
+        self.app.set_system_dark(dark);
+        self.app.logic(ctx);
         // The keyboard is read while the page or a text field has focus.
         self.keyboard.want(self.app.canvas.focused || ctx.egui_wants_keyboard_input());
-        if std::mem::take(&mut self.left) {
-            save_prefs(&self.app, &self.dirs);
-            self.keep_recovery(true);
-        } else {
-            self.keep_recovery(false);
-        }
         if self.app.quit_requested {
+            // The person chose to close (and to save or discard); on_exit removes the recovery copy.
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
         }
+        let leaving = std::mem::take(&mut self.left);
+        self.keep_prefs(leaving);
+        self.keep_recovery(ctx, leaving);
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
@@ -118,26 +144,52 @@ impl eframe::App for Shell {
         }
     }
 
+    /// Reached only when the person closed the app (File, Close) after saving or discarding: the
+    /// system ending the app doesn't come through here, which is what the recovery copy is for.
     fn on_exit(&mut self) {
-        save_prefs(&self.app, &self.dirs);
-        self.keep_recovery(true);
+        self.keep_prefs(true);
+        storage::remove_quietly(&self.dirs.recovery());
     }
 }
 
 impl Shell {
+    fn now_ms(&self) -> f64 {
+        self.started.elapsed().as_secs_f64() * 1000.0
+    }
+
+    /// Write the preferences when they changed (at most every [`PREFS_INTERVAL_MS`]), or at once
+    /// when `force`.
+    fn keep_prefs(&mut self, force: bool) {
+        let now = self.now_ms();
+        if !force && now - self.prefs_checked_ms < PREFS_INTERVAL_MS {
+            return;
+        }
+        self.prefs_checked_ms = now;
+        let Some(bytes) = prefs_bytes(&self.app) else { return };
+        if bytes == self.prefs_saved {
+            return;
+        }
+        match storage::write_atomic(&self.dirs.prefs(), &bytes) {
+            Ok(()) => self.prefs_saved = bytes,
+            Err(e) => log::warn!("preferences not saved: {e}"),
+        }
+    }
+
     /// Keep the recovery copy of unsaved work in step with the document ([`Recovery`]).
-    fn keep_recovery(&mut self, leaving: bool) {
+    fn keep_recovery(&mut self, ctx: &egui::Context, leaving: bool) {
         let session = &self.app.session;
         let stamp = (session.document_id(), session.rev());
-        let now = now_ms();
+        let now = self.now_ms();
         match self.recovery.plan(session.dirty, stamp, now, leaving) {
             Plan::Nothing => {}
+            // A paused app draws no frames, so a copy that is due has to ask for one.
+            Plan::Wait(ms) => ctx.request_repaint_after(Duration::from_millis(ms.clamp(0.0, 60_000.0).ceil() as u64)),
             Plan::Clear => storage::remove_quietly(&self.dirs.recovery()),
             Plan::Write => {
-                let written = wordcraft_engine::io::save_bytes(storage::RECOVERY_FILE, &session.doc)
+                let written = storage::guarded(|| wordcraft_engine::io::save_bytes(storage::RECOVERY_FILE, &session.doc))
                     .and_then(|bytes| storage::write_atomic(&self.dirs.recovery(), &bytes).map_err(|e| e.to_string()));
                 match written {
-                    Ok(()) => self.recovery.wrote(stamp, now),
+                    Ok(()) => self.recovery.wrote(stamp),
                     Err(e) => {
                         log::warn!("recovery copy: {e}");
                         self.recovery.failed(now);
@@ -148,29 +200,40 @@ impl Shell {
     }
 }
 
-/// Milliseconds since the epoch.
-fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+/// The preferences as the file holds them.
+fn prefs_bytes(app: &WordApp) -> Option<Vec<u8>> {
+    match serde_json::to_vec_pretty(&app.prefs()) {
+        Ok(bytes) => Some(bytes),
+        Err(e) => {
+            log::warn!("preferences not saved: {e}");
+            None
+        }
+    }
 }
 
-/// Open the recovery copy a previous run left, as an unsaved document. True when there was one.
-fn restore_unsaved(app: &mut WordApp, dirs: &Dirs) -> bool {
-    let path = dirs.recovery();
-    let Some(bytes) = storage::read_limited(&path, storage::MAX_FILE_BYTES) else { return false };
-    match wordcraft_engine::io::open_bytes(storage::RECOVERY_FILE, &bytes) {
-        Ok(doc) => {
+/// Open the recovery copy a previous run left, as an unsaved document, or else show File, Home
+/// as the desktop app does. The result is the opened document's (identity, revision) when there was
+/// a copy ([`Recovery::restored`]).
+fn start_document(app: &mut WordApp, dirs: &Dirs) -> Option<(u64, u64)> {
+    match storage::restore_with(dirs, |bytes| wordcraft_engine::io::open_bytes(storage::RECOVERY_FILE, bytes)) {
+        Restore::Opened(doc) => {
             app.session.set_document(doc);
             app.session.path = None;
             app.session.dirty = true;
             app.status("Your unsaved work from the last time was recovered. Save it to keep it.");
-            log::info!("restored the recovery copy ({} bytes)", bytes.len());
-            true
+            log::info!("restored the recovery copy");
+            Some((app.session.document_id(), app.session.rev()))
         }
-        Err(e) => {
-            // Never offered again: a copy that can't be read would otherwise fail on every start.
-            log::warn!("the recovery copy can't be read: {e}");
-            storage::remove_quietly(&path);
-            false
+        Restore::Unreadable(kept) => {
+            app.start_screen();
+            // Never deleted: it may be the only copy. It is in the app's own folder.
+            log::warn!("the recovery copy was kept as {}", kept.display());
+            app.status("Your unsaved work from the last time could not be opened. The copy is kept in the app's folder.");
+            None
+        }
+        Restore::Nothing => {
+            app.start_screen();
+            None
         }
     }
 }
@@ -192,17 +255,6 @@ fn load_prefs(app: &mut WordApp, dirs: &Dirs) -> bool {
         return true;
     }
     false
-}
-
-fn save_prefs(app: &WordApp, dirs: &Dirs) {
-    match serde_json::to_vec_pretty(&app.prefs()) {
-        Ok(bytes) => {
-            if let Err(e) = storage::write_atomic(&dirs.prefs(), &bytes) {
-                log::warn!("preferences not saved: {e}");
-            }
-        }
-        Err(e) => log::warn!("preferences not saved: {e}"),
-    }
 }
 
 /// The words Add to Dictionary kept.

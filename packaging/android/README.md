@@ -59,6 +59,10 @@ the one before it. The version name is the workspace version.
 
 ### Build on GitHub, from an up to date fork
 
+> This fork's two workflows (Android and Sync upstream) were removed from its `main` when the
+> work moved to a private repository. They are in the history (commit ebb1792 has both); the
+> description below is what they did and how they were set up.
+
 Two workflows (Actions tab) keep a fork current and build the APK when you ask for one. They need
 the Android files on the fork's default branch, because GitHub shows and schedules workflows from
 there only. Neither has run on GitHub yet.

@@ -11,6 +11,7 @@ use wordcraft_doc::{Pos, StoryRef};
 
 use crate::{Session, cmd};
 
+mod assistant;
 mod bidi;
 mod documents;
 mod find_apostrophes;

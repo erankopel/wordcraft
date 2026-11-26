@@ -145,6 +145,7 @@ impl Session {
         copy.last_highlight = self.last_highlight;
         copy.system_region = self.system_region.clone();
         copy.editing_lang = self.editing_lang.clone();
+        copy.new_documents_rtl = self.new_documents_rtl;
         // The copy shares the paragraph layouts, so only what the command changed is laid out.
         std::mem::swap(&mut copy.cache, &mut self.cache);
         let layout = copy.run(id, params).is_ok().then(|| {
@@ -210,9 +211,30 @@ impl Session {
             return;
         }
         self.editing_lang = tag;
+        let lang = self.editing_lang.clone().unwrap_or_else(|| "en-US".into());
+        self.restyle_untouched_document(|styles| styles.default_chr.lang = Some(lang));
+    }
+
+    /// Start new blank documents right to left (`true`), or left to right again
+    /// ([`Session::new_documents_rtl`]). A document nobody has touched yet follows, as with
+    /// [`Session::set_editing_language`], so the blank document a session starts with is right to
+    /// left from the first keystroke; every other document, opened files and templates included,
+    /// keeps the direction it has. No undo step is added.
+    pub fn set_new_documents_rtl(&mut self, on: bool) {
+        if self.new_documents_rtl == on {
+            return;
+        }
+        self.new_documents_rtl = on;
+        self.restyle_untouched_document(|styles| crate::cmd::file::set_rtl_defaults(styles, on));
+    }
+
+    /// Change the document defaults of a document nobody has touched yet: untitled, unchanged, no
+    /// undo steps, no text. It is not an edit, so the document stays untouched. Any other
+    /// document is left alone.
+    fn restyle_untouched_document(&mut self, change: impl FnOnce(&mut wordcraft_doc::StyleSheet)) {
         let untouched = self.path.is_none() && !self.dirty && self.history.is_empty() && self.redo.is_empty();
         if untouched && self.doc.plain_text(StoryRef::Body).trim().is_empty() && self.doc.paragraph_count() <= 1 {
-            Arc::make_mut(&mut self.doc.styles).default_chr.lang = Some(self.editing_lang.clone().unwrap_or_else(|| "en-US".into()));
+            change(Arc::make_mut(&mut self.doc.styles));
             self.rev = self.rev.wrapping_add(1);
             // Not an edit: the document is as untouched as it was.
             if self.made_rev == self.rev.wrapping_sub(1) {

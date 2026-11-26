@@ -88,6 +88,10 @@ pub(super) fn page_number(s: &mut Session, v: &Value) -> CmdResult {
     let id = hf_part(s, header);
     let story = StoryRef::Part(id);
     let style = if header { "Header" } else { "Footer" };
+    // `align` is as seen on the page; a paragraph's alignment is logical (start and end), so in a
+    // right-to-left document "right" is its start edge.
+    let rtl = s.doc.styles.resolve_para(&wordcraft_doc::props::ParaProps { style: Some(style.into()), ..Default::default() }).bidi;
+    let align = align.visual(rtl);
     let mut para = page_number_paragraph(style, align, x_of_y)?;
     // Replace only a top-level paragraph matching our generated structure. User text,
     // field switches/metadata and paragraph/run formatting must not be mistaken for a gallery number.

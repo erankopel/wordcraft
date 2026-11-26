@@ -162,6 +162,7 @@ impl Session {
             keymap: crate::KeyMap::default(),
             ribbon: crate::RibbonLayout::default(),
             editing_lang: None,
+            new_documents_rtl: false,
             read_aloud: Default::default(),
             windows: Default::default(),
             password,

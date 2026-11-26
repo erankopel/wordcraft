@@ -214,6 +214,12 @@ pub struct Session {
     /// `None` is WordCraft's default, US English. The front end sets it from the interface
     /// language with [`Session::set_editing_language`] (a Polish interface writes Polish).
     pub editing_lang: Option<String>,
+    /// New blank documents start right to left: the document defaults carry a right-to-left
+    /// paragraph direction, Hebrew as the complex-script language and a Hebrew body font. `false`
+    /// is WordCraft's default and what every headless session keeps (CLI, MCP, tests); the front
+    /// end sets it from the interface language with [`Session::set_new_documents_rtl`]. Opened
+    /// files, templates and documents already begun are never changed by it.
+    pub new_documents_rtl: bool,
     /// Editing inside an equation: which one and the caret in it.
     pub math: Option<MathEdit>,
     /// Equations are typed in LaTeX rather than the linear format.

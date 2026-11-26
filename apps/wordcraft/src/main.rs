@@ -704,6 +704,8 @@ fn main() -> eframe::Result {
         "WordCraft",
         options,
         Box::new(move |cc| {
+            // A character no font has is drawn as a box, never a panic: the strict policy is for tests.
+            cc.egui_ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Tofu);
             // The system region picks the new document's paper, the units and the decimal
             // separator (#838).
             let region = region::system();
@@ -713,7 +715,9 @@ fn main() -> eframe::Result {
             let mut session = Session::new(doc);
             session.system_region = region;
             let mut app = WordApp::new(session, services(file_dialog, cancel_file_dialog, &cc.egui_ctx));
-            app.set_startup_update_check(true);
+            // An edition (the Hebrew one) is not updated from the upstream releases: they are
+            // English, and an accepted update would replace this program.
+            app.set_startup_update_check(wordcraft_ui_egui::i18n::EDITION_LANGUAGE.is_none());
             load_prefs(&mut app);
             // After the preferences, so the reason it gives is in the interface language.
             if updates_unsafe {

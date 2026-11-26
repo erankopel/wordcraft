@@ -815,6 +815,54 @@ fn the_editing_languages_are_the_ones_wordcraft_can_proof() {
 }
 
 #[test]
+fn only_a_hebrew_interface_starts_new_documents_right_to_left() {
+    let with: Vec<&str> = LANGUAGES.iter().filter(|l| l.rtl_documents).map(|l| l.code).collect();
+    assert_eq!(with, ["he"], "Arabic is mirrored too, but its documents are not changed");
+}
+
+#[test]
+fn a_hebrew_interface_starts_new_documents_right_to_left() {
+    needs_catalogs!();
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let ctx = egui::Context::default();
+    let frame = |app: &mut crate::WordApp| ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
+    let reads_rtl = |app: &crate::WordApp| app.session.doc.styles.resolve_para(&wordcraft_doc::props::ParaProps::default()).bidi;
+    frame(&mut app);
+    assert!(!app.session.new_documents_rtl && !reads_rtl(&app), "an English interface: left to right, as ever");
+    app.run("ui.language", serde_json::json!({"value": "he"})).unwrap();
+    frame(&mut app);
+    assert!(app.session.new_documents_rtl);
+    assert!(reads_rtl(&app), "the untouched first document follows, before a letter is typed");
+    let chr = &app.session.doc.styles.default_chr;
+    assert_eq!(chr.lang_bidi.as_deref(), Some("he-IL"), "Hebrew is the language of right-to-left text");
+    assert_ne!(chr.lang.as_deref(), Some("he-IL"), "English words keep the language they had");
+    assert!(!app.session.dirty && app.session.is_untouched_blank());
+    app.run("file.new", serde_json::json!({})).unwrap();
+    assert!(reads_rtl(&app), "File > New");
+    app.run("file.new", serde_json::json!({"template": "letter"})).unwrap();
+    assert!(!reads_rtl(&app), "a template keeps its own direction");
+    // Arabic is mirrored too, but its documents are left as they were.
+    app.run("ui.language", serde_json::json!({"value": "ar"})).unwrap();
+    frame(&mut app);
+    assert!(!app.session.new_documents_rtl);
+    app.run("file.new", serde_json::json!({})).unwrap();
+    assert!(!reads_rtl(&app));
+    // Back to Hebrew, and then to English: documents already written keep what they have.
+    app.run("ui.language", serde_json::json!({"value": "he"})).unwrap();
+    frame(&mut app);
+    app.run("file.new", serde_json::json!({})).unwrap();
+    app.session.run("text.insert", &serde_json::json!({"text": "x"})).unwrap();
+    let hebrew_document = app.session.document_id();
+    app.run("ui.language", serde_json::json!({"value": "en"})).unwrap();
+    frame(&mut app);
+    assert!(!app.session.new_documents_rtl);
+    app.session.activate(hebrew_document).unwrap();
+    assert!(reads_rtl(&app), "an existing right-to-left document stays so");
+    app.run("file.new", serde_json::json!({})).unwrap();
+    assert!(!reads_rtl(&app), "and a new one is left to right again");
+}
+
+#[test]
 fn german_locales_and_saved_preference_keep_document_content() {
     needs_catalogs!();
     let de = lang("de");
@@ -1409,4 +1457,23 @@ fn diagram_tab_display_keeps_the_legacy_identity() {
     assert_eq!(get("preview", "SmartArt Design"), Some("Diagram-Preview-FX"));
     assert_eq!(location("SmartArt Design › Diagram Styles"), "Diagram-FX › Styles-FX");
     set_current(Lang::EN);
+}
+
+/// An edition's language answers `auto` before the system's does, an explicit request for English
+/// still wins over it, and an edition language with no catalog changes nothing.
+#[test]
+fn the_editions_language_is_what_auto_follows() {
+    needs_catalogs!();
+    let he = lang("he");
+    let system = |tags: &'static [&'static str]| move || tags.iter().map(|t| (*t).to_string()).collect::<Vec<_>>();
+    assert_eq!(super::resolve_auto(None, Some("he"), system(&["en-US"])), he, "an English system, a Hebrew edition");
+    assert_eq!(super::resolve_auto(None, Some("he"), system(&["fr-FR"])), he, "the edition's language comes before the system's");
+    assert_eq!(super::resolve_auto(None, None, system(&["he-IL"])), he, "a stock build follows the system");
+    assert_eq!(super::resolve_auto(None, None, system(&["en-US"])), Lang::EN);
+    for asked in ["en", "en_GB.UTF-8", "C", "POSIX"] {
+        assert_eq!(super::resolve_auto(Some(asked), Some("he"), system(&["he-IL"])), Lang::EN, "{asked} asks for English");
+    }
+    assert_eq!(super::resolve_auto(Some("he"), None, system(&["en-US"])), he);
+    assert_eq!(super::resolve_auto(None, Some("zz"), system(&["he-IL"])), he, "no catalog for the edition's language");
+    assert_eq!(super::EDITION_LANGUAGE, None, "the tests run as a stock build; the edition sets its language when it compiles");
 }

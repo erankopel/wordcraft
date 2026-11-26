@@ -501,6 +501,12 @@ pub const HEADING_BLUE: Rgb = Rgb(0x0F, 0x47, 0x61);
 /// Default body/heading fonts (theme minor/major). Substituted by layout when not installed.
 pub const BODY_FONT: &str = "Aptos";
 pub const HEADING_FONT: &str = "Aptos Display";
+/// The complex-script body font of a blank document that starts right to left in Hebrew
+/// (`w:rFonts/@w:cs`). Only the name is written, as with [`BODY_FONT`]: no font file is bundled,
+/// and layout draws an installed or open substitute when the family is missing.
+pub const HEBREW_BODY_FONT: &str = "David";
+/// The language of complex-script text in such a document (`w:lang/@w:bidi`).
+pub const HEBREW_LANG: &str = "he-IL";
 
 fn chr() -> CharProps {
     CharProps::default()

@@ -87,7 +87,7 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name; its extension is kept, so the name may be given with or without it)}"#).pure(),
-        CommandSpec::new("file.new", "New", "File", new).key("Mod+N").params(r#"{"template"?: "blank|sample|letter|resume|report"}"#).pure(),
+        CommandSpec::new("file.new", "New", "File", new).key("Mod+N").params(r#"{"template"?: "blank|sample|letter|resume|report", "direction"?: "rtl|ltr" (a blank document only: "rtl" starts it right to left with Hebrew as the complex-script language and a Hebrew body font; "ltr" left to right; omitted: as the interface language sets it, left to right in a headless session)}"#).pure(),
         CommandSpec::new("file.open", "Open", "File", open)
             .key("Mod+O / Mod+F12 / Mod+Alt+F2")
             .params(r#"{"path": string, "data"?: base64 (the file's bytes; `path` then only names it), "password"?: string (for a password-protected Word or OpenDocument text file)}"#)
@@ -218,12 +218,18 @@ fn privacy(s: &Session) -> Value {
 /// Open a new document beside the open ones and make it active: a blank one in the saved
 /// proofing language, or the requested template.
 fn new(s: &mut Session, v: &Value) -> CmdResult {
+    let rtl = match p::str(v, "direction") {
+        None => s.new_documents_rtl,
+        Some("rtl") => true,
+        Some("ltr") => false,
+        Some(other) => return Err(CmdError::Params(format!("`direction` must be \"rtl\" or \"ltr\", not {other:?}"))),
+    };
     let doc = match p::str(v, "template").unwrap_or("blank") {
         "sample" => crate::sample::sample_document(),
         "letter" => crate::sample::letter(),
         "resume" => crate::sample::resume(),
         "report" => crate::sample::report(),
-        _ => normal_document(s),
+        _ => blank_document_in(s, rtl),
     };
     s.add_document(doc);
     sel_result(s)
@@ -232,11 +238,45 @@ fn new(s: &mut Session, v: &Value) -> CmdResult {
 /// A blank document on the Normal template: the region's paper (#838), written in the editing
 /// language (the templates' text is English).
 pub(crate) fn normal_document(s: &Session) -> Document {
+    blank_document_in(s, s.new_documents_rtl)
+}
+
+/// [`normal_document`], right to left or not as `rtl` says rather than as the session's setting.
+fn blank_document_in(s: &Session, rtl: bool) -> Document {
     let mut d = s.blank_document();
     if let Some(lang) = s.prefs.default_language.as_ref().or(s.editing_lang.as_ref()) {
         Arc::make_mut(&mut d.styles).default_chr.lang = Some(lang.clone());
     }
+    if rtl {
+        set_rtl_defaults(Arc::make_mut(&mut d.styles), true);
+    }
     d
+}
+
+/// The document defaults of a blank document that starts right to left in Hebrew (`on`), or
+/// without them again. Paragraphs read right to left (`w:bidi` in `w:pPrDefault`, ECMA-376 Part 1
+/// §17.3.1.6) and, being start-aligned, begin at the right margin; complex-script text is Hebrew
+/// (`w:lang/@w:bidi`, §17.3.2.20) in a Hebrew body font (`w:rFonts/@w:cs`, §17.3.2.26). Only what
+/// this sets is taken back off, so a document that was given its own values keeps them.
+pub(crate) fn set_rtl_defaults(styles: &mut wordcraft_doc::StyleSheet, on: bool) {
+    use wordcraft_doc::styles::{HEBREW_BODY_FONT, HEBREW_LANG};
+    if on {
+        styles.default_para.bidi = Some(true);
+        styles.default_chr.lang_bidi = Some(HEBREW_LANG.into());
+        styles.default_chr.font_cs = Some(HEBREW_BODY_FONT.into());
+        // The explicit `pPrDefault` is what carries the direction to the file.
+        styles.default_para_present = true;
+    } else {
+        if styles.default_para.bidi == Some(true) {
+            styles.default_para.bidi = None;
+        }
+        if styles.default_chr.lang_bidi.as_deref() == Some(HEBREW_LANG) {
+            styles.default_chr.lang_bidi = None;
+        }
+        if styles.default_chr.font_cs.as_deref() == Some(HEBREW_BODY_FONT) {
+            styles.default_chr.font_cs = None;
+        }
+    }
 }
 
 /// Open a document, using the saved proofing default only for plain text and Markdown. A file

@@ -31,6 +31,7 @@ mod positional_tabs;
 mod privacy;
 mod roundtrip;
 mod row_property_exceptions;
+mod rtl_defaults;
 mod run_props;
 mod section_form_protection;
 mod section_line_numbering;

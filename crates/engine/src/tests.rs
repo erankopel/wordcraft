@@ -22,6 +22,7 @@ mod ime_noop;
 mod page_number_formats_in_lists;
 mod para_tools;
 mod revision_checks;
+mod rtl_documents;
 mod typing;
 mod wordart;
 

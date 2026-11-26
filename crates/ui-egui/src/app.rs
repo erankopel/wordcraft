@@ -269,6 +269,8 @@ impl WordApp {
         };
         if self.applied_editing.as_ref().is_none_or(|(l, e)| *l != lang || *e != editing) {
             self.session.set_editing_language(editing.as_deref());
+            // A Hebrew interface also starts new documents right to left; no other language does.
+            self.session.set_new_documents_rtl(lang.rtl_documents());
             self.applied_editing = Some((lang, editing));
         }
         options::sync(self);

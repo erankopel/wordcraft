@@ -13,6 +13,8 @@
 //! The `language` setting is `auto` by default: the UI follows the operating system's language
 //! (Windows display language, macOS preferred languages, `LANG`/`LC_*` elsewhere) when there is a
 //! catalog for it, and English otherwise. File ▸ Options ▸ Interface language picks one by hand.
+//! An edition built with `WORDCRAFT_DEFAULT_LANGUAGE=he` makes `auto` mean that language instead; a
+//! language picked in Options and `WORDCRAFT_LANGUAGE` both still win.
 //!
 //! # Adding or changing a translation
 //! In craft-i18n: add rows to `locales/<locale>/wordcraft.tsv` (its `docs/integration.md`); they
@@ -55,6 +57,12 @@ static I18N: LazyLock<I18n> = LazyLock::new(|| {
 /// The `language` setting that follows the system.
 pub const AUTO: &str = "auto";
 
+/// The language this build starts in, from `WORDCRAFT_DEFAULT_LANGUAGE` when it was compiled (the
+/// Hebrew edition sets `he`): what [`AUTO`] follows before the system's own language. `None` in the
+/// stock build, whose `auto` follows the system. A language picked in File > Options and the
+/// `WORDCRAFT_LANGUAGE` override both win over it.
+pub const EDITION_LANGUAGE: Option<&str> = option_env!("WORDCRAFT_DEFAULT_LANGUAGE");
+
 /// One interface language WordCraft offers: what the app needs beyond the catalogs. Its name and
 /// translations come from craft-i18n.
 pub struct LangInfo {
@@ -66,76 +74,83 @@ pub struct LangInfo {
     /// The language (BCP 47) new blank documents are written in with this interface, for
     /// languages WordCraft can proof; `None` keeps WordCraft's default, US English.
     pub editing_lang: Option<&'static str>,
+    /// New blank documents start right to left with this interface ([`Session::new_documents_rtl`]):
+    /// Hebrew only. Arabic and every other right-to-left interface keep documents left to right
+    /// until their text sets a direction, as before.
+    ///
+    /// [`Session::new_documents_rtl`]: wordcraft_engine::Session::new_documents_rtl
+    pub rtl_documents: bool,
 }
 
 /// The languages WordCraft offers, when their catalogs are embedded. English first: it is the
 /// fallback and the source language.
 pub static LANGUAGES: [LangInfo; 30] = [
-    LangInfo { code: "en", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "en", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (the crate's matching).
-    LangInfo { code: "zh-hans", prefer_hans: true, editing_lang: None },
+    LangInfo { code: "zh-hans", prefer_hans: true, editing_lang: None, rtl_documents: false },
     // Traditional Chinese (Taiwan vocabulary); `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant-*` resolve here.
-    LangInfo { code: "zh-hant", prefer_hans: true, editing_lang: None },
-    LangInfo { code: "ja", prefer_hans: false, editing_lang: None },
-    LangInfo { code: "ko", prefer_hans: false, editing_lang: None },
-    LangInfo { code: "uk", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "zh-hant", prefer_hans: true, editing_lang: None, rtl_documents: false },
+    LangInfo { code: "ja", prefer_hans: false, editing_lang: None, rtl_documents: false },
+    LangInfo { code: "ko", prefer_hans: false, editing_lang: None, rtl_documents: false },
+    LangInfo { code: "uk", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Spanish, neutral across Spain and Latin America; `es-ES`, `es-MX`, `es-419` … resolve here.
     // No fixed editing language: new documents are written in the region's Spanish
     // (`Session::region_spanish`), like English.
-    LangInfo { code: "es", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "es", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Brazilian Portuguese; `pt-BR` and `pt-BR-*` resolve here. Plain `pt` and `pt-PT` have no
     // catalog yet (the European vocabulary differs), so they stay in English ([`lang_from_tag`]).
-    LangInfo { code: "pt-br", prefer_hans: false, editing_lang: Some("pt-BR") },
+    LangInfo { code: "pt-br", prefer_hans: false, editing_lang: Some("pt-BR"), rtl_documents: false },
     // Serbian, Cyrillic script (the default per BCP 47 when no script is given); `sr`, `sr-RS`,
     // `sr-Cyrl-*` resolve here.
-    LangInfo { code: "sr", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "sr", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Serbian, Latin script; `sr-Latn-*` resolves here; a script is never
     // crossed, so Latin Serbian never shows Cyrillic.
-    LangInfo { code: "sr-latn", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "sr-latn", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Polish; `pl`, `pl-PL` and `pl_PL.UTF-8` resolve here. WordCraft proofs Polish (spelling,
     // grammar, hyphenation), so new documents are written in Polish with this interface.
-    LangInfo { code: "pl", prefer_hans: false, editing_lang: Some("pl-PL") },
-    LangInfo { code: "cs", prefer_hans: false, editing_lang: Some("cs-CZ") },
-    LangInfo { code: "et", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "pl", prefer_hans: false, editing_lang: Some("pl-PL"), rtl_documents: false },
+    LangInfo { code: "cs", prefer_hans: false, editing_lang: Some("cs-CZ"), rtl_documents: false },
+    LangInfo { code: "et", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // German, neutral across Germany, Austria and Switzerland; `de`, `de-DE`, `de-AT`, `de-CH` …
     // resolve here.
-    LangInfo { code: "de", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "de", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Russian; `ru`, `ru-RU`, `ru_RU.UTF-8` and other regions resolve here.
-    LangInfo { code: "ru", prefer_hans: false, editing_lang: None },
-    LangInfo { code: "tr", prefer_hans: false, editing_lang: Some("tr-TR") },
+    LangInfo { code: "ru", prefer_hans: false, editing_lang: None, rtl_documents: false },
+    LangInfo { code: "tr", prefer_hans: false, editing_lang: Some("tr-TR"), rtl_documents: false },
     // Italian; `it-IT`, `it-CH` and `it-*` resolve here. New documents are written in
     // Italian: `wordcraft-proof` checks it (`ProofLang::It`).
-    LangInfo { code: "it", prefer_hans: false, editing_lang: Some("it-IT") },
+    LangInfo { code: "it", prefer_hans: false, editing_lang: Some("it-IT"), rtl_documents: false },
     // Hungarian; `hu`, `hu-HU` and `hu_HU.UTF-8` resolve here.
-    LangInfo { code: "hu", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "hu", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // French; `fr`, `fr-FR`, `fr_CA` and other regions resolve here.
-    LangInfo { code: "fr", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "fr", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Bulgarian; `bg`, `bg-BG` and `bg_BG.UTF-8` resolve here.
-    LangInfo { code: "bg", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "bg", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Vietnamese; `vi`, `vi-VN` and `vi_VN.UTF-8` resolve here.
-    LangInfo { code: "vi", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "vi", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Swedish; sv, sv-SE, sv-FI and sv_SE.UTF-8 resolve here.
-    LangInfo { code: "sv", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "sv", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
-    LangInfo { code: "hr", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "hr", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Dutch; `nl`, `nl-NL`, `nl-BE` and `nl_NL.UTF-8` resolve here.
-    LangInfo { code: "nl", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "nl", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Danish; `da`, `da-DK` and `da_DK.UTF-8` resolve here.
-    LangInfo { code: "da", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "da", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Romanian; `ro`, `ro-RO`, `ro_RO.UTF-8` and `ro-MD` resolve here.
-    LangInfo { code: "ro", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "ro", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Arabic (Modern Standard); `ar` and every `ar-*` locale (`ar-MA`, `ar-EG`, `ar-SA` …) resolve
     // here. Right to left: see [`RTL_LANGUAGES`] and [`Lang::rtl`].
-    LangInfo { code: "ar", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "ar", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Hebrew; `he`, `he-IL`, `he_IL.UTF-8` and the older `iw` tag resolve here. Right to left like
-    // Arabic: see [`RTL_LANGUAGES`]. No fixed editing language: `wordcraft-proof` does not proof
-    // Hebrew, so a new document keeps WordCraft's default language until one is chosen.
-    LangInfo { code: "he", prefer_hans: false, editing_lang: None },
+    // Arabic: see [`RTL_LANGUAGES`]. New documents start right to left with Hebrew as the language
+    // of right-to-left text ([`LangInfo::rtl_documents`]); Arabic's do not. No fixed editing
+    // language: Latin words keep English, and Hebrew words are proofed by `w:lang/@w:bidi`.
+    LangInfo { code: "he", prefer_hans: false, editing_lang: None, rtl_documents: true },
     // Slovenian; `sl`, `sl-SI` and `sl_SI.UTF-8` resolve here.
-    LangInfo { code: "sl", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "sl", prefer_hans: false, editing_lang: None, rtl_documents: false },
     // Bosnian, Latin script; `bs`, `bs-BA`, `bs_BA.UTF-8` and `bs-Latn-BA` resolve here. Cyrillic
     // Bosnian (`bs-Cyrl-*`) has no catalog, so it stays in English.
-    LangInfo { code: "bs", prefer_hans: false, editing_lang: None },
+    LangInfo { code: "bs", prefer_hans: false, editing_lang: None, rtl_documents: false },
 ];
 
 /// Interface languages written right to left. Their catalogs are written in typing order and
@@ -209,13 +224,18 @@ impl Lang {
         self.info().and_then(|l| l.editing_lang)
     }
 
+    /// Do new blank documents start right to left with this interface ([`LangInfo::rtl_documents`])?
+    pub fn rtl_documents(self) -> bool {
+        self.info().is_some_and(|l| l.rtl_documents)
+    }
+
     /// Is the interface written in CJK script (its own name is), so it needs a CJK face?
     pub fn uses_cjk(self) -> bool {
         self.name().chars().any(|c| ('\u{2E80}'..='\u{9FFF}').contains(&c) || ('\u{AC00}'..='\u{D7AF}').contains(&c))
     }
 
     /// The embedded catalogs (shared, then WordCraft's) this language reads; none for English.
-    fn catalog_texts(self) -> impl Iterator<Item = &'static str> {
+    pub(crate) fn catalog_texts(self) -> impl Iterator<Item = &'static str> {
         let code = self.code();
         CRAFT_I18N.iter().filter(move |(c, ..)| c.eq_ignore_ascii_case(code)).flat_map(|(_, shared, app)| [*shared, *app])
     }
@@ -332,13 +352,30 @@ pub fn system_lang() -> Lang {
 }
 
 fn detect_system_lang() -> Lang {
-    // An explicit override, then the platform's preferred UI languages (Windows display language,
-    // macOS preferred languages, `LC_ALL`/`LC_MESSAGES`/`LANG` on Unix, the browser on the web).
-    if let Some(l) = std::env::var("WORDCRAFT_LANGUAGE").ok().and_then(|v| lang_from_tag(&v)) {
-        return l;
+    let env = std::env::var("WORDCRAFT_LANGUAGE").ok();
+    resolve_auto(env.as_deref(), EDITION_LANGUAGE, || sys_locale::get_locales().take(16).collect())
+}
+
+/// Does `tag` (`en`, `en_GB.UTF-8`, `C`, `POSIX`) ask for English?
+fn is_english_tag(tag: &str) -> bool {
+    let tag = tag.trim();
+    let language = tag.split(['-', '_', '.', '@']).next().unwrap_or("");
+    language.eq_ignore_ascii_case("en") || tag.eq_ignore_ascii_case("c") || tag.eq_ignore_ascii_case("posix")
+}
+
+/// What `auto` comes to: an explicit `WORDCRAFT_LANGUAGE`, then the edition's language, then the
+/// platform's preferred UI languages (Windows display language, macOS preferred languages,
+/// `LC_ALL`/`LC_MESSAGES`/`LANG` on Unix, the browser on the web), else English. A value with no
+/// embedded catalog is skipped, so a build without the Hebrew catalog still follows the system.
+fn resolve_auto(env: Option<&str>, edition: Option<&str>, system_tags: impl FnOnce() -> Vec<String>) -> Lang {
+    // English has no catalog, so asking for it by name must be answered here: it is not "no answer".
+    if env.is_some_and(is_english_tag) {
+        return Lang::EN;
     }
-    let tags: Vec<String> = sys_locale::get_locales().take(16).collect();
-    first_supported(tags.iter().map(String::as_str)).unwrap_or(Lang::EN)
+    env.and_then(lang_from_tag)
+        .or_else(|| edition.and_then(lang_from_tag))
+        .or_else(|| first_supported(system_tags().iter().map(String::as_str)))
+        .unwrap_or(Lang::EN)
 }
 
 /// The system region (#838): it picks the paper File › New starts on, the default measurement

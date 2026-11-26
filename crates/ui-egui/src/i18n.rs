@@ -300,7 +300,19 @@ pub fn lang_from_tag(tag: &str) -> Option<Lang> {
     if non_brazilian_portuguese(tag) {
         return None;
     }
-    I18N.match_tag(tag).and_then(|lang| Lang::from_code(I18N.code(lang)))
+    I18N.match_tag(&current_language_code(tag)).and_then(|lang| Lang::from_code(I18N.code(lang)))
+}
+
+/// `tag` with Hebrew's old code `iw` (`iw`, `iw-IL`, `iw_IL.UTF-8`) written as `he`. Older Java and
+/// Android and glibc's `iw_IL` locale still report it, and the crate's matching only knows `he`.
+/// Any other tag comes back unchanged.
+fn current_language_code(tag: &str) -> std::borrow::Cow<'_, str> {
+    let trimmed = tag.trim();
+    let end = trimmed.find(['-', '_', '.', '@']).unwrap_or(trimmed.len());
+    match (trimmed.get(..end), trimmed.get(end..)) {
+        (Some(language), Some(rest)) if language.eq_ignore_ascii_case("iw") => format!("he{rest}").into(),
+        _ => tag.into(),
+    }
 }
 
 /// The first of the system's preferred languages WordCraft has, in the user's order: someone

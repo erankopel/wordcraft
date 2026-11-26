@@ -62,6 +62,10 @@ pub struct ResolvedChar {
     pub fmt: Option<u32>,
     pub no_proof: bool,
     pub lang: Option<String>,
+    /// The language of complex-script text, Hebrew or Arabic letters (`w:lang/@w:bidi`): what
+    /// proofing reads for those words when it names a language Hebrew is proofed in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang_bidi: Option<String>,
     /// Right-to-left run (`w:rtl`).
     pub rtl: bool,
     /// The whole run uses the complex-script properties (`w:cs`).
@@ -113,6 +117,7 @@ impl ResolvedChar {
             fmt: c.fmt_change.as_ref().map(|f| f.rev),
             no_proof: c.no_proof.unwrap_or(false),
             lang: c.lang.clone(),
+            lang_bidi: c.lang_bidi.clone(),
             rtl: c.rtl.unwrap_or(false),
             cs: c.cs.unwrap_or(false),
             font_cs: c.font_cs.clone().or_else(|| c.font.clone()).unwrap_or_else(|| crate::styles::BODY_FONT.to_string()),

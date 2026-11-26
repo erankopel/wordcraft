@@ -382,6 +382,28 @@ mod tests {
         });
     }
 
+    /// Hebrew is proofed through `w:lang/@w:bidi`: a document of English text and Hebrew words, as
+    /// Word writes it, makes the bar offer the Hebrew pack, and Hebrew's old code `iw` finds it.
+    #[test]
+    fn hebrew_words_in_an_english_document_offer_the_hebrew_pack() {
+        let mut fixed = FixedBackend::sample();
+        fixed.packs.push(Pack { locale: "he".into(), ..fixed.packs[0].clone() });
+        let packs_with_he = fixed.packs.clone();
+        for tag in ["he", "he-IL", "iw", "iw-IL", "iw_IL"] {
+            assert_eq!(packs::pack_for_tag(tag, &packs_with_he).map(|p| p.locale.as_str()), Some("he"), "{tag}");
+        }
+        with_backend(fixed, |s, _| {
+            s.run("document.setText", &json!({"text": "Hello world"})).unwrap();
+            std::sync::Arc::make_mut(&mut s.doc.styles).default_chr.lang_bidi = Some("he-IL".into());
+            assert!(packs::missing(s).is_empty(), "no Hebrew letters, no Hebrew pack");
+            s.run("document.setText", &json!({"text": "Hello \u{5E9}\u{5DC}\u{5D5}\u{5DD}"})).unwrap();
+            let missing: Vec<String> = packs::missing(s).into_iter().map(|p| p.locale).collect();
+            assert_eq!(missing, ["he"], "Hebrew letters in a Hebrew complex-script language");
+            Arc::make_mut(&mut s.doc.styles).default_chr.lang_bidi = None;
+            assert!(packs::missing(s).is_empty(), "with no complex-script language the text is English");
+        });
+    }
+
     #[test]
     fn tags_map_to_the_most_specific_pack() {
         let mut packs = FixedBackend::sample().packs;

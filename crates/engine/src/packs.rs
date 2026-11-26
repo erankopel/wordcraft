@@ -607,6 +607,11 @@ pub fn without_region(tag: &str) -> String {
 fn pack_candidates(tag: &str) -> Vec<String> {
     // A tag is a handful of short subtags; anything longer is junk and only its start is read.
     let tag: String = tag.trim().chars().take(64).collect::<String>().replace('_', "-").to_ascii_lowercase();
+    // `iw` is Hebrew's old code (older Java, Android, glibc's `iw_IL`, old Word files).
+    let tag = match tag.strip_prefix("iw") {
+        Some(rest) if rest.is_empty() || rest.starts_with('-') => format!("he{rest}"),
+        _ => tag,
+    };
     let parts: Vec<&str> = tag.split('-').collect();
     let base = parts.first().copied().unwrap_or("");
     if base.is_empty() || base == "en" {
@@ -644,11 +649,16 @@ pub fn document_languages(s: &Session) -> Vec<String> {
             if rc.no_proof {
                 continue;
             }
+            // Hebrew letters are proofed in the complex-script language (`w:lang/@w:bidi`), so a
+            // document of English text and Hebrew words offers the Hebrew pack too.
+            let hebrew = rc.lang_bidi.filter(|_| text.chars().any(|c| matches!(c, '\u{0590}'..='\u{05FF}')));
             let tag = rc.lang.unwrap_or_else(|| "en-US".into());
-            if !out.contains(&tag) {
-                out.push(tag);
-                if out.len() >= MAX_DOC_LANGUAGES {
-                    return out;
+            for tag in std::iter::once(tag).chain(hebrew) {
+                if !out.contains(&tag) {
+                    out.push(tag);
+                    if out.len() >= MAX_DOC_LANGUAGES {
+                        return out;
+                    }
                 }
             }
         }

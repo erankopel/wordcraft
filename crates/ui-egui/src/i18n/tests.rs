@@ -1168,6 +1168,29 @@ fn bosnian_locales_and_saved_preference_work_without_changing_the_document() {
     assert!(!bs.uses_cjk());
 }
 
+/// Hebrew follows `he-IL` system locales, the older `iw` tag and a saved choice, is right to left, and choosing it
+/// leaves the document as it was.
+#[test]
+fn hebrew_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
+    let he = lang("he");
+    for tag in ["he", "he-IL", "he_IL.UTF-8", "HE-il", "iw", "iw-IL"] {
+        assert_eq!(lang_from_tag(tag), Some(he), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "he-IL", "en-US"]), Some(he));
+    assert!(he.rtl());
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "HE"})).unwrap();
+    assert_eq!(result["effective"], "he");
+    assert_eq!(app.ui.language, "he");
+    assert!(result["available"].as_array().unwrap().iter().any(|l| l["code"] == "he" && l["name"] == "עברית"));
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), he);
+}
+
 /// Bosnian counts take CLDR's three forms through the embedded catalog: `one` for 1, 21, 101 (not
 /// 11), `few` for 2–4, 22–24 (not 12–14) and `other` for the rest.
 #[test]
@@ -1279,7 +1302,10 @@ fn arabic_locales_and_saved_preference_work_without_changing_the_document() {
     assert_eq!(first_supported(["xx-XX", "ar-MA", "en-US"]), Some(ar));
     assert_eq!(normalize_pref("AR"), Some("ar"));
     assert!(ar.rtl());
-    assert!(Lang::all().filter(|l| l.rtl()).eq([ar]), "Arabic is the only right-to-left language");
+    // Arabic and Hebrew are the right-to-left interface languages; any other language that becomes one by
+    // mistake fails here.
+    let rtl: Vec<&str> = Lang::all().filter(|l| l.rtl()).map(Lang::code).collect();
+    assert!(rtl.iter().all(|c| ["ar", "he"].contains(c)), "only Arabic and Hebrew are right to left: {rtl:?}");
     assert!(!ar.uses_cjk());
     let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
     let before = serde_json::to_value(&app.session.doc).unwrap();

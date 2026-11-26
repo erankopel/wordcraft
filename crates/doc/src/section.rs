@@ -305,6 +305,8 @@ impl NumFormat {
             NumFormat::RussianLower => russian_letters(n),
             NumFormat::ArabicAlpha => repeated_letter(&ARABIC_ALPHA, n),
             NumFormat::ArabicAbjad => repeated_letter(&ARABIC_ABJAD, n),
+            NumFormat::Hebrew1 => hebrew_numerals(n),
+            NumFormat::Hebrew2 => repeated_letter(&HEBREW_ALPHABET, n),
             NumFormat::Ordinal => format!("{n}{}", ordinal_suffix(n)),
             NumFormat::CardinalText => cardinal_text(n),
             NumFormat::OrdinalText => ordinal_text(n),
@@ -343,8 +345,6 @@ impl NumFormat {
             | NumFormat::DecimalHalfWidth
             | NumFormat::Hex
             | NumFormat::VietnameseCounting
-            | NumFormat::Hebrew1
-            | NumFormat::Hebrew2
             | NumFormat::HindiVowels
             | NumFormat::HindiConsonants
             | NumFormat::HindiNumbers
@@ -457,6 +457,64 @@ fn repeated_letter(alphabet: &[char], n: u32) -> String {
     let k = (n - 1) / len + 1;
     let c = alphabet.get(((n - 1) % len) as usize).copied().unwrap_or(first);
     std::iter::repeat_n(c, k as usize).collect()
+}
+
+/// `hebrew2`: the 22 letters of the alphabet in order, א to ת (no final forms).
+const HEBREW_ALPHABET: [char; 22] = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ', 'ק', 'ר', 'ש', 'ת'];
+
+/// The letters of the Hebrew numerals: ones (א..ט = 1..9), tens (י..צ = 10..90) and hundreds
+/// (ק, ר, ש, ת = 100..400). A letter is worth its place in these rows; 500 to 900 add ת (400).
+const HEBREW_ONES: [char; 9] = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+const HEBREW_TENS: [char; 9] = ['י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ'];
+const HEBREW_HUNDREDS: [char; 4] = ['ק', 'ר', 'ש', 'ת'];
+
+/// The geresh, written after the thousands of a numeral (5000 is ה׳).
+const HEBREW_GERESH: char = '\u{05F3}';
+
+/// Hebrew numerals below 1000 appended to `out`: the letters' values add up to `n`, largest
+/// first. 15 and 16 are ט״ו and ט״ז (tet-vav, tet-zayin), never י״ה or י״ו, which spell a name of
+/// God. No geresh or gershayim marks are drawn inside the number: the level's text supplies the
+/// punctuation around it (`%1.`).
+fn push_hebrew_below_thousand(mut n: u32, out: &mut String) {
+    while n >= 400 {
+        out.push('ת');
+        n -= 400;
+    }
+    if n >= 100 {
+        out.extend(HEBREW_HUNDREDS.get((n / 100 - 1) as usize));
+        n %= 100;
+    }
+    match n {
+        15 => out.push_str("טו"),
+        16 => out.push_str("טז"),
+        _ => {
+            if n >= 10 {
+                out.extend(HEBREW_TENS.get((n / 10 - 1) as usize));
+            }
+            if n % 10 > 0 {
+                out.extend(HEBREW_ONES.get((n % 10 - 1) as usize));
+            }
+        }
+    }
+}
+
+/// `hebrew1`: `n` in Hebrew numerals (א ב ג … י יא … כ … ק … ת), 0 as nothing. Thousands come
+/// first, followed by a geresh (1000 is א׳). Past 999,999 the numerals run out and the label
+/// is the decimal number.
+fn hebrew_numerals(n: u32) -> String {
+    if n == 0 {
+        return String::new();
+    }
+    if n > 999_999 {
+        return n.to_string();
+    }
+    let mut out = String::new();
+    if n >= 1000 {
+        push_hebrew_below_thousand(n / 1000, &mut out);
+        out.push(HEBREW_GERESH);
+    }
+    push_hebrew_below_thousand(n % 1000, &mut out);
+    out
 }
 
 const ONES: [&str; 20] = [
@@ -994,7 +1052,7 @@ mod tests {
         assert_eq!(NumFormat::ChineseCounting.format(11), "十一");
         assert_eq!(NumFormat::ChineseCountingThousand.format(101), "一百零一");
         assert_eq!(NumFormat::DecimalEnclosedCircle.format(3), "③");
-        assert_eq!(NumFormat::Hebrew1.format(3), "3", "formats not drawn yet show decimal");
+        assert_eq!(NumFormat::HindiNumbers.format(3), "3", "formats not drawn yet show decimal");
         assert_eq!(NumFormat::RussianLower.format(0), "");
         assert_eq!(NumFormat::RussianUpper.format(u32::MAX).chars().count(), 30);
         for f in NumFormat::ALL {
@@ -1038,6 +1096,98 @@ mod tests {
         // Past the 28th letter they double, as Latin and Russian letters do.
         assert_eq!(NumFormat::ArabicAlpha.format(29), "أأ");
         assert_eq!(NumFormat::ArabicAbjad.format(30), "بب");
+    }
+
+    /// The value of one letter of a Hebrew numeral, 0 for anything else.
+    fn hebrew_letter_value(c: char) -> u32 {
+        const VALUES: [(char, u32); 22] = [
+            ('א', 1),
+            ('ב', 2),
+            ('ג', 3),
+            ('ד', 4),
+            ('ה', 5),
+            ('ו', 6),
+            ('ז', 7),
+            ('ח', 8),
+            ('ט', 9),
+            ('י', 10),
+            ('כ', 20),
+            ('ל', 30),
+            ('מ', 40),
+            ('נ', 50),
+            ('ס', 60),
+            ('ע', 70),
+            ('פ', 80),
+            ('צ', 90),
+            ('ק', 100),
+            ('ר', 200),
+            ('ש', 300),
+            ('ת', 400),
+        ];
+        VALUES.iter().find(|(l, _)| *l == c).map_or(0, |(_, v)| *v)
+    }
+
+    /// `hebrew1` counts in Hebrew numerals: the usual spellings, 15 and 16 avoiding the divine
+    /// name, thousands before a geresh.
+    #[test]
+    fn hebrew_numerals_count_like_hebrew_numbers() {
+        let first: Vec<String> = (1..=12).map(|n| NumFormat::Hebrew1.format(n)).collect();
+        assert_eq!(first.join(" "), "א ב ג ד ה ו ז ח ט י יא יב");
+        let rows = [
+            (15, "טו"),
+            (16, "טז"),
+            (17, "יז"),
+            (20, "כ"),
+            (99, "צט"),
+            (100, "ק"),
+            (115, "קטו"),
+            (400, "ת"),
+            (500, "תק"),
+            (900, "תתק"),
+            (999, "תתקצט"),
+            (1000, "א\u{05F3}"),
+            (5785, "ה\u{05F3}תשפה"),
+        ];
+        for (n, label) in rows {
+            assert_eq!(NumFormat::Hebrew1.format(n), label, "{n}");
+        }
+        assert_eq!(NumFormat::Hebrew1.format(0), "", "zero has no Hebrew numeral");
+        // The numerals end at 999,999; after that the label is the decimal number, never empty or wrong.
+        assert_eq!(NumFormat::Hebrew1.format(1_000_000), "1000000");
+        assert_eq!(NumFormat::Hebrew1.format(u32::MAX), u32::MAX.to_string());
+    }
+
+    /// Every number below 1000 has its own Hebrew label made of Hebrew letters whose values add
+    /// up to it (15 and 16 included: ט and ו or ז are 9 + 6 and 9 + 7).
+    #[test]
+    fn hebrew_numerals_are_unique_and_add_up() {
+        let mut seen = std::collections::HashSet::new();
+        for n in 1..1000u32 {
+            let label = NumFormat::Hebrew1.format(n);
+            assert!(!label.is_empty() && label.chars().all(|c| hebrew_letter_value(c) > 0), "{n}: {label:?}");
+            assert_eq!(label.chars().map(hebrew_letter_value).sum::<u32>(), n, "{n}: {label}");
+            assert!(seen.insert(label), "{n} repeats an earlier label");
+        }
+        // Neither spelling of a name of God is ever drawn as a number.
+        for n in 1..1000u32 {
+            let label = NumFormat::Hebrew1.format(n);
+            assert!(!label.ends_with("יה") && !label.ends_with("יו"), "{n}: {label}");
+        }
+    }
+
+    /// `hebrew2` counts the 22 letters in alphabetical order, then doubles them as Latin,
+    /// Russian and Arabic letters do.
+    #[test]
+    fn hebrew_alphabet_counts_the_letters_in_order() {
+        let all: Vec<String> = (1..=22).map(|n| NumFormat::Hebrew2.format(n)).collect();
+        assert_eq!(all.join(""), "אבגדהוזחטיכלמנסעפצקרשת");
+        // The second pass doubles each letter (23 is אא, 24 is בב), the third triples them.
+        assert_eq!(NumFormat::Hebrew2.format(23), "אא");
+        assert_eq!(NumFormat::Hebrew2.format(24), "בב");
+        assert_eq!(NumFormat::Hebrew2.format(44), "תת");
+        assert_eq!(NumFormat::Hebrew2.format(45), "אאא");
+        assert_eq!(NumFormat::Hebrew2.format(0), "");
+        assert!(!NumFormat::Hebrew2.format(u32::MAX).is_empty());
     }
 
     #[test]

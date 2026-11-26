@@ -644,14 +644,26 @@ fn frame_at(ctx: &egui::Context, app: &mut WordApp, width: f32) -> Vec<(String, 
 /// so a grid that is not wrapped in `rtl::grid` fails here.
 #[test]
 fn the_arabic_interface_is_mirrored_and_never_panics() {
-    // Arabic comes from the craft-i18n catalogs: a build without them (English only) has nothing to mirror.
-    let Some(ar) = super::Lang::from_code("ar") else {
-        eprintln!("skipped: built without the craft-i18n Arabic catalog (set CRAFT_I18N_DIR to a checkout)");
+    check_mirrored_interface("ar");
+}
+
+/// The Hebrew interface is mirrored the same way, and nothing in it can panic.
+#[test]
+fn the_hebrew_interface_is_mirrored_and_never_panics() {
+    check_mirrored_interface("he");
+}
+
+/// The checks both right-to-left interfaces pass: `code` is the language, and each assertion is
+/// about where things are drawn, so it holds for any right-to-left catalog.
+fn check_mirrored_interface(code: &str) {
+    // The language comes from the craft-i18n catalogs: a build without them (English only) has nothing to mirror.
+    let Some(rtl) = super::Lang::from_code(code) else {
+        eprintln!("skipped: built without the craft-i18n {code} catalog (set CRAFT_I18N_DIR to a checkout)");
         return;
     };
     let start = |ctx: &egui::Context| {
         let mut app = fresh_app(ctx);
-        app.ui.language = "ar".into();
+        app.ui.language = code.into();
         frame(ctx, &mut app);
         app
     };
@@ -659,7 +671,7 @@ fn the_arabic_interface_is_mirrored_and_never_panics() {
     let mut app = start(&ctx);
     assert!(crate::rtl::on());
     let x_of = |drawn: &[(String, f32)], english: &str| {
-        let label = super::tr(ar, english);
+        let label = super::tr(rtl, english);
         drawn.iter().find(|(t, _)| t == label).map(|(_, x)| *x).unwrap_or_else(|| panic!("{english} is not drawn"))
     };
     // Tabs run from the right: File, Home, Insert … and the Share button is at the far left.
@@ -670,7 +682,7 @@ fn the_arabic_interface_is_mirrored_and_never_panics() {
     // Ribbon groups too: Clipboard is right of Font, which is right of Styles.
     assert!(x_of(&drawn, "Clipboard") > x_of(&drawn, "Font") && x_of(&drawn, "Font") > x_of(&drawn, "Styles"));
     // The status bar starts at the right, and a narrow window still shows the ribbon's first group.
-    let page = drawn.iter().find(|(t, _)| t.contains(super::tr(ar, "Editing"))).map(|(_, x)| *x);
+    let page = drawn.iter().find(|(t, _)| t.contains(super::tr(rtl, "Editing"))).map(|(_, x)| *x);
     assert!(page.is_some());
     let narrow = frame_at(&ctx, &mut app, 700.0);
     let clipboard = x_of(&narrow, "Clipboard");
@@ -690,7 +702,7 @@ fn the_arabic_interface_is_mirrored_and_never_panics() {
         assert!(x("Clipboard") < x("Font") && x("Font") < x("Styles"));
         assert!(x("Cut") < 200.0, "ribbon buttons keep their icon on the left and start at the left");
         assert!(!crate::rtl::on());
-        super::set_current(ar);
+        super::set_current(rtl);
     }
     // Everything else: no panic at any width.
     let tabs: Vec<&str> = crate::ribbon::TABS.iter().copied().filter(|t| *t != "File").collect();
@@ -712,7 +724,7 @@ fn the_arabic_interface_is_mirrored_and_never_panics() {
     for width in [1600.0, 1100.0] {
         let drawn = frame_at(&ctx, &mut app, width);
         let settings = x_of(&drawn, "Save these pages as PDF…");
-        let indicator = super::tr(ar, "Sheet {page} of {pages}").split('{').next().unwrap_or_default();
+        let indicator = super::tr(rtl, "Sheet {page} of {pages}").split('{').next().unwrap_or_default();
         // (The status bar's page count is drawn under the page too, at the right: take the leftmost.)
         let preview = drawn.iter().filter(|(t, _)| t.starts_with(indicator)).map(|(_, x)| *x).fold(f32::MAX, f32::min);
         assert!(preview < f32::MAX, "the preview's page indicator is drawn");

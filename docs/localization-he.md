@@ -74,7 +74,7 @@ Miriam in Miriam Libre, Aharoni, Gisha and Levenim MT in Heebo, Miriam Fixed and
 Mono, each then falling back to Noto Serif or Noto Sans Hebrew. The font name in the file stays
 David, so the file is unchanged for Word. The look-alikes do not measure like the originals, so the
 status bar still says the text is shown in another font. The Home font list names these families
-(they are installed in effect) and previews them in their stand-in. If the person has the real
+(`font.list` with `all` reports them as `lookAlikes`) and previews them in their stand-in. If the person has the real
 David, a copy in the user font folder (`~/.config/wordcraft/fonts` on Linux) or the system folders
 is used as is.
 
@@ -116,7 +116,9 @@ Hebrew words are proofed in the language of complex-script text (`w:lang/@w:bidi
 in a document whose text language is English and whose complex-script language is Hebrew (a Word
 file, or a new document of the edition) the Hebrew words are checked in Hebrew and the Latin words
 in English. A run already in Hebrew is unchanged. The old code `iw` finds the `he` pack, and such a
-document makes the bar offer the pack. With no pack installed Hebrew shows no marks, as before.
+document makes the bar offer the pack. With no pack installed Hebrew shows no marks, as before. The
+status bar names Hebrew while the caret is in Hebrew text (or in an empty right-to-left paragraph) and
+the text language, English, while it is in Latin text.
 
 ## In the document
 

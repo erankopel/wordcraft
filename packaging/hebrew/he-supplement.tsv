@@ -318,3 +318,35 @@
 @plural	{n} font not installed|{n} fonts not installed	{n} גופן לא מותקן|{n} גופנים לא מותקנים|{n} גופנים לא מותקנים
 @plural	{n} missing font can be downloaded|{n} missing fonts can be downloaded	{n} גופן חסר ניתן להורדה|{n} גופנים חסרים ניתנים להורדה|{n} גופנים חסרים ניתנים להורדה
 spacing	Open	פתוח
+	Add Blank Paragraphs Between	הוספת פסקאות ריקות בין הפסקאות
+	Applies the next time WordCraft starts.	ייכנס לתוקף בהפעלה הבאה של WordCraft.
+	Define New Bullet…	הגדרת תבליט חדש…
+	Delete Blank Paragraphs in the Whole Document	מחיקת פסקאות ריקות בכל המסמך
+	Document fitted to 1 page (font: -1.0 pt, spacing: 90%).	המסמך הותאם לעמוד אחד (גופן: -1.0 נק׳, ריווח: 90%).
+	Flat OpenDocument Text (*.fodt)	Flat OpenDocument Text (*.fodt)
+	Ignore Once	התעלמות חד-פעמית
+	Indent Leading Spaces	המרת רווחים בתחילת שורה להזחה
+	Indents to Leading Spaces	המרת הזחות לרווחים בתחילת שורה
+	Join Lines	חיבור שורות
+	Language packs aren't available in the browser	חבילות שפה אינן זמינות בדפדפן
+	Linux display server	שרת התצוגה של Linux
+	Markdown	Markdown
+	Markdown Source Text	טקסט מקור של Markdown
+	OpenDocument Text Template (*.ott)	OpenDocument Text Template (*.ott)
+	Paragraph\nTools	כלי\nפסקה
+	Remove Extra Spaces in the Whole Document	הסרת רווחים מיותרים בכל המסמך
+	Remove Leading Spaces in the Whole Document	הסרת רווחים בתחילת שורה בכל המסמך
+	Scrolling	גלילה
+	Split Lines into Paragraphs	פיצול שורות לפסקאות
+	Status bar	שורת מצב
+	You can also right-click the count in the status bar to change it.	אפשר גם ללחוץ לחיצה ימנית על המספר בשורת המצב כדי לשנות אותו.
+	a shape inside a drawing canvas is placed by the canvas	צורה בתוך אזור ציור ממוקמת לפי אזור הציור
+	not in Read Mode	לא במצב קריאה
+	not in a protected document	לא במסמך מוגן
+	not with tracked changes	לא עם שינויים במעקב
+	only floating connectors in the body text can be glued	אפשר לחבר רק מחברים צפים שבגוף הטקסט
+	only for Markdown (.md) files	רק עבור קובצי Markdown (‎.md)
+	only in Markdown Source	רק במקור Markdown
+	only the desktop app has several windows	רק ליישום השולחני יש כמה חלונות
+	turn on View Side by Side first	יש להפעיל קודם את התצוגה זה לצד זה
+	{n} KB	{n} KB

@@ -343,9 +343,35 @@ fn caret_char(app: &WordApp) -> wordcraft_doc::resolve::ResolvedChar {
     s.doc.styles.resolve_char(style.as_deref(), &s.typing_props())
 }
 
-/// The language tag at the caret, resolved through the styles and the document default.
+/// The language tag at the caret, resolved through the styles and the document default. Hebrew
+/// letters are proofed in the language of complex-script text (`w:lang/@w:bidi`), so when that is
+/// Hebrew and the caret is in Hebrew text, or in an empty right-to-left paragraph, it is the tag.
 pub(crate) fn caret_lang_tag(app: &WordApp) -> Option<String> {
-    caret_char(app).lang
+    let rc = caret_char(app);
+    let hebrew = rc
+        .lang_bidi
+        .as_deref()
+        .filter(|t| matches!(t.split(['-', '_']).next(), Some(l) if l.eq_ignore_ascii_case("he") || l.eq_ignore_ascii_case("iw")));
+    if let Some(tag) = hebrew
+        && caret_is_in_hebrew_text(app)
+    {
+        return Some(tag.to_string());
+    }
+    rc.lang
+}
+
+/// Is the caret in Hebrew text: the nearest letter before it (else after it) is a Hebrew one, or
+/// there is no letter in its paragraph and the paragraph reads right to left?
+fn caret_is_in_hebrew_text(app: &WordApp) -> bool {
+    let s = &app.session;
+    let Some(p) = s.doc.para_at(&s.sel.focus) else { return false };
+    let at = s.sel.focus.off.min(p.text.len());
+    let (before, after) = (p.text.get(..at).unwrap_or(""), p.text.get(at..).unwrap_or(""));
+    let nearest = before.chars().rev().find(|c| c.is_alphabetic()).or_else(|| after.chars().find(|c| c.is_alphabetic()));
+    match nearest {
+        Some(c) => matches!(c, '\u{0590}'..='\u{05FF}' | '\u{FB1D}'..='\u{FB4F}'),
+        None => s.doc.styles.resolve_para(&p.props).bidi,
+    }
 }
 
 /// Is the text at the caret itself marked Do not check spelling or grammar? (`format.state`

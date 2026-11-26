@@ -875,6 +875,29 @@ fn language_menu_reaches_every_language() {
     assert_eq!(language_name(Some("de-DE")), "German (Germany)");
 }
 
+/// A document of English text and Hebrew complex-script text (a Word file, or a new document of
+/// the Hebrew edition): the status bar names Hebrew while the caret is in Hebrew text or in an empty
+/// right-to-left paragraph, and English while it is in Latin text.
+#[test]
+fn the_status_bar_names_hebrew_for_the_caret_in_hebrew_text() {
+    let mut session = Session::new(wordcraft_doc::Document::new());
+    session.new_documents_rtl = true;
+    session.run("file.new", &json!({})).unwrap();
+    let mut app = WordApp::new(session, crate::Services::default());
+    let name = |app: &WordApp| caret_language(app);
+    let english = name(&app);
+    assert!(english.starts_with("Hebrew"), "an empty right-to-left Hebrew paragraph: {english}");
+    app.run("text.insert", json!({"text": "hello "})).unwrap();
+    assert!(name(&app).starts_with("English"), "after Latin text: {}", name(&app));
+    app.run("text.insert", json!({"text": "\u{5E9}\u{5DC}\u{5D5}\u{5DD}"})).unwrap();
+    assert!(name(&app).starts_with("Hebrew"), "after a Hebrew word: {}", name(&app));
+    app.run("caret.docStart", json!({})).unwrap();
+    assert!(name(&app).starts_with("English"), "at the start, next to the Latin word: {}", name(&app));
+    // A document with no Hebrew complex-script language is as it was.
+    let plain = WordApp::new(Session::new(wordcraft_doc::Document::from_text("\u{5E9}\u{5DC}\u{5D5}\u{5DD}")), crate::Services::default());
+    assert!(name(&plain).starts_with("English"));
+}
+
 /// #1281: every short-list entry (the four Englishes, Indonesian…) is picked in the menu:
 /// clicking it sets the selection's proofing language, and the entry is then the checked one.
 #[test]

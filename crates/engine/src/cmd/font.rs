@@ -20,7 +20,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("font.add", "Add Font…", "Home › Font", add)
             .params(r#"{"path"?: string, "data"?: base64, "name"?: string (file name for "data")} — a TTF, OTF, TTC, WOFF or WOFF2 file; none: pick a file"#)
             .pure(),
-        CommandSpec::new("font.list", "Added Fonts", "Home › Font", list).params(r#"{"all"?: bool (also every available family)}"#).pure(),
+        CommandSpec::new("font.list", "Added Fonts", "Home › Font", list).params(r#"{"all"?: bool (also every available family and, in "lookAlikes", Word's Hebrew families such as David that are not installed but are drawn in an open look-alike: [{"name", "drawnIn"}])}"#).pure(),
         CommandSpec::new("font.remove", "Remove Added Font", "Home › Font", remove).params(r#"{"family": string}"#).pure(),
         CommandSpec::new("font.loadSystem", "Load System Installed Fonts…", "Home › Font", load_system).pure(),
         CommandSpec::new("font.missing", "Missing Fonts", "Status Bar", missing)
@@ -111,6 +111,9 @@ fn list(_: &mut Session, v: &Value) -> CmdResult {
     });
     if p::bool(v, "all") == Some(true) {
         out["families"] = json!(db.families());
+        // The Font box names these too: a document set in David is drawn in the stand-in.
+        out["lookAlikes"] =
+            wordcraft_fonts::word::listed_look_alikes(db).into_iter().map(|(name, drawn)| json!({"name": name, "drawnIn": drawn})).collect();
     }
     Ok(out)
 }

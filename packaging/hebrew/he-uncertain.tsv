@@ -43,3 +43,12 @@
 	{language} proofing isn't installed.	הגהה ב{language} אינה מותקנת.	the preposition is glued to the language name, as in the existing row for spelling checked in a language
 @plural	{n} font not installed|{n} fonts not installed	{n} גופן לא מותקן|{n} גופנים לא מותקנים|{n} גופנים לא מותקנים	@plural: the 'two' form repeats the 'other' form, as the existing rows do
 @plural	{n} missing font can be downloaded|{n} missing fonts can be downloaded	{n} גופן חסר ניתן להורדה|{n} גופנים חסרים ניתנים להורדה|{n} גופנים חסרים ניתנים להורדה	@plural: see the previous row
+	Add Blank Paragraphs Between	הוספת פסקאות ריקות בין הפסקאות	a text-cleanup command; check which 'between' it means
+	Indent Leading Spaces	המרת רווחים בתחילת שורה להזחה	text cleanup: leading spaces become an indent; the wording is long
+	Indents to Leading Spaces	המרת הזחות לרווחים בתחילת שורה	text cleanup, the reverse of the row before
+	Join Lines	חיבור שורות	text cleanup; 'חיבור שורות'
+	Split Lines into Paragraphs	פיצול שורות לפסקאות	text cleanup
+	Document fitted to 1 page (font: -1.0 pt, spacing: 90%).	המסמך הותאם לעמוד אחד (גופן: -1.0 נק׳, ריווח: 90%).	an example message with fixed numbers; the Hebrew keeps them as they are
+	Ignore Once	התעלמות חד-פעמית	the spelling pane's button; 'התעלמות חד-פעמית' or 'התעלם פעם אחת'
+	only floating connectors in the body text can be glued	אפשר לחבר רק מחברים צפים שבגוף הטקסט	a reason an agent reads; 'glued' is rendered as 'connected'
+	only for Markdown (.md) files	רק עבור קובצי Markdown (‎.md)	the left-to-right mark before .md is meant to keep the dot in place

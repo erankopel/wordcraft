@@ -69,6 +69,27 @@ fn an_added_font_is_listed_and_lays_out_text_already_set_in_it() {
     assert!(s.run("font.remove", &json!({"family": FAMILY})).is_err());
 }
 
+/// Word's David is proprietary and never bundled, but a document can be set in it: the list of
+/// families also names the Hebrew families an installed open look-alike stands in for, and says
+/// which. Each is not installed itself, its stand-in is, and David is among them exactly when both
+/// hold.
+#[test]
+fn the_font_list_names_hebrew_families_that_a_look_alike_draws() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    let db = wordcraft_fonts::FontDb::global();
+    let list = s.run("font.list", &json!({"all": true})).unwrap();
+    let look = list["lookAlikes"].as_array().expect("the full list has look-alikes");
+    for entry in look {
+        let (name, drawn) = (entry["name"].as_str().unwrap_or_default(), entry["drawnIn"].as_str().unwrap_or_default());
+        assert!(!db.has_family(name), "{name} is installed, so nothing stands in for it");
+        assert!(db.has_family(drawn), "{name} is drawn in {drawn}, which is not installed");
+    }
+    let david = look.iter().any(|e| e["name"] == "David");
+    assert_eq!(david, !db.has_family("David") && wordcraft_fonts::word::look_alike_for(db, "David").is_some());
+    let plain = s.run("font.list", &json!({})).unwrap();
+    assert!(plain.get("lookAlikes").is_none(), "only the full list has them");
+}
+
 #[test]
 fn adding_a_font_never_changes_text_that_does_not_use_it() {
     const FAMILY: &str = "Metric Serif 4";

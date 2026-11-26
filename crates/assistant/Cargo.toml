@@ -1,0 +1,17 @@
+[package]
+name = "wordcraft-assistant"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WordCraft AI assistant core: the request a model gets, the reply it returns, and the providers that carry them (no UI, no document types)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = "1"
+
+# The same HTTP client, with the same features, craft-font-store already links, so this adds nothing
+# new to the build. The browser build has no network provider.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }

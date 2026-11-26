@@ -29,12 +29,13 @@ fn session(text: &str) -> Session {
     s
 }
 
-/// What Select Word picks with the caret `offset` bytes into the first paragraph.
+/// What Select Word picks with the caret `offset` bytes into the first paragraph, without the
+/// trailing space it also takes (as a double-click does).
 fn word_at(text: &str, offset: usize) -> String {
     let mut s = session(text);
     s.sel = crate::Selection::caret(Pos::new(StoryRef::Body, wordcraft_doc::Path::top(0), offset));
     run(&mut s, "select.word", json!({}));
-    s.selected_text()
+    s.selected_text().trim_end().to_owned()
 }
 
 /// A pointed word is one word: the points sit inside it, so a double-click anywhere in it picks
@@ -51,12 +52,33 @@ fn a_word_with_niqqud_is_selected_whole() {
     }
 }
 
-/// Gershayim in an acronym and geresh in a borrowed word are part of the word.
+/// Biblical text carries cantillation marks (te'amim) between the letters of a word, after the
+/// points: they are part of the word as the points are. Here bet, sheva, dagesh, resh, tsere, alef,
+/// shin, shin dot, hiriq, tipha, yod, tav.
 #[test]
-fn gershayim_and_geresh_stay_inside_their_word() {
-    assert_eq!(word_at(&format!("{TSAHAL} אמר"), "\u{05E6}".len()), TSAHAL, "gershayim");
-    assert_eq!(word_at(&format!("{TSAHAL} אמר"), "\u{05E6}\u{05D4}\u{05F4}".len()), TSAHAL, "caret just after the gershayim");
-    assert_eq!(word_at(&format!("{GIRAFFE} גבוהה"), "\u{05D2}".len()), GIRAFFE, "geresh");
+fn a_word_with_cantillation_marks_is_selected_whole() {
+    let word = "\u{05D1}\u{05B0}\u{05BC}\u{05E8}\u{05B5}\u{05D0}\u{05E9}\u{05C1}\u{05B4}\u{0596}\u{05D9}\u{05EA}";
+    let text = format!("{word} ברא");
+    // Before the mark, and after it.
+    for offset in ["\u{05D1}\u{05B0}\u{05BC}".len(), "\u{05D1}\u{05B0}\u{05BC}\u{05E8}\u{05B5}\u{05D0}\u{05E9}\u{05C1}\u{05B4}\u{0596}".len()] {
+        assert_eq!(word_at(&text, offset), word, "caret at byte {offset}");
+    }
+}
+
+/// Gershayim inside an acronym is part of the word, wherever the caret is in it.
+#[test]
+fn gershayim_stays_inside_an_acronym() {
+    let text = format!("{TSAHAL} אמר");
+    assert_eq!(word_at(&text, "\u{05E6}".len()), TSAHAL, "before the gershayim");
+    assert_eq!(word_at(&text, "\u{05E6}\u{05D4}\u{05F4}".len()), TSAHAL, "just after it");
+}
+
+/// Geresh inside a borrowed word is part of the word.
+#[test]
+fn geresh_stays_inside_a_borrowed_word() {
+    let text = format!("{GIRAFFE} גבוהה");
+    assert_eq!(word_at(&text, "\u{05D2}".len()), GIRAFFE, "before the geresh");
+    assert_eq!(word_at(&text, "\u{05D2}\u{05F3}".len()), GIRAFFE, "just after it");
 }
 
 /// The maqaf joins two words into one phrase but they stay two words: a double-click picks one.

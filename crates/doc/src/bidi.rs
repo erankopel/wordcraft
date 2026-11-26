@@ -25,11 +25,15 @@ pub fn is_complex_script(c: char) -> bool {
 /// A character that belongs to a word for word selection and Ctrl+arrow movement: letters,
 /// digits, `_` and `'`, plus what sits inside Persian and Arabic words: the zero-width non-joiner
 /// (نیم‌فاصله, as in «می‌خواهم»), the zero-width joiner, tatweel and the Arabic combining marks.
+/// In Hebrew words the points (niqqud) are letters already (Unicode counts them as alphabetic),
+/// but the cantillation marks of Biblical text (U+0591 to U+05AF) are not, and the geresh and
+/// gershayim (U+05F3, U+05F4, as in ג׳ירפה and צה״ל) are punctuation, so they are listed here. The
+/// maqaf (U+05BE) and sof pasuq (U+05C3) are not: they separate words.
 pub fn is_word_char(c: char) -> bool {
     c.is_alphanumeric()
         || c == '_'
         || c == '\''
-        || matches!(u32::from(c), 0x200C | 0x200D | 0x0640 | 0x0610..=0x061A | 0x064B..=0x065F | 0x0670 | 0x06D6..=0x06DC | 0x06DF..=0x06E8 | 0x06EA..=0x06ED | 0x08D3..=0x08FF | 0x0300..=0x036F)
+        || matches!(u32::from(c), 0x200C | 0x200D | 0x0640 | 0x0610..=0x061A | 0x064B..=0x065F | 0x0670 | 0x06D6..=0x06DC | 0x06DF..=0x06E8 | 0x06EA..=0x06ED | 0x08D3..=0x08FF | 0x0300..=0x036F | 0x0591..=0x05AF | 0x05F3 | 0x05F4)
 }
 
 /// Does `text` contain a right-to-left character?
@@ -75,6 +79,10 @@ mod tests {
         assert!(has_rtl("Word ورد 2024") && !has_rtl("Word 2024"));
         assert!("می‌خواهم".chars().all(is_word_char), "ZWNJ is inside the word");
         assert!("کِتاب".chars().all(is_word_char), "so are harakat");
+        assert!("\u{05E9}\u{05C1}\u{05B8}\u{05DC}\u{05D5}\u{05B9}\u{05DD}".chars().all(is_word_char), "and Hebrew points");
+        assert!("\u{05D1}\u{05B4}\u{0596}\u{05D9}\u{05EA}".chars().all(is_word_char), "and Hebrew cantillation marks");
+        assert!("\u{05E6}\u{05D4}\u{05F4}\u{05DC}".chars().all(is_word_char) && is_word_char('\u{05F3}'), "and geresh and gershayim");
+        assert!(!is_word_char('\u{05BE}') && !is_word_char('\u{05C3}'), "the maqaf and sof pasuq end a word");
         assert!(!is_word_char(' ') && !is_word_char('،'));
         assert!(first_strong_is_rtl("سلام"));
         assert!(first_strong_is_rtl("من ناوم هێڤاره"));

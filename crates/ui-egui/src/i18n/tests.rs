@@ -150,6 +150,7 @@ const LOCALES: &[(&str, &[&str], Option<&str>)] = &[
     ("sl", &["sl", "sl-SI", "SL-si"], Some("Slovenščina")),
     ("bs", &["bs", "bs-BA", "bs-Latn-BA"], Some("Bosanski")),
     ("ar", &["ar", "ar-MA", "ar_EG.UTF-8", "AR-sa", "ar-Arab-AE"], None),
+    ("he", &["he", "he-IL", "he_IL.UTF-8", "HE-il", "iw", "iw-IL"], Some("עברית")),
 ];
 
 /// A system locale and a saved preference pick each language, and choosing one leaves the open
@@ -193,10 +194,15 @@ fn a_system_locale_and_a_saved_preference_pick_the_language_and_leave_the_docume
     assert_eq!(app.ui.language, AUTO);
     assert_eq!(lang_from_tag("bs-Cyrl-BA"), None, "Cyrillic Bosnian has no catalog: a script is never crossed");
     assert_eq!(lang_from_tag("sr-Latn-RS"), Some(lang("sr-latn")));
-    if let Some(ar) = Lang::from_code("ar") {
-        assert!(ar.rtl());
-        assert!(Lang::all().filter(|l| l.rtl()).eq([ar]), "Arabic is the only right-to-left language");
+    // Arabic and Hebrew are the right-to-left interface languages; any other language that
+    // becomes one by mistake fails here. Each is checked only when its catalog is embedded.
+    for code in ["ar", "he"] {
+        if let Some(l) = Lang::from_code(code) {
+            assert!(l.rtl(), "{code} is written right to left");
+        }
     }
+    let rtl: Vec<&str> = Lang::all().filter(|l| l.rtl()).map(Lang::code).collect();
+    assert!(rtl.iter().all(|c| ["ar", "he"].contains(c)), "only Arabic and Hebrew are right to left: {rtl:?}");
 }
 
 /// The interface language names the language of new documents where WordCraft can proof it, and
@@ -414,6 +420,33 @@ fn arabic_lookups_keep_typing_order() {
     assert_eq!(location("Home › Font"), "الرئيسية ‹ الخط");
     // A search query typed in reading order is a plain substring of the label.
     assert!(craft::i18n::Folder::new(current().code()).contains(t("Table of Contents"), "جدول المحتويات"));
+    apply_language(Lang::EN);
+    assert_eq!(location("Home › Font"), "Home › Font");
+}
+
+/// Hebrew behaves as Arabic does: the lookups return the catalog's text in typing order, a
+/// placeholder is filled in place, and the ribbon location reads from the right with the mark
+/// pointing left.
+#[test]
+fn hebrew_lookups_keep_typing_order() {
+    let ctx = egui::Context::default();
+    let he = fixture_host(
+        &ctx,
+        "he",
+        concat!(
+            "\tTable of Contents\tתוכן עניינים\n",
+            "\tAbout WordCraft\tעל אודות WordCraft\n",
+            "\tPage {page} of {pages}\tעמוד {page} מתוך {pages}\n",
+            "\tHome\tדף הבית\n",
+            "\tFont\tגופן\n",
+        ),
+    );
+    assert!(he.rtl());
+    assert_eq!(tr(he, "Table of Contents"), "תוכן עניינים");
+    assert_eq!(tr(he, "About WordCraft"), "על אודות WordCraft");
+    assert_eq!(fmt_plain(tr(he, "Page {page} of {pages}"), &[("page", "3"), ("pages", "9")]), "עמוד 3 מתוך 9");
+    assert_eq!(tr(he, "unknown future label"), "unknown future label", "a string without a translation stays English");
+    assert_eq!(location("Home › Font"), "דף הבית ‹ גופן");
     apply_language(Lang::EN);
     assert_eq!(location("Home › Font"), "Home › Font");
 }

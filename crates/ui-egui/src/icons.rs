@@ -27,6 +27,7 @@ static WORDCRAFT_ICONS_TABLE: &[(&str, &[u8])] = &[
     ("alignText", include_bytes!("../icons/alignText.svg")),
     ("altText", include_bytes!("../icons/altText.svg")),
     ("arrangeAll", include_bytes!("../icons/arrangeAll.svg")),
+    ("assistant", include_bytes!("../icons/assistant.svg")),
     ("autofit", include_bytes!("../icons/autofit.svg")),
     ("bibliography", include_bytes!("../icons/bibliography.svg")),
     ("blankPage", include_bytes!("../icons/blankPage.svg")),

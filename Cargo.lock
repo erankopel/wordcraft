@@ -9274,6 +9274,7 @@ dependencies = [
  "toml",
  "toml_edit",
  "web-time",
+ "wordcraft-assistant",
  "wordcraft-doc",
  "wordcraft-engine",
  "wordcraft-fonts",

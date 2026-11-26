@@ -51,6 +51,8 @@ pub enum Pane {
     RestrictEditing,
     Proofing,
     Comments,
+    /// The AI pane: ask for a change or an answer, and apply the reply (`crate::assistant_pane`).
+    Assistant,
 }
 
 impl Pane {
@@ -67,6 +69,7 @@ impl Pane {
             Self::RestrictEditing => "Restrict Editing",
             Self::Proofing => "Proofing",
             Self::Comments => "Comments",
+            Self::Assistant => "AI Assistant",
         }
     }
 
@@ -85,6 +88,7 @@ impl Pane {
             Self::RestrictEditing => (PaneEdge::End, 270.0),
             Self::Proofing => (PaneEdge::End, 400.0),
             Self::Comments => (PaneEdge::End, 290.0),
+            Self::Assistant => (PaneEdge::End, 320.0),
         }
     }
 
@@ -118,10 +122,11 @@ impl Pane {
             Self::RestrictEditing => "restrictEditing",
             Self::Proofing => "proofing",
             Self::Comments => "comments",
+            Self::Assistant => "assistant",
         }
     }
 
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 12] = [
         Self::SmartArtText,
         Self::Navigation,
         Self::Clipboard,
@@ -133,6 +138,7 @@ impl Pane {
         Self::RestrictEditing,
         Self::Proofing,
         Self::Comments,
+        Self::Assistant,
     ];
 
     fn from_key(key: &str) -> Option<Self> {
@@ -151,6 +157,7 @@ impl Pane {
             Self::AltText => Some("view.altTextPane"),
             Self::FormatShape => Some("view.formatShapePane"),
             Self::Comments => Some("view.commentsPane"),
+            Self::Assistant => Some("view.assistantPane"),
             Self::RestrictEditing | Self::Proofing => None,
         }
     }
@@ -170,6 +177,7 @@ fn pane_body(app: &mut WordApp, ui: &mut Ui, pane: Pane) {
         Pane::RestrictEditing => crate::restrict_pane::show(app, ui),
         Pane::Proofing => crate::proofing_pane::show(app, ui),
         Pane::Comments => comments(app, ui),
+        Pane::Assistant => crate::assistant_pane::show(app, ui),
     }
 }
 

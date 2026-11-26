@@ -66,6 +66,7 @@ pub mod printing;
 pub mod proofing_pane;
 pub mod read_aloud;
 mod restrict_pane;
+mod assistant_pane;
 pub mod ribbon;
 mod save_types;
 pub mod scroll;
@@ -420,6 +421,8 @@ pub struct WordApp {
     pub canvas: canvas::CanvasState,
     /// The Restrict Editing pane (#412).
     pub(crate) restrict: restrict_pane::RestrictPane,
+    /// The AI pane's chat, one per window.
+    pub(crate) assistant: assistant_pane::AssistantState,
     /// The language-aware spelling and grammar task pane.
     pub spelling_review: Option<proofing_pane::SpellingForm>,
     /// The status bar's message, until its `until` passes.

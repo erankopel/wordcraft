@@ -52,6 +52,7 @@ impl WordApp {
         let window_ui::WindowUi {
             canvas,
             restrict,
+            assistant,
             spelling_review,
             status,
             announcement,
@@ -139,6 +140,7 @@ impl WordApp {
             print_document: None,
             canvas,
             restrict,
+            assistant,
             spelling_review,
             status,
             announcement,

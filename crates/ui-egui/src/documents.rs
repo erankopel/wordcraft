@@ -73,6 +73,8 @@ impl WordApp {
         }
         self.spelling_review = None;
         self.restrict = crate::restrict_pane::RestrictPane { open: self.restrict.open, ..Default::default() };
+        // A new document starts a new chat; what the person agreed to this run stays agreed.
+        self.assistant = crate::assistant_pane::AssistantState::fresh_for_document(&self.assistant);
         self.status = None;
         self.change_picture_target = None;
         self.recipient_list_pending = false;

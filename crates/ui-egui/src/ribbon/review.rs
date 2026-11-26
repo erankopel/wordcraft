@@ -79,6 +79,14 @@ pub(super) fn review(row: &mut RibbonRow<'_>, app: &mut WordApp) {
             .arrangement(Arrangement::Stacked)
             .show(ui);
     });
+    row.group(RibbonGroup::new("review.assistant", tl!("AI").to_string(), IconId::new("assistant").into()), |ui| {
+        ToggleButton::command(CommandRef::new("view.assistantPane"))
+            .label(tl!("AI\nAssistant").to_string())
+            .icon(IconId::new("assistant"))
+            .arrangement(Arrangement::Stacked)
+            .selected(app.session.view.assistant_pane)
+            .show(ui);
+    });
     row.group(
         RibbonGroup::new("review.tracking", tl!("Tracking").to_string(), IconId::new("trackChanges").into()).launcher("review.trackingOptions"),
         |ui| {

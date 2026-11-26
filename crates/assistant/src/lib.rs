@@ -170,6 +170,8 @@ pub enum Error {
     Http { status: u16, kind: String, message: String },
     /// The answer was not a reply this code understands.
     BadReply(String),
+    /// This build cannot send requests: the browser version, or a worker could not be started.
+    Unavailable,
 }
 
 impl fmt::Display for Error {
@@ -181,6 +183,7 @@ impl fmt::Display for Error {
             Error::Network(why) => write!(f, "network error: {why}"),
             Error::Http { status, kind, message } => write!(f, "HTTP {status} {kind}: {message}"),
             Error::BadReply(why) => write!(f, "unreadable reply: {why}"),
+            Error::Unavailable => write!(f, "this build cannot send requests"),
         }
     }
 }

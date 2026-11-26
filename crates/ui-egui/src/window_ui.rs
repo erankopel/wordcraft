@@ -20,6 +20,7 @@ use crate::{Status, WordApp, backstage, canvas, chrome, colors, dialogs, file_di
 pub(crate) struct WindowUi {
     pub(crate) canvas: canvas::CanvasState,
     pub(crate) restrict: crate::restrict_pane::RestrictPane,
+    pub(crate) assistant: crate::assistant_pane::AssistantState,
     pub(crate) spelling_review: Option<crate::proofing_pane::SpellingForm>,
     pub(crate) status: Option<Status>,
     /// Announcement belonging to this document window.
@@ -74,6 +75,7 @@ impl WindowUi {
         WindowUi {
             canvas: Default::default(),
             restrict: Default::default(),
+            assistant: Default::default(),
             spelling_review: None,
             status: None,
             announcement: None,
@@ -187,6 +189,7 @@ impl WordApp {
             ui,
             canvas,
             restrict,
+            assistant,
             spelling_review,
             status,
             announcement,
@@ -285,6 +288,7 @@ impl WordApp {
         swap_fields!(w:
             canvas,
             restrict,
+            assistant,
             spelling_review,
             status,
             announcement,

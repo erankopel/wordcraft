@@ -491,7 +491,7 @@ fn push_hebrew_below_thousand(mut n: u32, out: &mut String) {
             if n >= 10 {
                 out.extend(HEBREW_TENS.get((n / 10 - 1) as usize));
             }
-            if n % 10 > 0 {
+            if !n.is_multiple_of(10) {
                 out.extend(HEBREW_ONES.get((n % 10 - 1) as usize));
             }
         }

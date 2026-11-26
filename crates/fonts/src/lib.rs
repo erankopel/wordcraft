@@ -16,8 +16,8 @@ mod ui_fallback;
 pub mod word;
 
 pub use fontdb::{
-    FALLBACK_FAMILY, FONT_FILE_EXTS, FaceRef, FontDb, FontFace, FontFormat, Installed, LocalName, MAX_FONT_FILE_BYTES, UserFont, UserFontError,
-    base_style, bundled, decode_font_file, is_font_file_name, name_language_matches, sniff, system_font_dirs,
+    FALLBACK_FAMILY, FONT_DIR_ENV, FONT_FILE_EXTS, FaceRef, FontDb, FontFace, FontFormat, Installed, LocalName, MAX_FONT_FILE_BYTES, UserFont,
+    UserFontError, base_style, bundled, bundled_font_dirs, decode_font_file, is_font_file_name, name_language_matches, sniff, system_font_dirs,
 };
 pub use harfrust::Feature;
 use harfrust::{Direction, ShapeOptions, ShapePlan, ShapePlanKey, Shaper, Tag, UnicodeBuffer};
@@ -26,8 +26,8 @@ pub use script::{fallback_rank, is_emoji, joins_cursively, needs_layout_tables, 
 use skrifa::MetadataProvider;
 use skrifa::instance::Size;
 pub use ui_fallback::{
-    SystemUiFont, is_cjk, system_arabic_ui_font, system_cjk_ui_font, system_cjk_ui_font_for, system_hant_ui_font, ui_needs_system_cjk,
-    ui_uncovered_cjk,
+    SystemUiFont, is_cjk, system_arabic_ui_font, system_cjk_ui_font, system_cjk_ui_font_for, system_hant_ui_font, system_hebrew_ui_font,
+    ui_needs_system_cjk, ui_uncovered_cjk,
 };
 
 /// A font from the optional craft-fonts build input (https://github.com/storytold/craft-fonts;
@@ -112,6 +112,13 @@ pub fn arabic_fonts() -> impl Iterator<Item = &'static CraftFont> {
 /// fallback for an Arabic interface and for Arabic file names. Empty without craft-fonts.
 pub fn ui_arabic_fonts() -> Vec<&'static CraftFont> {
     arabic_fonts().filter(|f| f.style == "Regular").collect()
+}
+
+/// The craft-fonts faces for Hebrew script (`"Hebr"`), Regular styles only: the interface's
+/// fallback for a Hebrew interface, whose menus Inter and Source Sans cannot draw. Empty without
+/// craft-fonts.
+pub fn ui_hebrew_fonts() -> Vec<&'static CraftFont> {
+    CRAFT_FONTS.iter().filter(|f| f.scripts.contains(&"Hebr") && f.style == "Regular").collect()
 }
 
 /// The bundled serif used when a document asks for nothing better.

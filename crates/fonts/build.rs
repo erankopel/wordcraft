@@ -40,8 +40,8 @@ fn main() {
 }
 
 /// Scripts a release build (`CRAFT_FONTS_REQUIRED`, native) must embed a font for: the CJK
-/// interface languages' (Japanese, Simplified Chinese).
-const REQUIRED_SCRIPTS: &[&str] = &["Jpan", "Hans"];
+/// interface languages' (Japanese, Simplified Chinese) and the Hebrew interface's.
+const REQUIRED_SCRIPTS: &[&str] = &["Jpan", "Hans", "Hebr"];
 
 /// One `CraftFont { .. }` initialiser per manifest line, and the scripts the embedded fonts cover.
 fn craft_fonts(dir: &std::path::Path) -> Result<(String, Vec<String>), String> {
@@ -56,8 +56,8 @@ fn craft_fonts(dir: &std::path::Path) -> Result<(String, Vec<String>), String> {
         let [family, style, file, scripts, ..] = f.as_slice() else {
             return Err(format!("malformed manifest line: {line}"));
         };
-        // Arabic interface faces are small, so the web build keeps them too.
-        let small_ui_face = scripts.split(',').any(|s| matches!(s.trim(), "Arab" | "Geor"));
+        // Arabic, Georgian and Hebrew interface faces are small, so the web build keeps them too.
+        let small_ui_face = scripts.split(',').any(|s| matches!(s.trim(), "Arab" | "Geor" | "Hebr"));
         if wasm && !small_ui_face {
             continue;
         }

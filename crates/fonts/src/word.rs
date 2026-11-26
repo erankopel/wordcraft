@@ -93,6 +93,48 @@ fn substitutes_by_name(family: &str) -> (&'static [&'static str], bool) {
     const HEBREW: &[&str] = &["Helvetica", "Noto Sans Hebrew", "Arial", "Tahoma", "Geeza Pro", "DejaVu Sans", "Source Sans 3"];
     #[cfg(not(any(windows, target_os = "macos")))]
     const HEBREW: &[&str] = &["Noto Sans Hebrew", "Segoe UI", "Arial", "Tahoma", "DejaVu Sans", "Source Sans 3"];
+    // Word's Hebrew families that have an open look-alike, each followed by the other open faces
+    // of its kind, then the platform fonts and the generic ones the list above ends with. None of
+    // them is known to measure like the font it stands for (David Libre's maker scaled David Hadash
+    // down 12.5% to approximate Windows' David, and says it is "only a close approximation"; the
+    // others are other designs), so none is a [`METRIC_TWINS`] entry: a document in them is shown
+    // as set in a substitute, and the status bar says so.
+    // David, the official font of Israeli correspondence, and the serif book faces.
+    const HEBREW_DAVID: &[&str] = &[
+        "David Libre",
+        "Noto Serif Hebrew",
+        "Frank Ruhl Libre",
+        "Liberation Serif",
+        "Times New Roman",
+        "Noto Sans Hebrew",
+        "Segoe UI",
+        "Arial",
+        "Tahoma",
+        "DejaVu Sans",
+        "Source Sans 3",
+    ];
+    // Frank Rühl and Narkisim: the same classic Hebrew book design.
+    const HEBREW_FRANK: &[&str] = &[
+        "Frank Ruhl Libre",
+        "Noto Serif Hebrew",
+        "David Libre",
+        "Liberation Serif",
+        "Times New Roman",
+        "Noto Sans Hebrew",
+        "Segoe UI",
+        "Arial",
+        "Tahoma",
+        "DejaVu Sans",
+        "Source Sans 3",
+    ];
+    // Miriam: the mono-linear sans Miriam Libre revives.
+    const HEBREW_MIRIAM: &[&str] =
+        &["Miriam Libre", "Heebo", "Assistant", "Noto Sans Hebrew", "Liberation Sans", "Segoe UI", "Arial", "Tahoma", "DejaVu Sans", "Source Sans 3"];
+    // Aharoni (heavy), Gisha and Levenim MT: Hebrew sans families.
+    const HEBREW_SANS: &[&str] =
+        &["Heebo", "Assistant", "Miriam Libre", "Noto Sans Hebrew", "Liberation Sans", "Segoe UI", "Arial", "Tahoma", "DejaVu Sans", "Source Sans 3"];
+    // Miriam Fixed and Rod: fixed-width Hebrew families. Liberation Mono has the letters and the points.
+    const HEBREW_MONO: &[&str] = &["Liberation Mono", "Courier New", "Miriam Libre", "Noto Sans Hebrew", "DejaVu Sans", "Source Sans 3"];
     // Thai document fonts (TH Sarabun New, Cordia New, the UPC families…): Thai faces, every one
     // with Thai letters; [`substitute`] prefers one with Latin letters and digits too, so a run
     // mixing Thai and Latin keeps one font at one size, as Word substitutes Cordia New for the
@@ -145,6 +187,16 @@ fn substitutes_by_name(family: &str) -> (&'static [&'static str], bool) {
     }
     if is_thai(&f) {
         return (THAI, true);
+    }
+    match f.as_str() {
+        "david" | "david clm" => return (HEBREW_DAVID, true),
+        "frankruehl" | "frank ruehl" | "frankruehl clm" | "frank ruehl clm" | "narkisim" | "narkissim" | "narkisim clm" => {
+            return (HEBREW_FRANK, true);
+        }
+        "miriam" | "miriam clm" => return (HEBREW_MIRIAM, true),
+        "aharoni" | "gisha" | "levenim mt" | "levenim" => return (HEBREW_SANS, true),
+        "miriam fixed" | "rod" | "miriam mono clm" => return (HEBREW_MONO, true),
+        _ => {}
     }
     if is_hebrew(&f) {
         return (HEBREW, true);
@@ -465,6 +517,31 @@ fn is_khmer(f: &str) -> bool {
 fn is_hebrew(f: &str) -> bool {
     const NAMES: &[&str] = &["david", "miriam", "noto sans hebrew", "arial hebrew", "calibri hebrew"];
     NAMES.contains(&f) || f.contains("hebrew")
+}
+
+/// Word's Hebrew families the font list offers by name when none of them is installed but an
+/// open look-alike that has Hebrew letters is ([`listed_look_alikes`]).
+pub const HEBREW_LOOK_ALIKE_NAMES: &[&str] =
+    &["David", "Frank Ruehl", "FrankRuehl", "Narkisim", "Miriam", "Miriam Fixed", "Aharoni", "Gisha", "Levenim MT", "Rod"];
+
+/// The Hebrew families of [`HEBREW_LOOK_ALIKE_NAMES`] that aren't installed but would be drawn in
+/// a look-alike that has Hebrew letters, each with the family it is drawn in, for a font list that
+/// offers them: a document can then be set in David on a machine that doesn't have it, and the
+/// status bar still says it is shown in another font (the look-alike doesn't measure like it).
+pub fn listed_look_alikes(db: &FontDb) -> Vec<(&'static str, &'static str)> {
+    HEBREW_LOOK_ALIKE_NAMES.iter().copied().filter_map(|name| look_alike_for(db, name).map(|drawn| (name, drawn))).collect()
+}
+
+/// The family `name` is drawn in when it is one of [`HEBREW_LOOK_ALIKE_NAMES`] (any letter case),
+/// isn't installed, and has an installed look-alike with Hebrew letters; `None` otherwise.
+pub fn look_alike_for(db: &FontDb, name: &str) -> Option<&'static str> {
+    let listed = HEBREW_LOOK_ALIKE_NAMES.iter().copied().find(|n| n.eq_ignore_ascii_case(name))?;
+    if db.has_family(listed) {
+        return None;
+    }
+    let drawn = substitute(db, listed)?;
+    let face = db.face(drawn, "Regular");
+    (face.named(drawn) && face.covers('\u{05D0}')).then_some(drawn)
 }
 
 /// The first installed substitute for a missing `family`. For a Thai font, the first with Latin
@@ -988,6 +1065,56 @@ mod tests {
         }
         // Generic names with "Hebrew" in them also get Hebrew substitutions
         assert!(substitutes("SomeFont Hebrew").contains(&"Noto Sans Hebrew"));
+    }
+
+    #[test]
+    fn word_hebrew_families_take_their_open_look_alikes_first() {
+        let first = |f: &str, n: &str| substitutes(f).iter().position(|s| *s == n).unwrap_or(usize::MAX);
+        let (david, frank, miriam) = ("David Libre", "Frank Ruhl Libre", "Miriam Libre");
+        // David: David Libre, then the serif Noto, both before any sans face.
+        assert_eq!(substitutes("David").first(), Some(&david));
+        assert!(
+            first("david", david) < first("david", "Noto Serif Hebrew") && first("david", "Noto Serif Hebrew") < first("david", "Noto Sans Hebrew")
+        );
+        for f in ["Narkisim", "FrankRuehl", "Frank Ruehl"] {
+            assert_eq!(substitutes(f).first(), Some(&frank), "{f}");
+        }
+        assert_eq!(substitutes("Miriam").first(), Some(&miriam));
+        for f in ["Aharoni", "Gisha", "Levenim MT"] {
+            assert_eq!(substitutes(f).first(), Some(&"Heebo"), "{f}");
+        }
+        for f in ["Miriam Fixed", "Rod"] {
+            assert_eq!(substitutes(f).first(), Some(&"Liberation Mono"), "{f}");
+        }
+        // Each is a font known by name, and every list still ends where the old one did, in faces
+        // that cover Hebrew on the platforms (the generic ones last).
+        for f in ["David", "Miriam", "Narkisim", "FrankRuehl", "Aharoni", "Gisha", "Levenim MT", "Miriam Fixed", "Rod"] {
+            assert!(has_own_substitutes(f), "{f}");
+            assert!(substitutes(f).contains(&"Noto Sans Hebrew"), "{f}");
+            assert_eq!(substitutes(f).last(), Some(&"Source Sans 3"), "{f}");
+        }
+        // None of them is a metric twin: a look-alike is not the font, and the status bar says so.
+        for f in ["David", "Miriam", "Narkisim", "FrankRuehl"] {
+            for sub in substitutes(f) {
+                assert!(!metric_compatible(f, sub) || sub.eq_ignore_ascii_case(f), "{f} ≙ {sub}");
+            }
+        }
+        // Other fonts keep the lists they had.
+        assert_eq!(substitutes("Calibri").first(), Some(&"Carlito"));
+        assert_eq!(substitutes("Arial Hebrew").first(), Some(&"Noto Sans Hebrew"));
+    }
+
+    #[test]
+    fn listed_look_alikes_are_drawn_in_a_face_with_hebrew_letters() {
+        let db = FontDb::global();
+        for (name, drawn) in listed_look_alikes(db) {
+            assert!(!db.has_family(name), "{name} is installed, so it needs no look-alike");
+            assert!(substitutes(name).contains(&drawn), "{name} → {drawn}");
+            assert!(db.face(drawn, "Regular").covers('\u{05D0}'), "{name} → {drawn} has no alef");
+            // What the list offers is what layout draws.
+            assert_eq!(resolve(name, false, false).face.family, drawn, "{name}");
+            assert!(resolve(name, false, false).substituted, "{name}");
+        }
     }
 
     #[test]

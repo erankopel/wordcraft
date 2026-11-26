@@ -241,6 +241,37 @@ fn arabic_candidates() -> &'static [&'static str] {
     }
 }
 
+/// Hebrew UI font file names by platform, the best first. Open fonts that ship with Linux
+/// distributions come before the broad ones, whose Hebrew is only a fallback.
+fn hebrew_candidates() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["segoeui.ttf", "arial.ttf", "tahoma.ttf"]
+    } else if cfg!(target_os = "macos") {
+        &["ArialHB.ttc", "Supplemental/Arial Hebrew.ttc", "Supplemental/Arial.ttf", "Supplemental/Arial Unicode.ttf"]
+    } else {
+        &[
+            "noto/NotoSansHebrew-Regular.ttf",
+            "truetype/noto/NotoSansHebrew-Regular.ttf",
+            "google-noto/NotoSansHebrew-Regular.ttf",
+            "google-noto-sans-hebrew-vf-fonts/NotoSansHebrew[wdth,wght].ttf",
+            "truetype/freefont/FreeSans.ttf",
+            "freefont/FreeSans.ttf",
+            "truetype/liberation/LiberationSans-Regular.ttf",
+            "liberation/LiberationSans-Regular.ttf",
+            "truetype/dejavu/DejaVuSans.ttf",
+            "dejavu/DejaVuSans.ttf",
+            "TTF/DejaVuSans.ttf",
+        ]
+    }
+}
+
+/// An installed font with Hebrew letters, for a Hebrew interface in a build whose craft-fonts
+/// input has no Hebrew face. Reads at most one font file per candidate; never panics on damaged
+/// files.
+pub fn system_hebrew_ui_font() -> Option<SystemUiFont> {
+    find_ui_font(&crate::system_font_dirs(), hebrew_candidates(), &['\u{5E9}'], Region::Other)
+}
+
 /// An installed font with Arabic letters, for an Arabic interface in a build whose craft-fonts
 /// input has no Arabic face. Reads at most one font file per candidate; never panics on damaged
 /// files.

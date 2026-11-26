@@ -622,8 +622,8 @@ pub fn font_definitions_language(prefer_hans: bool, prefer_korean: bool, prefer_
     font_definitions_language_arabic(prefer_hans, prefer_korean, prefer_hant, system_cjk, false)
 }
 
-/// [`font_definitions_language`], also with an installed Arabic font when `system_arabic` is set
-/// and the build embeds none.
+/// [`font_definitions_language`], also with an installed Arabic or Hebrew font when `system_arabic`
+/// is set and the build embeds none (the flag is set for every right-to-left interface).
 pub fn font_definitions_language_arabic(
     prefer_hans: bool,
     prefer_korean: bool,
@@ -704,8 +704,31 @@ pub fn font_definitions_language_arabic(
         data.index = f.index;
         add_cjk(&mut fonts, format!("system {}", f.family), data);
     }
+    // Hebrew after Arabic, the same way: the Hebrew interface, its name in the language list,
+    // Hebrew file names. Inter and Source Sans have no Hebrew letters, so without this face every
+    // Hebrew label is a box.
+    let hebrew = wordcraft_fonts::ui_hebrew_fonts();
+    for f in &hebrew {
+        add_cjk(&mut fonts, format!("{} {}", f.family, f.style), FontData::from_static(f.bytes));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if system_arabic
+        && hebrew.is_empty()
+        && let Some(f) = system_hebrew_font()
+    {
+        let mut data = FontData::from_static(&f.bytes);
+        data.index = f.index;
+        add_cjk(&mut fonts, format!("system {}", f.family), data);
+    }
     // Symbols and emoji fall back to egui's defaults (kept in the families).
     fonts
+}
+
+/// The installed Hebrew interface font, read once.
+#[cfg(not(target_arch = "wasm32"))]
+fn system_hebrew_font() -> Option<&'static wordcraft_fonts::SystemUiFont> {
+    static HEBREW: std::sync::OnceLock<Option<wordcraft_fonts::SystemUiFont>> = std::sync::OnceLock::new();
+    HEBREW.get_or_init(wordcraft_fonts::system_hebrew_ui_font).as_ref()
 }
 
 /// The installed Arabic interface font, read once.
@@ -1151,6 +1174,42 @@ mod tests {
         let arabic_named = |defs: &egui::FontDefinitions| defs.font_data.keys().filter(|k| k.starts_with("system ")).count();
         let cjk_font = super::system_cjk_font(false, false).is_some();
         assert_eq!(arabic_named(&cjk_only), usize::from(cjk_font), "the CJK request adds the CJK font and no Arabic one");
+    }
+
+    /// The Hebrew interface draws every Hebrew letter its catalog and the language list use, with
+    /// the strict policy that panics on a missing glyph (the app's own policy draws a box). Inter
+    /// and Source Sans have no Hebrew, so this fails when the Hebrew face is not in the chain.
+    #[test]
+    fn the_hebrew_interface_has_a_face_for_every_hebrew_letter_it_shows() {
+        let Some(he) = crate::i18n::Lang::from_code("he") else {
+            eprintln!("skipped: built without the craft-i18n he catalog (set CRAFT_I18N_DIR to a checkout)");
+            return;
+        };
+        let embedded = !wordcraft_fonts::ui_hebrew_fonts().is_empty();
+        #[cfg(not(target_arch = "wasm32"))]
+        let installed = super::system_hebrew_font().is_some();
+        #[cfg(target_arch = "wasm32")]
+        let installed = false;
+        if !embedded && !installed {
+            eprintln!("skipped: no Hebrew face embedded (set CRAFT_FONTS_DIR) or installed");
+            return;
+        }
+        let mut letters: std::collections::BTreeSet<char> =
+            he.catalog_texts().flat_map(str::chars).filter(|c| ('\u{590}'..='\u{5FF}').contains(c)).collect();
+        letters.extend(crate::i18n::Lang::all().flat_map(|l| l.name().chars()).filter(|c| ('\u{590}'..='\u{5FF}').contains(c)));
+        assert!(letters.len() > 20, "the Hebrew catalog has Hebrew letters: {}", letters.len());
+        let ctx = egui::Context::default();
+        ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Panic);
+        ctx.set_fonts(super::font_definitions_language_arabic(false, false, false, false, true));
+        let text: String = letters.iter().collect();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            // Labels are drawn in the medium and semibold families too (ribbon group names, tabs).
+            for font in [super::regular(14.0), super::medium(14.0), super::semibold(14.0)] {
+                let galley = ui.painter().layout_no_wrap(text.clone(), font.clone(), egui::Color32::WHITE);
+                assert!(galley.rows.first().is_some_and(|r| !r.row.glyphs.is_empty()), "the letters are laid out in {:?}", font.family);
+            }
+        });
+        output.textures_delta.clear();
     }
 
     #[test]

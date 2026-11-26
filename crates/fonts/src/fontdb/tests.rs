@@ -52,6 +52,27 @@ fn system_font_dirs_include_the_flatpak_host_folders() {
 }
 
 #[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn the_apps_own_font_folders_are_scanned_with_the_systems() {
+    use std::path::PathBuf;
+    let exe = PathBuf::from("/tmp/.mount_x/usr/bin/wordcraft");
+    let env = std::env::join_paths(["/one/fonts", "", "/two/fonts"]).unwrap();
+    let dirs = bundled_font_dirs_from(Some(env), Some(exe.clone()));
+    // The folders the variable names (an empty entry is no folder), then the install tree's.
+    let at = |d: &str| dirs.iter().position(|x| x == &PathBuf::from(d));
+    assert!(at("/one/fonts") < at("/two/fonts") && at("/two/fonts").is_some());
+    assert!(!dirs.iter().any(|d| d.as_os_str().is_empty()));
+    assert!(dirs.contains(&PathBuf::from("/tmp/.mount_x/usr/share/wordcraft/fonts")), "{dirs:?}");
+    assert!(dirs.contains(&PathBuf::from("/tmp/.mount_x/usr/bin/fonts")), "{dirs:?}");
+    // Nothing to go by: no folders, and no panic.
+    assert!(bundled_font_dirs_from(None, None).is_empty());
+    // Whatever the process was started with, the scan reads those folders as well as the system's.
+    let all = system_font_dirs();
+    assert!(bundled_font_dirs().iter().all(|d| all.contains(d)));
+    assert!(all.contains(&PathBuf::from("/usr/share/fonts")) || cfg!(any(windows, target_os = "macos")));
+}
+
+#[test]
 fn a_capped_outline_is_refused_while_it_is_drawn() {
     // #3716 review: a colour glyph's clip outline stops growing at the payload left.
     let db = FontDb::with_font_dirs(Vec::new());

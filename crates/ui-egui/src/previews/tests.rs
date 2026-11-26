@@ -24,6 +24,21 @@ fn font_menu_entries_leave_installed_families_unloaded() {
     assert!(loaded.len() <= 2, "previewing loaded {loaded:?}");
 }
 
+/// Word's David is proprietary and never bundled, but a document can be set in it: the font list
+/// names it when an open look-alike with Hebrew letters stands in for it, and its entry is drawn.
+#[test]
+fn a_hebrew_family_that_is_not_installed_is_listed_and_drawn_in_its_stand_in() {
+    let db = wordcraft_fonts::FontDb::global();
+    if db.has_family("David") || wordcraft_fonts::word::look_alike_for(db, "David").is_none() {
+        eprintln!("skipped: David is installed here, or nothing with Hebrew letters could stand in for it");
+        return;
+    }
+    let families = Previews::default().families();
+    assert!(families.iter().any(|f| f == "David"), "the list names David: {} families", families.len());
+    let ink = |img: &egui::ColorImage| img.pixels.iter().filter(|p| p.r() < 128).count();
+    assert!(ink(&font_entry_image("David", 1.0)) > 20, "its entry is drawn");
+}
+
 /// A window whose Styles gallery lists `style` first: runs the gallery for a few frames and
 /// returns the painted shapes of the last one and every texture picture uploaded on the way.
 fn run_gallery(mut doc: Document, style: wordcraft_doc::styles::Style) -> (Vec<egui::epaint::ClippedShape>, Vec<egui::ColorImage>) {

@@ -264,9 +264,44 @@ pub(super) fn mini_font(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
     font
 }
 
-/// The platform's font folders (the system's and the user's), scanned by [`FontDb::global`].
-/// Empty on wasm.
+/// The environment variable that names extra font folders for the app to scan: a list of folders
+/// separated as `PATH` is (`:` on Unix, `;` on Windows). See [`bundled_font_dirs`].
+pub const FONT_DIR_ENV: &str = "WORDCRAFT_FONT_DIR";
+
+/// The font folders that come with the app rather than with the system: the folders
+/// [`FONT_DIR_ENV`] lists, then `share/wordcraft/fonts` beside the folder the program is in
+/// (`usr/bin/wordcraft` finds `usr/share/wordcraft/fonts`, the layout of the AppImage, `.deb`,
+/// `.rpm` and tar packages), then a `fonts` folder next to the program (a portable install). A
+/// folder that doesn't exist is skipped by the scan. Empty on wasm.
+pub fn bundled_font_dirs() -> Vec<std::path::PathBuf> {
+    if cfg!(target_arch = "wasm32") {
+        return Vec::new();
+    }
+    bundled_font_dirs_from(std::env::var_os(FONT_DIR_ENV), std::env::current_exe().ok())
+}
+
+/// [`bundled_font_dirs`] for the given [`FONT_DIR_ENV`] value and program path.
+pub(super) fn bundled_font_dirs_from(env: Option<std::ffi::OsString>, exe: Option<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+    let mut dirs: Vec<std::path::PathBuf> = env.iter().flat_map(std::env::split_paths).filter(|p| !p.as_os_str().is_empty()).collect();
+    if let Some(bin) = exe.as_deref().and_then(std::path::Path::parent) {
+        if let Some(prefix) = bin.parent() {
+            dirs.push(prefix.join("share/wordcraft/fonts"));
+        }
+        dirs.push(bin.join("fonts"));
+    }
+    dirs
+}
+
+/// The platform's font folders (the system's and the user's) and the app's own
+/// ([`bundled_font_dirs`]), scanned by [`FontDb::global`]. Empty on wasm.
 pub fn system_font_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = platform_font_dirs();
+    dirs.extend(bundled_font_dirs());
+    dirs
+}
+
+/// The folders the platform keeps fonts in: the system's, the user's and Flatpak's host mounts.
+fn platform_font_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     if cfg!(target_arch = "wasm32") {
         return dirs;

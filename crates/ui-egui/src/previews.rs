@@ -201,6 +201,14 @@ impl Previews {
                     f.push(w.to_string());
                 }
             }
+            // Word's Hebrew families that are not installed but have an open look-alike that is
+            // (David and its kin): listed by name and drawn in the stand-in. The status bar still
+            // says the text is shown in another font.
+            for (name, _) in wordcraft_fonts::word::listed_look_alikes(db) {
+                if !f.iter().any(|x| x.eq_ignore_ascii_case(name)) {
+                    f.push(name.to_string());
+                }
+            }
             f.sort_by_key(|a| a.to_lowercase());
             f.dedup();
             let names = db.localized_names(lang);
@@ -445,9 +453,12 @@ pub fn ink_mask(img: &mut egui::ColorImage) {
 /// symbol font's), or a font that can't be read, shows in the default face.
 pub fn font_entry_image(name: &str, ppp: f32) -> egui::ColorImage {
     let db = wordcraft_fonts::FontDb::global();
+    let covers_name = |f: &std::sync::Arc<wordcraft_fonts::FontFace>| name.chars().filter(|c| !c.is_whitespace()).all(|c| f.covers(c));
     let face = db
         .preview_face(name)
-        .filter(|f| name.chars().filter(|c| !c.is_whitespace()).all(|c| f.covers(c)))
+        .filter(covers_name)
+        // A Hebrew family that is not installed (David): its name in the look-alike that stands in.
+        .or_else(|| wordcraft_fonts::word::look_alike_for(db, name).map(|drawn| db.face(drawn, "Regular")).filter(covers_name))
         .unwrap_or_else(|| db.face(wordcraft_fonts::FALLBACK_FAMILY, "Regular"));
     // Rendered taller than the row and cut back to the drawn text: faces with tall line metrics
     // (Arabic, CJK) put their baseline well below a Latin face's, and a fixed 22 pt strip showed

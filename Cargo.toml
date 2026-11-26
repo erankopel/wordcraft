@@ -6,7 +6,7 @@ default-members = ["crates/*", "apps/wordcraft", "apps/wordcraft-cli", "xtask"]
 [workspace.metadata.cl]
 # Port build loop (craft-ui-port-kit): every member but xtask, so the baseline covers the
 # non-UI crates whose framework dependencies the next pin moves too.
-selection = ["wordcraft", "wordcraft-ui-egui", "wordcraft-web", "wordcraft-cli", "wordcraft-control-key", "wordcraft-doc", "wordcraft-docbin", "wordcraft-docx", "wordcraft-engine", "wordcraft-fonts", "wordcraft-formats", "wordcraft-geom", "wordcraft-layout", "wordcraft-mcp", "wordcraft-pdf", "wordcraft-render", "wordcraft-zotero"]
+selection = ["wordcraft", "wordcraft-ui-egui", "wordcraft-web", "wordcraft-cli", "wordcraft-control-key", "wordcraft-assistant", "wordcraft-doc", "wordcraft-docbin", "wordcraft-docx", "wordcraft-engine", "wordcraft-fonts", "wordcraft-formats", "wordcraft-geom", "wordcraft-layout", "wordcraft-mcp", "wordcraft-pdf", "wordcraft-render", "wordcraft-zotero"]
 tracked = ["egui", "eframe", "wordcraft-ui-egui"]
 unset_env = ["CARGO_INCREMENTAL", "WORDCRAFT_REQUIRE_WINRES", "CRAFT_FONTS_REQUIRED", "CRAFT_I18N_REQUIRED", "CRAFT_PROOF_EMBED"]
 run_slots = 3
@@ -45,6 +45,7 @@ wordcraft-engine = { path = "crates/engine" }
 wordcraft-mcp = { path = "crates/mcp" }
 wordcraft-zotero = { path = "crates/zotero" }
 wordcraft-control-key = { path = "crates/control-key" }
+wordcraft-assistant = { path = "crates/assistant" }
 wordcraft-ui-egui = { path = "crates/ui-egui" }
 craft-codepage = { git = "https://github.com/storytold/craft-libs", rev = "0b8bbaf4c842da2d47de7b3fddd7170ba6115541", version = "=0.1.0" }
 craft = { git = "https://github.com/storytold/craft-libs", rev = "0b8bbaf4c842da2d47de7b3fddd7170ba6115541", version = "=0.1.0", default-features = false }

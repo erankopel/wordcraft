@@ -1,0 +1,45 @@
+	*Bold* and _italic_ as real formatting	*מודגש* ו-_נטוי_ כעיצוב אמיתי	keeps the * and _ markers of the English example; check how they sit next to Hebrew letters
+	All documents based on the Normal template?	כל המסמכים המבוססים על התבנית הרגילה?	the Normal template has no settled Hebrew name
+	Automatic uses this edition's language. Menus and commands change; your documents don't.	אוטומטי משתמש בשפת המהדורה הזו. התפריטים והפקודות משתנים; המסמכים שלך לא.	mirrors the existing row 'המצב האוטומטי עוקב אחר שפת המערכת…'; only shown if the edition-language change is applied
+	By:	בגודל:	the amount of the first-line or hanging indent; 'ב:' is the shorter alternative
+	Change to:	שינוי ל:	the spelling pane's replacement box; 'החלפה ב:' is the alternative
+	Close Panel	סגירת חלונית	craft-ui's word is Panel; the catalog says חלונית for Pane, the same thing here
+	Dark Yellow	צהוב כהה	the highlighter's dark yellow is olive; 'זית' is the alternative
+	Default format saved.	תבנית ברירת המחדל נשמרה.	the Date and Time dialog; the catalog calls a date format תבנית
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	ההורדה מביאה את המילון מאוסף המילונים של LibreOffice אל תיקיית המילונים. לכל מילון יש רישיון משלו (GPL, LGPL או MPL) והוא נשאר קובץ נפרד ש-WordCraft רק קורא.	LICENCE: not used by v0.19.1; the English describes downloading GPL, LGPL and MPL dictionaries, which the Hebrew edition must never fetch or ship
+	East	מזרח	a compass direction of a chart's axis; check the context
+	Float	חלון צף	pane menu item rendered חלון צף ('floating window')
+	Fonts come with licence terms. Read the publisher's terms on the download page: following them is up to you.	לגופנים יש תנאי רישיון. יש לקרוא את תנאי המפרסם בדף ההורדה: העמידה בהם היא באחריותכם.	'המפרסם' for the font's publisher; the catalog's 'מוציא לאור' means a book publisher
+	Gradient	מעבר צבע	מעבר צבע, the term the existing rows use for gradient stops
+	Hide	הסתרה	הסתרה: craft-ui's menu word, a verb in context
+	Inverse	הפוך	a table or equation style option; check the context
+	Later	מאוחר יותר	a button, drawn in capitals by craft-update (no case in Hebrew)
+	Level	רמה	רמה, a ribbon list-level label
+	Method	שיטה	a column heading in a pane; 'שיטה' may be too general
+	Only you can turn on downloading: click the button yourself. Agents can install once it is on.	רק המשתמש יכול להפעיל הורדה: יש ללחוץ בעצמך על הכפתור. סוכנים יכולים להתקין לאחר שההורדה מופעלת.	'agents' here means AI agents (the control channel); check the wording
+	Or install it for every app: copy the font files to the .local/share/fonts folder in your home folder, then restart WordCraft.	או להתקין אותו עבור כל היישומים: יש להעתיק את קובצי הגופן לתיקייה ⁦.local/share/fonts⁩ שבתיקיית הבית, ואז להפעיל מחדש את WordCraft.	the folder name is wrapped in left-to-right isolate marks (U+2066 and U+2069) so its leading dot stays in place
+	Or install it for every app: double-click each font file and choose Install in Font Book, then restart WordCraft.	או להתקין אותו עבור כל היישומים: ללחוץ פעמיים על כל קובץ גופן ולבחור Install ב-Font Book, ואז להפעיל מחדש את WordCraft.	macOS only; the menu names Install and Font Book are the English ones of the macOS interface
+	Or install it for every app: select the font files, right-click and choose Install, then restart WordCraft.	או להתקין אותו עבור כל היישומים: לבחור את קובצי הגופן, ללחוץ לחיצה ימנית ולבחור Install, ואז להפעיל מחדש את WordCraft.	Windows only; the menu name Install is the English one
+	Path	נתיב	gradient type 'נתיב'; check the context
+	Purple	סגול כהה	Purple and Violet both mean 'סגול'; one of them had to be told apart
+	Radial	רדיאלי	'רדיאלי' is the loanword; 'מעגלי' the alternative
+	Record…	הקלטה…	הקלטה… for the macro recorder, Stop Recording is הפסקת ההקלטה
+	Remove Accent	הסרת הדגשה	equation editing; the catalog's 'Accent' is הדגשה, 'Accents' סימני ניקוד
+	Remove Radical	הסרת שורש	no existing row for Radical; שורש is the usual word for a root sign
+	Remove Scripts	הסרת כתבים	the catalog's 'Scripts' is כתבים (superscript and subscript)
+	Restore	שחזור	שחזור: the Backstage Restore button of a recovery copy
+	Run	הפעלה	הפעלה for running a macro
+	Saving your work...	שומר את העבודה...	the English ends in three ASCII dots, so the Hebrew does too
+	Sharpen	חידוד	חידוד, with 'ריכוך' for Soften: picture-correction verbs given as nouns
+	Show/Hide ¶ (Ctrl+Shift+8) shows the spaces, tabs and breaks hiding in your text.	הצגה/הסתרה של ¶ (Ctrl+Shift+8) מציגה את הרווחים, הטאבים והמעברים החבויים בטקסט שלכם.	the parenthesised key sits between Hebrew and Latin runs
+	Soft	רך	rendered רך; a gradient or preset name, 'עדין' is the alternative
+	Strict Export Report	דוח ייצוא קפדני	'Strict' is the ISO strict flavour of the file format; maybe keep it Latin
+	Teal	ירוק-כחול	no single Hebrew word; 'טורקיז כהה' is the alternative
+	Text properties only: Word's number, date and yes-no types aren't offered.	מאפייני טקסט בלבד: הסוגים מספר, תאריך וכן/לא של Word אינם מוצעים.	the English names Word's property types; check the wording
+	this session has no Normal template (headless or without preferences): use "scope": "document"	להפעלה זו אין תבנית רגילה (ללא ממשק גרפי או ללא העדפות): יש להשתמש ב-"scope": "document"	a message for scripts, the JSON part stays Latin
+	v{from} to {to}	מ-v{from} ל-{to}	reads 'from v1 to 2'; the v prefix is a Latin version label
+	{app} {version} follows the version chosen in the launcher, so it does not update itself.	{app} {version} עוקב אחר הגרסה שנבחרה במפעיל, ולכן אינו מתעדכן מעצמו.	'launcher' is ArtCraft Launcher; maybe keep its name
+	{font} isn't installed on this computer, so its text is shown in {shown}. Line breaks and page count can differ from where the document was made. If you have the font file, add it with Add Font… at the end of this list.	{font} אינו מותקן במחשב זה, ולכן הטקסט שלו מוצג ב-{shown}. מעברי שורה ומספר העמודים עשויים להיות שונים ממה שהיו במקום שבו המסמך נוצר. אם יש לכם את קובץ הגופן, אפשר להוסיף אותו באמצעות 'הוספת גופן…' בסוף הרשימה.	quotes the existing row 'הוספת גופן…'; the placeholder {shown} follows a glued ב- prefix
+	{language} proofing isn't installed.	הגהה ב{language} אינה מותקנת.	the preposition is glued to the language name, as in the existing row for spelling checked in a language
+@plural	{n} font not installed|{n} fonts not installed	{n} גופן לא מותקן|{n} גופנים לא מותקנים|{n} גופנים לא מותקנים	@plural: the 'two' form repeats the 'other' form, as the existing rows do
+@plural	{n} missing font can be downloaded|{n} missing fonts can be downloaded	{n} גופן חסר ניתן להורדה|{n} גופנים חסרים ניתנים להורדה|{n} גופנים חסרים ניתנים להורדה	@plural: see the previous row

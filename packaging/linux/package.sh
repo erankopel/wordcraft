@@ -13,6 +13,11 @@
 # (downloaded into $CARGO_TARGET_DIR if missing). Build on an old distro (CI: Ubuntu 22.04,
 # glibc 2.35) so the binaries run on newer ones. Optional: desktop-file-validate, appstreamcli,
 # zsyncmake (the zsync package) for the AppImage's .zsync.
+#
+# Environment, all optional: WORDCRAFT_EXTRA_FONTS_DIR (folders of .ttf/.otf files, each with its
+# OFL.txt, staged to usr/share/wordcraft/fonts), WORDCRAFT_EDITION_REGION (the AppImage starts with
+# this WORDCRAFT_REGION unless the person sets one), WORDCRAFT_NO_UPDATE_INFO (no AppImage update
+# information). packaging/hebrew/build-appimage.sh sets them for the Hebrew edition.
 set -euo pipefail
 # shellcheck source=../env.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../env.sh"
@@ -67,6 +72,29 @@ mkdir -p "$STAGE/usr/share/icons"
 cp -R "$ROOT/assets/app-icon/hicolor" "$STAGE/usr/share/icons/"
 mkdir -p "$STAGE/usr/share/doc/wordcraft"
 copy_docs "$STAGE/usr/share/doc/wordcraft"
+
+# Extra fonts: a build input like CRAFT_FONTS_DIR, never committed. The .ttf and .otf files under
+# $WORDCRAFT_EXTRA_FONTS_DIR go to usr/share/wordcraft/fonts, which the app scans beside its binary
+# (`bundled_font_dirs` in the fonts crate), and each OFL.txt travels as OFL-<folder>.txt.
+stage_extra_fonts() {
+  local src="${WORDCRAFT_EXTRA_FONTS_DIR:-}" dest="$STAGE/usr/share/wordcraft/fonts" f n=0
+  [[ -n "$src" ]] || return 0
+  [[ -d "$src" ]] || { echo "error: WORDCRAFT_EXTRA_FONTS_DIR=$src is not a folder" >&2; return 1; }
+  mkdir -p "$dest"
+  while IFS= read -r -d '' f; do
+    cp "$f" "$dest/"
+    n=$((n + 1))
+  done < <(find "$src" -type f \( -iname '*.ttf' -o -iname '*.otf' \) -print0)
+  if ((n == 0)); then
+    echo "error: no .ttf or .otf files in $src" >&2
+    return 1
+  fi
+  while IFS= read -r -d '' f; do
+    cp "$f" "$STAGE/usr/share/doc/wordcraft/OFL-$(basename "$(dirname "$f")").txt"
+  done < <(find "$src" -type f -name 'OFL.txt' -print0)
+  echo "staged $n extra font files from $src"
+}
+stage_extra_fonts
 
 if command -v desktop-file-validate >/dev/null; then
   desktop-file-validate "$STAGE/usr/share/applications/$APP_ID.desktop"
@@ -131,7 +159,22 @@ if has appimage; then
   }
   APPDIR="$WORK/WordCraft.AppDir"
   cp -R "$STAGE" "$APPDIR"
-  ln -s usr/bin/wordcraft "$APPDIR/AppRun"
+  if [[ -n "${WORDCRAFT_EDITION_REGION:-}" ]]; then
+    # An edition (packaging/hebrew) starts with its region's paper size and units, which the app
+    # otherwise takes from the system: an en_US session would start Letter pages. A value the person
+    # already set in the environment wins. AppRun is a script, not a link, so it applies to every
+    # way of starting the AppImage.
+    cat >"$APPDIR/AppRun" <<APPRUN
+#!/bin/sh
+HERE="\$(dirname "\$(readlink -f "\$0")")"
+: "\${WORDCRAFT_REGION:=$WORDCRAFT_EDITION_REGION}"
+export WORDCRAFT_REGION
+exec "\$HERE/usr/bin/wordcraft" "\$@"
+APPRUN
+    chmod 755 "$APPDIR/AppRun"
+  else
+    ln -s usr/bin/wordcraft "$APPDIR/AppRun"
+  fi
   cp "$HERE/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
   cp "$ROOT/assets/app-icon/hicolor/256x256/apps/$APP_ID.png" "$APPDIR/$APP_ID.png"
   ln -s "$APP_ID.png" "$APPDIR/.DirIcon"
@@ -166,8 +209,12 @@ if has appimage; then
   # Extract-and-run: works without FUSE (containers, CI). The output embeds the pinned static
   # runtime, so users don't need libfuse2 either. With zsyncmake on the host (CI installs the zsync
   # package) appimagetool also writes the .zsync, into its working directory, hence the cd.
+  # An edition that is not updated from the upstream releases (WORDCRAFT_NO_UPDATE_INFO=1) carries
+  # no update information: it would point AppImageUpdate at releases in another language.
+  UPDATE_ARGS=(-u "$UPDATE_INFO")
+  [[ -z "${WORDCRAFT_NO_UPDATE_INFO:-}" ]] || UPDATE_ARGS=()
   (cd "$DIST" && ARCH="$ARCH" APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --no-appstream \
-    --runtime-file "$RUNTIME" -u "$UPDATE_INFO" "$APPDIR" "$OUT")
+    --runtime-file "$RUNTIME" "${UPDATE_ARGS[@]}" "$APPDIR" "$OUT")
   echo "wrote $OUT"
   if [[ -s "$OUT.zsync" ]]; then
     echo "wrote $OUT.zsync"

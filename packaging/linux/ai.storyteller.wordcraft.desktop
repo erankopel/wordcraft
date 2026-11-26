@@ -2,7 +2,9 @@
 Type=Application
 Name=WordCraft
 GenericName=Word Processor
+GenericName[he]=מעבד תמלילים
 Comment=Write and design documents; open and save Word files
+Comment[he]=כתיבה ועיצוב של מסמכים; פתיחה ושמירה של קובצי Word
 Exec=wordcraft %F
 TryExec=wordcraft
 Icon=ai.storyteller.wordcraft
@@ -11,4 +13,5 @@ StartupNotify=true
 StartupWMClass=ai.storyteller.wordcraft
 Categories=Office;WordProcessor;
 Keywords=word;processor;document;docx;writer;text;letter;report;
+Keywords[he]=מעבד תמלילים;תמלילן;מסמך;כתיבה;מכתב;דוח;docx;
 MimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.ms-word.document.macroEnabled.12;application/vnd.openxmlformats-officedocument.wordprocessingml.template;application/vnd.ms-word.template.macroEnabled.12;application/msword;application/msword-template;application/vnd.oasis.opendocument.text;application/rtf;text/rtf;text/markdown;text/x-tex;text/html;

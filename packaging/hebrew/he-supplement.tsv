@@ -1,0 +1,320 @@
+	*Bold* and _italic_ as real formatting	*מודגש* ו-_נטוי_ כעיצוב אמיתי
+	Accent 1	הדגשה 1
+	Accent 2	הדגשה 2
+	Accent 3	הדגשה 3
+	Accent 4	הדגשה 4
+	Accent 5	הדגשה 5
+	Accent 6	הדגשה 6
+	Accept All Changes and Stop Tracking	קבלת כל השינויים והפסקת המעקב
+	Accept and Move to Next	קבלה ומעבר לשינוי הבא
+	Add a period with double-space	הוספת נקודה בעקבות שני רווחים
+	Add to AutoCorrect	הוספה לתיקון אוטומטי
+	Advanced Properties…	מאפיינים מתקדמים…
+	All documents based on the Normal template?	כל המסמכים המבוססים על התבנית הרגילה?
+	All releases are listed at {url}	כל הגרסאות מפורטות בכתובת {url}
+	Angle	זווית
+	Apply to the whole document	החלה על כל המסמך
+	Arrange All	סידור הכול
+	AutoCorrect Options…	אפשרויות תיקון אוטומטי…
+	Automatic uses this edition's language. Menus and commands change; your documents don't.	אוטומטי משתמש בשפת המהדורה הזו. התפריטים והפקודות משתנים; המסמכים שלך לא.
+	Basic Latin	לטינית בסיסית
+	Black	שחור
+	Blue	כחול
+	Bold Italic	מודגש ונטוי
+	Booklets: duplex on the short edge. Blank pages are added at the end.	חוברות: הדפסה דו-צדדית על הצלע הקצרה. עמודים ריקים מתווספים בסוף.
+	Border	גבול
+	Bright Green	ירוק בהיר
+	Built-in Heading styles	סגנונות כותרת מובנים
+	Bullet character	תו תבליט
+	By:	בגודל:
+	Can't find a command? Press Alt+Q and type what you want to do.	לא מוצאים פקודה? יש ללחוץ Alt+Q ולהקליד מה ברצונכם לעשות.
+	Cancel printing	ביטול ההדפסה
+	Cancellation could not be confirmed here. The printer driver may still be processing the job. If it appears in the system's print queue, cancel it there.	לא ניתן היה לאשר כאן את הביטול. ייתכן שמנהל ההתקן של המדפסת עדיין מעבד את העבודה. אם היא מופיעה בתור ההדפסה של המערכת, יש לבטל אותה שם.
+	Change to:	שינוי ל:
+	Change…	שינוי…
+	Check Again	בדיקה חוזרת
+	Check for Updates	בדיקת עדכונים
+	Check for\nUpdates…	בדיקת\nעדכונים…
+	Checking for updates…	בודק עדכונים…
+	Clear all	ניקוי הכול
+	Close Document	סגירת מסמך
+	Close Panel	סגירת חלונית
+	Collate	איסוף עותקים
+	Column Edge	קצה עמודה
+	Convert Indents to Spaces	המרת כניסות לרווחים
+	Convert Line Breaks to Paragraphs	המרת מעברי שורה לפסקאות
+	Convert Spaces to Indentation	המרת רווחים לכניסה
+	Corporate Author	מחבר ארגוני
+	Could not check for updates.	לא ניתן היה לבדוק עדכונים.
+	Could not check for updates:\n{error}	לא ניתן היה לבדוק עדכונים:\n{error}
+	Could not save the preferences: {error}	לא ניתן היה לשמור את ההעדפות: {error}
+	Couldn't get the list of languages: {error}	לא ניתן היה לקבל את רשימת השפות: {error}
+	Couldn't install: {error}	לא ניתן היה להתקין: {error}
+	Couldn't remove: {error}	לא ניתן היה להסיר: {error}
+	Couldn't turn on downloading: {error}	לא ניתן היה להפעיל את ההורדה: {error}
+	Ctrl+Enter starts a new page. Much tidier than pressing Enter until it happens.	Ctrl+Enter מתחיל עמוד חדש. הרבה יותר מסודר מללחוץ על Enter עד שזה קורה.
+	Ctrl+H finds and replaces text, formatting and special characters.	Ctrl+H מוצא ומחליף טקסט, עיצוב ותווים מיוחדים.
+	Ctrl+K turns the selected text into a link.	Ctrl+K הופך את הטקסט הנבחר לקישור.
+	Ctrl+Shift+G counts your words, characters and paragraphs.	Ctrl+Shift+G סופר את המילים, התווים והפסקאות שלכם.
+	Custom Document Properties	מאפייני מסמך מותאמים אישית
+	Dark Blue	כחול כהה
+	Dark Red	אדום כהה
+	Dark Yellow	צהוב כהה
+	Decorative Text	טקסט דקורטיבי
+	Decorative Text Styles	סגנונות טקסט דקורטיבי
+	Default format saved.	תבנית ברירת המחדל נשמרה.
+	Default formatting	עיצוב ברירת מחדל
+	Delete Blank Paragraphs	מחיקת פסקאות ריקות
+	Delete Previous Sentence	מחיקת המשפט הקודם
+	Diagram	דיאגרמה
+	Diagram Design	עיצוב דיאגרמה
+	Diagram Styles	סגנונות דיאגרמה
+	Direction	כיוון
+	Discard	מחיקה
+	Discard recovery copy	מחיקת עותק השחזור
+	Display server:	שרת תצוגה:
+	Dock Left	עיגון לשמאל
+	Dock Right	עיגון לימין
+	Document background	רקע המסמך
+	Don't show this again	לא להציג שוב
+	Download	הורדה
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	ההורדה מביאה את המילון מאוסף המילונים של LibreOffice אל תיקיית המילונים. לכל מילון יש רישיון משלו (GPL, LGPL או MPL) והוא נשאר קובץ נפרד ש-WordCraft רק קורא.
+	Download from {publisher}	הורדה מ-{publisher}
+	Download the font. If it comes as a .zip file, unpack it.	יש להוריד את הגופן. אם הוא מגיע כקובץ zip, יש לחלץ אותו.
+	Downloading and installing update…	מוריד ומתקין עדכון…
+	Downloading the {language} dictionary…	מוריד את המילון עבור {language}…
+	Downloading…	מוריד…
+	East	מזרח
+	Editing is blocked in Viewing mode.	העריכה חסומה במצב צפייה.
+	Emphasis Mark	סימן הדגשה
+	F4 repeats your last action. Formatting ten headings is suddenly one click and nine taps.	F4 חוזר על הפעולה האחרונה שלכם. עיצוב של עשר כותרות הופך פתאום ללחיצה אחת ותשע הקשות.
+	F7 checks the spelling and grammar of the whole document.	F7 בודק את האיות והדקדוק של המסמך כולו.
+	Fast	מהיר
+	File type	סוג קובץ
+	Fit One Page	התאמה לעמוד אחד
+	Fit\nOne Page	התאמה\nלעמוד אחד
+	Float	חלון צף
+	Folder	תיקייה
+	Folder path	נתיב תיקייה
+	Fonts come with licence terms. Read the publisher's terms on the download page: following them is up to you.	לגופנים יש תנאי רישיון. יש לקרוא את תנאי המפרסם בדף ההורדה: העמידה בהם היא באחריותכם.
+	Formatting saved for new documents:	עיצוב שנשמר עבור מסמכים חדשים:
+	Get the Missing Fonts	קבלת הגופנים החסרים
+	Get the Missing Fonts…	קבלת הגופנים החסרים…
+	Get the list of languages again	קבלת רשימת השפות מחדש
+	Getting the list of languages…	מקבל את רשימת השפות…
+	Gradient	מעבר צבע
+	Gray-25%	אפור 25%
+	Gray-50%	אפור 50%
+	Green	ירוק
+	Hexagon	משושה
+	Hidden text is not shown unless you display it.	טקסט מוסתר אינו מוצג אלא אם תבחרו להציג אותו.
+	Hide	הסתרה
+	Insert Blank Paragraphs Between	הוספת פסקאות ריקות בין
+	Insert Diagram	הוספת דיאגרמה
+	Install	התקנה
+	Install ({size})	התקנה ({size})
+	Install Language Pack	התקנת חבילת שפה
+	Installed	מותקן
+	Installing turns on downloading of fonts and Language packs from GitHub.	ההתקנה מפעילה הורדה של גופנים וחבילות שפה מ-GitHub.
+	Installing update…	מתקין עדכון…
+	Installing… {percent}%	מתקין… {percent}%
+	Inverse	הפוך
+	Item Color	צבע פריט
+	Its licence limits who may use it: read the terms first.	הרישיון שלו מגביל את מי שרשאי להשתמש בו: יש לקרוא קודם את התנאים.
+	Label	תווית
+	Language Packs	חבילות שפה
+	Language data	נתוני שפה
+	Language packs aren't available in the browser.	חבילות שפה אינן זמינות בדפדפן.
+	Language packs come from a test source: {source}	חבילות השפה מגיעות ממקור בדיקה: {source}
+	Language packs need the font store folder, and there is none on this computer.	חבילות שפה זקוקות לתיקיית מאגר הגופנים, ואין כזו במחשב זה.
+	Later	מאוחר יותר
+	Level	רמה
+	Licence: {licence}. Source: {source}	רישיון: {licence}. מקור: {source}
+	Macro name:	שם המאקרו:
+	Mark the whole document as:	סימון כל המסמך כ:
+	Markdown Source	מקור Markdown
+	Markdown Source takes up to 2 MB of text	מקור Markdown מקבל עד 2 MB של טקסט
+	Method	שיטה
+	Missing Fonts	גופנים חסרים
+	Modify	שינוי
+	Monochrome	חד-גוני
+	More options	אפשרויות נוספות
+	Mouse wheel scroll speed:	מהירות גלילה בגלגלת העכבר:
+	Move Pane: {title}	הזזת חלונית: {title}
+	New Documents Based on This Template	מסמכים חדשים המבוססים על תבנית זו
+	New documents based on this template	מסמכים חדשים המבוססים על תבנית זו
+	New documents will use WordCraft's built-in formatting.	מסמכים חדשים ישתמשו בעיצוב המובנה של WordCraft.
+	New documents will use WordCraft's built-in formatting. Your saved defaults can't be recovered. Reset?	מסמכים חדשים ישתמשו בעיצוב המובנה של WordCraft. לא ניתן לשחזר את ברירות המחדל ששמרתם. לאפס?
+	New documents will use this font.	מסמכים חדשים ישתמשו בגופן זה.
+	New documents will use this page setup.	מסמכים חדשים ישתמשו בהגדרות עמוד אלה.
+	New documents will use this paragraph formatting.	מסמכים חדשים ישתמשו בעיצוב פסקה זה.
+	New documents will use this style.	מסמכים חדשים ישתמשו בסגנון זה.
+	Next sheet	הגיליון הבא
+	No matching commands	אין פקודות תואמות
+	No other WordCraft windows are open.	אין חלונות WordCraft פתוחים אחרים.
+	None of the fonts this document is missing can be downloaded free of charge from their publisher.	אף אחד מהגופנים החסרים במסמך זה אינו זמין להורדה חינם מהמפרסם שלו.
+	Not in Dictionary	לא במילון
+	Not installed — shown as	לא מותקן — מוצג בתור
+	Nothing to redo	אין מה לבצע מחדש
+	Nothing to undo	אין מה לבטל
+	On X11, the touchpad follows the mouse wheel speed.	ב-X11, משטח המגע עוקב אחר מהירות גלגלת העכבר.
+	Only in this document	במסמך זה בלבד
+	Only text properties can be changed.	ניתן לשנות רק מאפייני טקסט.
+	Only you can turn on downloading: click the button yourself. Agents can install once it is on.	רק המשתמש יכול להפעיל הורדה: יש ללחוץ בעצמך על הכפתור. סוכנים יכולים להתקין לאחר שההורדה מופעלת.
+	Or install it for every app: copy the font files to the .local/share/fonts folder in your home folder, then restart WordCraft.	או להתקין אותו עבור כל היישומים: יש להעתיק את קובצי הגופן לתיקייה ⁦.local/share/fonts⁩ שבתיקיית הבית, ואז להפעיל מחדש את WordCraft.
+	Or install it for every app: double-click each font file and choose Install in Font Book, then restart WordCraft.	או להתקין אותו עבור כל היישומים: ללחוץ פעמיים על כל קובץ גופן ולבחור Install ב-Font Book, ואז להפעיל מחדש את WordCraft.
+	Or install it for every app: select the font files, right-click and choose Install, then restart WordCraft.	או להתקין אותו עבור כל היישומים: לבחור את קובצי הגופן, ללחוץ לחיצה ימנית ולבחור Install, ואז להפעיל מחדש את WordCraft.
+	Orange	כתום
+	Pages in the range	עמודים בטווח
+	Pages per sheet	עמודים בגיליון
+	Pane Options	אפשרויות חלונית
+	Panels	חלוניות
+	Paragraph Tools	כלי פסקה
+	Path	נתיב
+	Photo	תצלום
+	Pick the font files:	בחירת קובצי הגופן:
+	Pink	ורוד
+	Portuguese	פורטוגזית
+	Previous sheet	הגיליון הקודם
+	Printing cancelled. Nothing was sent to the printer.	ההדפסה בוטלה. דבר לא נשלח למדפסת.
+	Property names are 1–{max} characters.	שם מאפיין יכול להכיל בין 1 ל-{max} תווים.
+	Property values are at most {max} bytes.	ערך מאפיין יכול להכיל עד {max} בייטים.
+	Purple	סגול כהה
+	Radial	רדיאלי
+	Record…	הקלטה…
+	Rectangular	מלבני
+	Red	אדום
+	Regular	רגיל
+	Reject All Changes and Stop Tracking	דחיית כל השינויים והפסקת המעקב
+	Reject and Move to Next	דחייה ומעבר לשינוי הבא
+	Remove Accent	הסרת הדגשה
+	Remove Brackets	הסרת סוגריים
+	Remove Extra Spaces	הסרת רווחים מיותרים
+	Remove Fraction	הסרת שבר
+	Remove Language Pack	הסרת חבילת שפה
+	Remove Leading Spaces	הסרת רווחים מובילים
+	Remove Line Breaks	הסרת מעברי שורה
+	Remove Matrix	הסרת מטריצה
+	Remove Operator	הסרת אופרטור
+	Remove Radical	הסרת שורש
+	Remove Scripts	הסרת כתבים
+	Remove Structure	הסרת מבנה
+	Remove from list	הסרה מהרשימה
+	Removed {count} documents from the recent list	הוסרו {count} מסמכים מרשימת האחרונים
+	Removed {name} from the recent list	הוסר מרשימת האחרונים: {name}
+	Repeated word	מילה חוזרת
+	Reset Default Formatting	איפוס עיצוב ברירת המחדל
+	Resize Pane	שינוי גודל חלונית
+	Resize panel window	שינוי גודל חלון החלוניות
+	Resize panels	שינוי גודל חלוניות
+	Restart to Update	הפעלה מחדש לעדכון
+	Restore	שחזור
+	Run	הפעלה
+	Save and Update	שמירה ועדכון
+	Saved. Edits in the formatted view meant writing the Markdown out again, so its own layout wasn't kept.	נשמר. עריכות בתצוגה המעוצבת חייבו כתיבה מחדש של ה-Markdown, ולכן הפריסה המקורית שלו לא נשמרה.
+	Saving your work...	שומר את העבודה...
+	Scale Font Sizes	שינוי קנה מידה של גדלי גופנים
+	Screen Paper Color	צבע נייר המסך
+	Screen only. Document backgrounds, printing and exports keep their colours. Dark page and explicit Read Mode colours take precedence.	במסך בלבד. רקעי מסמך, הדפסה וייצוא שומרים על הצבעים שלהם. עמוד כהה וצבעי מצב קריאה שנבחרו במפורש מקבלים עדיפות.
+	Screen paper color:	צבע נייר המסך:
+	Select Canvas Member	בחירת רכיב בבד הציור
+	Select a property to change.	יש לבחור מאפיין לשינוי.
+	Separate Paragraphs	הפרדת פסקאות
+	Separate text with	הפרדת טקסט באמצעות
+	Set As Default (Font)	הגדרה כברירת מחדל (גופן)
+	Set As Default (Page Setup)	הגדרה כברירת מחדל (הגדרת עמוד)
+	Set As Default (Paragraph)	הגדרה כברירת מחדל (פסקה)
+	Set left- and first-indent with tabs and backspaces	הגדרת כניסה משמאל וכניסת שורה ראשונה באמצעות טאבים ומקשי Backspace
+	Set the colors in the Text Pane to use custom colors.	יש להגדיר את הצבעים בחלונית הטקסט כדי להשתמש בצבעים מותאמים אישית.
+	Settings	הגדרות
+	Shape color	צבע צורה
+	Sharpen	חידוד
+	Sheet {page} of {pages}	גיליון {page} מתוך {pages}
+	Shift+Enter starts a new line without starting a new paragraph.	Shift+Enter מתחיל שורה חדשה בלי להתחיל פסקה חדשה.
+	Show/Hide ¶ (Ctrl+Shift+8) shows the spaces, tabs and breaks hiding in your text.	הצגה/הסתרה של ¶ (Ctrl+Shift+8) מציגה את הרווחים, הטאבים והמעברים החבויים בטקסט שלכם.
+	Shown as {fonts} · {publisher}	מוצג בתור {fonts} · {publisher}
+	Shown in substitute fonts. Click for details.	מוצג בגופנים חלופיים. יש ללחוץ לפרטים.
+	Small	קטן
+	Soft	רך
+	Soft gray	אפור עדין
+	Soft green	ירוק עדין
+	Soften	ריכוך
+	Source	מקור
+	Special:	מיוחד:
+	Status bar count:	ספירה בשורת המצב:
+	Stop Recording	הפסקת ההקלטה
+	Strict Export Report	דוח ייצוא קפדני
+	Style Color	צבע סגנון
+	Styles Pane Position	מיקום חלונית הסגנונות
+	Suggestions	הצעות
+	Switch Windows	מעבר בין חלונות
+	Switch\nWindows	מעבר\nבין חלונות
+	Symbol…	סמל…
+	Synchronous Scrolling	גלילה מסונכרנת
+	Teal	ירוק-כחול
+	Tell me when a document's missing fonts can be downloaded	להודיע לי כאשר ניתן להוריד את הגופנים החסרים במסמך
+	Text Size	גודל טקסט
+	Text in a missing font is shown in another font, so it may not look as it was written. The downloads are free of charge.	טקסט בגופן חסר מוצג בגופן אחר, ולכן ייתכן שלא ייראה כפי שנכתב. ההורדות הן ללא תשלום.
+	Text properties only: Word's number, date and yes-no types aren't offered.	מאפייני טקסט בלבד: הסוגים מספר, תאריך וכן/לא של Word אינם מוצעים.
+	The Normal template couldn't be read, so this document uses WordCraft's built-in formatting.	לא ניתן היה לקרוא את התבנית הרגילה, ולכן מסמך זה משתמש בעיצוב המובנה של WordCraft.
+	The document or selection changed. Check again to continue.	המסמך או הבחירה השתנו. יש לבדוק שוב כדי להמשיך.
+	The spelling and hyphenation data WordCraft uses, and their licences.	נתוני האיות והמיקוף ש-WordCraft משתמש בהם, והרישיונות שלהם.
+	The update could not be installed: {reason}	לא ניתן היה להתקין את העדכון: {reason}
+	The update failed unexpectedly.	העדכון נכשל באופן בלתי צפוי.
+	The update is installed. Close {app} to finish; it restarts by itself.	העדכון הותקן. יש לסגור את {app} כדי לסיים; התוכנה תופעל מחדש מעצמה.
+	The update stopped unexpectedly.	העדכון נעצר באופן בלתי צפוי.
+	The {language} dictionary couldn't be downloaded: {error}	לא ניתן היה להוריד את המילון עבור {language}: {error}
+	The {language} dictionary is installed.	המילון עבור {language} מותקן.
+	Then add it to WordCraft	ואז להוסיף אותו ל-WordCraft
+	There are no macros yet. Record one to add it here.	עדיין אין פקודות מאקרו. יש להקליט מאקרו כדי להוסיף אותו לכאן.
+	This document has content Markdown can't hold. Changing the text here removes it; one Undo afterwards brings it back.	במסמך זה יש תוכן שאינו נתמך ב-Markdown. שינוי הטקסט כאן מסיר אותו; ביטול פעולה אחד לאחר מכן מחזיר אותו.
+	This document has no custom properties.	אין במסמך זה מאפיינים מותאמים אישית.
+	This document only?	במסמך זה בלבד?
+	Touchpad scroll speed:	מהירות גלילה במשטח המגע:
+	Turquoise	טורקיז
+	Type a size in any unit, such as 3 cm or 300 px.	יש להקליד גודל בכל יחידה, כגון 3 cm או 300 px.
+	Update	עדכון
+	Update and Restart	עדכון והפעלה מחדש
+	Update automatically	עדכון אוטומטי
+	Update check is not supported in the web browser.	בדיקת עדכונים אינה נתמכת בדפדפן.
+	Update ready. Close {app} to install it.	העדכון מוכן. יש לסגור את {app} כדי להתקין אותו.
+	Updates are off in this window: WordCraft was started with another program's AppImage settings. Start WordCraft from its own menu entry to update it.	העדכונים כבויים בחלון זה: WordCraft הופעל עם הגדרות AppImage של תוכנה אחרת. יש להפעיל את WordCraft מפריט התפריט שלו כדי לעדכן אותו.
+	Use the current style set and theme for all new documents?	להשתמש בערכת הסגנונות ובערכת הנושא הנוכחיות בכל המסמכים החדשים?
+	Use this formatting as the default for:	שימוש בעיצוב זה כברירת מחדל עבור:
+	Value:	ערך:
+	View Side by Side	הצגה זו לצד זו
+	View and edit the document's custom properties.	הצגה ועריכה של המאפיינים המותאמים אישית של המסמך.
+	Viewing	צפייה
+	Viewing — view the file but make no changes	צפייה — הצגת הקובץ ללא ביצוע שינויים
+	Violet	סגול
+	Warm cream	שמנת חמה
+	Warning	אזהרה
+	What's new	מה חדש
+	White	לבן
+	WordCraft {version} is currently the newest version available.	WordCraft {version} היא הגרסה העדכנית ביותר הזמינה כרגע.
+	Yellow	צהוב
+	by {developer}	מאת {developer}
+	select a diagram first	יש לבחור קודם דיאגרמה
+	select a shape or decorative text first	יש לבחור קודם צורה או טקסט דקורטיבי
+	this diagram can't be edited	לא ניתן לערוך דיאגרמה זו
+	this diagram was made in another program: WordCraft shows it but can't edit it	הדיאגרמה נוצרה בתוכנה אחרת: WordCraft מציג אותה אבל לא יכול לערוך אותה
+	this session has no Normal template (headless or without preferences)	להפעלה זו אין תבנית רגילה (ללא ממשק גרפי או ללא העדפות)
+	this session has no Normal template (headless or without preferences): use "scope": "document"	להפעלה זו אין תבנית רגילה (ללא ממשק גרפי או ללא העדפות): יש להשתמש ב-"scope": "document"
+	v{from} to {to}	מ-v{from} ל-{to}
+	yesterday	אתמול
+	{app} updated to {version}.	{app} עודכן לגרסה {version}.
+	{app} {version} follows the version chosen in the launcher, so it does not update itself.	{app} {version} עוקב אחר הגרסה שנבחרה במפעיל, ולכן אינו מתעדכן מעצמו.
+	{app} {version} is available with the latest features and bug fixes.	{app} {version} זמין עם התכונות האחרונות ותיקוני תקלות.
+	{app} {version} is the newest version available.	{app} {version} היא הגרסה העדכנית ביותר הזמינה.
+	{chars} characters	{chars} תווים
+	{chars} characters (no spaces)	{chars} תווים (ללא רווחים)
+	{field}, record {n}	{field}, רשומה {n}
+	{font} isn't installed on this computer, so its text is shown in {shown}. Line breaks and page count can differ from where the document was made. If you have the font file, add it with Add Font… at the end of this list.	{font} אינו מותקן במחשב זה, ולכן הטקסט שלו מוצג ב-{shown}. מעברי שורה ומספר העמודים עשויים להיות שונים ממה שהיו במקום שבו המסמך נוצר. אם יש לכם את קובץ הגופן, אפשר להוסיף אותו באמצעות 'הוספת גופן…' בסוף הרשימה.
+	{language} proofing isn't installed.	הגהה ב{language} אינה מותקנת.
+	{selected} of {chars} characters	{selected} מתוך {chars} תווים
+	{selected} of {chars} characters (no spaces)	{selected} מתוך {chars} תווים (ללא רווחים)
+@msg	a diagram holds at most {MAX_ITEMS} items	דיאגרמה יכולה להכיל עד {MAX_ITEMS} פריטים
+@msg	unknown decorative text style `{id}`	סגנון טקסט דקורטיבי לא מוכר `{id}`
+@plural	{n} font not installed|{n} fonts not installed	{n} גופן לא מותקן|{n} גופנים לא מותקנים|{n} גופנים לא מותקנים
+@plural	{n} missing font can be downloaded|{n} missing fonts can be downloaded	{n} גופן חסר ניתן להורדה|{n} גופנים חסרים ניתנים להורדה|{n} גופנים חסרים ניתנים להורדה
+spacing	Open	פתוח

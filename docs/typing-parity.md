@@ -432,6 +432,13 @@ address are checked (`address_after_a_wide_space_is_an_internet_token`, in craft
   `latin_typed_into_reopened_hebrew_is_saved_left_to_right`). Known display difference: spaces,
   digits and punctuation typed into reopened Hebrew text draw in the Latin font, not the
   complex-script font, until the file is saved and reopened.
+- With a Hebrew interface (and only then: not Arabic, not a headless session) a new blank document
+  starts right to left: the document defaults carry `w:bidi`, Hebrew as the language of
+  complex-script text (`w:lang/@w:bidi`) and David as the complex-script font, so the caret starts at
+  the right margin, Latin letters typed first do not flip the paragraph, and the direction survives
+  a save. Templates, opened files, documents already begun and the CLI, MCP and tests are
+  unchanged; `file.new` takes `direction` (`docs/localization-he.md`). Not yet compared with
+  Word's handling of `w:bidi` in the document defaults.
 
 ## Layout
 
@@ -621,6 +628,7 @@ DOCX and Undo/Redo (Leaf #152). No new Word or native UI comparison was run.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-26 | minor | Text direction: with a Hebrew interface, new blank documents start right to left (`w:bidi` in the document defaults, Hebrew complex-script language and font) |
 | 2026-11-15 | trivial | Enter in a paragraph with a drop cap: the new paragraph gets no drop cap (#6788); synthetic coverage, offset 0 unchanged and not compared with Word |
 | 2026-11-15 | trivial | Paste Formatting row: Ctrl/Cmd+Shift+V pastes the picked-up formatting, else text only; Ctrl/Cmd+Shift+C no longer arms the Format Painter (#1537, #4943); the chord's V release never pastes again (Shift up first); web text paste relies on the browser sending its paired Paste event, and the formatting paste drops that event only within about a second |
 | 2026-11-04 | trivial | Ctrl+K on a selection: a changed Text to display replaces the selected text before it is linked |

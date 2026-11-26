@@ -41,7 +41,8 @@ native-speaker review (human).
   catalog covers **661 (98%)**. Some newer dialog and pane strings (Equation tab tooltips, Zotero,
   Read Aloud) aren't wrapped in `tl!` yet, so they show in English in every
   language: the true share of visible strings is **~93–95%** (estimated).
-- Pending PRs: Norwegian Bokmål (#208) and Nynorsk (#210), Hebrew with RTL (#20). Arabic UI landed (#1195).
+- Pending PRs: Norwegian Bokmål (#208) and Nynorsk (#210). Arabic UI landed (#1195). A Hebrew
+  interface and edition: `docs/localization-he.md`.
 - **Proofing: English, Polish, Portuguese, Italian, Russian, Czech, Indonesian and Spanish**, chosen per run from its language (`w:lang`, resolved through
   the styles; Review › Language and the status bar set it: a short list, plus Set Proofing
   Language… for every built-in language and every installed or available Language pack language, and Set As Default for the document and future blank documents). Languages without proofing tools get
@@ -267,7 +268,7 @@ WordCraft keeps 2,54 cm).
 | Item | Hours | Notes |
 |---|---|---|
 | Wrap the remaining English literals in `tl!` and translate them in every catalog | 4–6 | Makes the six partial languages full except script items |
-| Mirrored (right-to-left) interface for Arabic and Hebrew | 8–12 (Arabic done #1195; Hebrew remains) | Ribbon, panes, dialogs, rulers |
+| Mirrored (right-to-left) interface for Arabic and Hebrew | 8–12 (Arabic done #1195; Hebrew: `docs/localization-he.md`) | Ribbon, panes, dialogs, rulers |
 | Vertical text, ruby, document grid (Chinese, Japanese, Korean) | counted in [layout-parity.md](layout-parity.md) | |
 | Proofing dictionaries, grammar and hyphenation for the 11 non-English key languages | 20–40 | Open dictionaries only (licence check per dictionary); issues #25, #40, #100. Per-run languages, the Hunspell-style affix engine and the TeX pattern reader landed with Polish, so a language with an open Hunspell dictionary and hyphenation patterns is mostly data plus grammar rules |
 | Native-speaker review of every catalog | human | Swedish: terminology and the running app reviewed (2026-10-13); Italian reviewed (2026-10-14); the others not yet |
@@ -276,6 +277,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-26 | minor | Hebrew (`he`) interface, mirrored like Arabic; the Hebrew edition's default language, catalog supplement and fonts (`docs/localization-he.md`) |
 | 2026-10-29 | minor | Bosnian interface (`bs`, Latin script): listed in `LANGUAGES`, `bs-BA` system locales, saved preference and bundled-font tests; catalog in storytold/craft-i18n (`locales/bs/wordcraft.tsv`); no Bosnian proofing |
 | 2026-11-06 | trivial | Arabic: the Home tab's Styles gallery reads from the right: Normal is the rightmost tile and the scroll arrows and More sit at the gallery's left end, as the rest of the mirrored ribbon (#5566); left to right is unchanged; regression test `the_styles_gallery_reads_from_the_right_in_a_right_to_left_interface` |
 | 2026-11-05 | trivial | Arabic letters join across a change of formatting and past hidden or deleted text (#4093) |

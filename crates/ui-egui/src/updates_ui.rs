@@ -60,13 +60,13 @@ impl WordApp {
     }
 
     /// Turns the self-update off for the rest of this process: no update is offered, and Help ▸
-    /// Check for Updates says why. For a process that still carries another program's AppImage
-    /// variables, which the update would take for this copy's file and replace (#5653).
+    /// Check for Updates says `why`. Call it after the preferences are read, so the reason is in
+    /// the interface language.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn disable_self_update(&mut self) {
+    pub fn disable_self_update(&mut self, why: UpdatesOff) {
         let rt = &mut self.updates_rt;
         rt.startup_check = false;
-        rt.updater = Updater::new(&crate::UPDATE_APP, env!("CARGO_PKG_VERSION")).with_translator(translate).with_source(refused_check());
+        rt.updater = Updater::new(&crate::UPDATE_APP, env!("CARGO_PKG_VERSION")).with_translator(translate).with_source(refused_check(why));
     }
 
     /// Starts the helper of an update that is ready, so that it installs once the process has
@@ -78,12 +78,52 @@ impl WordApp {
     }
 }
 
-/// A check for updates that never finds one and gives the reason as its error, which Help ▸ Check
-/// for Updates shows.
+/// Why a process doesn't update itself ([`WordApp::disable_self_update`]).
 #[cfg(not(target_arch = "wasm32"))]
-fn refused_check() -> craft_update::updater::CheckSource {
-    let why = tl!("Updates are off in this window: WordCraft was started with another program's AppImage settings. Start WordCraft from its own menu entry to update it.")
-        .to_string();
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpdatesOff {
+    /// It still carries another program's AppImage variables, which the update would take for
+    /// this copy's file and replace (#5653). Starting WordCraft from its own entry fixes it.
+    ForeignAppImage,
+    /// It is an edition ([`crate::i18n::EDITION_LANGUAGE`], the Hebrew one): the releases the
+    /// update reads are the stock English ones, and installing one would replace the edition.
+    /// Always off.
+    Edition,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl UpdatesOff {
+    /// Why a process built with `edition` ([`crate::i18n::EDITION_LANGUAGE`]) that does or doesn't
+    /// carry another program's AppImage variables can't update itself, if it can't. An edition's
+    /// reason comes first: it holds however the program is started.
+    pub fn of(edition: Option<&str>, foreign_appimage: bool) -> Option<UpdatesOff> {
+        if edition.is_some() {
+            Some(UpdatesOff::Edition)
+        } else if foreign_appimage {
+            Some(UpdatesOff::ForeignAppImage)
+        } else {
+            None
+        }
+    }
+
+    /// The reason Help ▸ Check for Updates gives, in English (the catalog key).
+    fn reason(self) -> &'static str {
+        match self {
+            UpdatesOff::ForeignAppImage => {
+                "Updates are off in this window: WordCraft was started with another program's AppImage settings. Start WordCraft from its own menu entry to update it."
+            }
+            UpdatesOff::Edition => {
+                "This edition of WordCraft doesn't update itself: the updates it would find are the standard English releases, which would replace it. To update, install a newer build of this edition."
+            }
+        }
+    }
+}
+
+/// A check for updates that never finds one and gives `why` as its error, which Help ▸ Check for
+/// Updates shows. Nothing is fetched.
+#[cfg(not(target_arch = "wasm32"))]
+fn refused_check(why: UpdatesOff) -> craft_update::updater::CheckSource {
+    let why = tl!(why.reason()).to_string();
     std::sync::Arc::new(move || Err(why.clone()))
 }
 
@@ -189,24 +229,29 @@ mod tests {
     use craft_update::updater::Status;
 
     /// With the self-update off, a startup check is never made, and Help ▸ Check for Updates (the
-    /// command's own path) ends in the reason instead of a release to install (#5653).
+    /// command's own path) ends in the reason instead of a release to install: in a window that
+    /// carries another program's AppImage variables (#5653), and always in an edition, whose
+    /// update would install the stock English release over it.
     #[test]
     fn with_the_self_update_off_a_check_finds_nothing_and_says_why() {
-        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
-        app.set_startup_update_check(true);
-        app.disable_self_update();
-        assert!(!app.updates_rt.startup_check, "no check at start");
-        let ctx = egui::Context::default();
-        super::check(&mut app);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while !matches!(app.updates_rt.updater.status(), Status::Failed(_)) {
-            assert!(std::time::Instant::now() < deadline, "the check never ended: {:?}", app.updates_rt.updater.status());
-            super::tick(&mut app, &ctx);
-            std::thread::sleep(std::time::Duration::from_millis(5));
+        use super::UpdatesOff;
+        for (why, says) in [(UpdatesOff::ForeignAppImage, "another program's AppImage"), (UpdatesOff::Edition, "English releases")] {
+            let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            app.set_startup_update_check(true);
+            app.disable_self_update(why);
+            assert!(!app.updates_rt.startup_check, "{why:?}: no check at start");
+            let ctx = egui::Context::default();
+            super::check(&mut app);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !matches!(app.updates_rt.updater.status(), Status::Failed(_)) {
+                assert!(std::time::Instant::now() < deadline, "{why:?}: the check never ended: {:?}", app.updates_rt.updater.status());
+                super::tick(&mut app, &ctx);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            let status = app.updates_rt.updater.status();
+            assert!(matches!(status, Status::Failed(reason) if reason.contains(says)), "{why:?}: {status:?}");
+            assert!(!app.updates_rt.updater.prompt_open(), "{why:?}: no update offered");
         }
-        let status = app.updates_rt.updater.status();
-        assert!(matches!(status, Status::Failed(why) if why.contains("another program's AppImage")), "{status:?}");
-        assert!(!app.updates_rt.updater.prompt_open(), "no update offered");
     }
 
     /// Help ▸ Check for Updates runs while the ribbon draws, after the frame's `tick`: the result

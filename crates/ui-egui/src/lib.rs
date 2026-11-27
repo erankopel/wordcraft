@@ -14,6 +14,14 @@ pub const UPDATE_APP: craft_update::app::App = craft_update::app::App {
     ..craft_update::suite::WORDCRAFT
 };
 
+/// Whether this build shows the ArtCraft community's link: the title bar's Discord button, Help ›
+/// Community Discord and Backstage's link. An edition ([`i18n::EDITION_LANGUAGE`]) is a modified
+/// version of WordCraft, and `docs/brand/LICENSE-brand.txt` keeps the ArtCraft marks and the links
+/// to its community for WordCraft's own builds.
+pub(crate) fn links_to_artcraft() -> bool {
+    i18n::EDITION_LANGUAGE.is_none()
+}
+
 /// An English UI string in the current interface language ([`i18n::t`]).
 #[macro_export]
 macro_rules! tl {

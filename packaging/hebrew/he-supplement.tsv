@@ -795,3 +795,10 @@ icons	Map Pin	סיכת מפה
 	AaBbYyZz	אבגד AaBbYyZz
 	MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the WordCraft contributors.	MIT OR Apache-2.0. זכויות יוצרים (c) 2026 ArtCraft Team והתורמים ל-WordCraft.
 	English, the languages of this document and every installed Language pack. Language packs add spelling dictionaries and hyphenation.	אנגלית, השפות של המסמך הזה וכל חבילת שפה מותקנת. חבילות שפה מוסיפות מילוני איות ותבניות מיקוף.
+	This edition of WordCraft doesn't update itself: the updates it would find are the standard English releases, which would replace it. To update, install a newer build of this edition.	מהדורה זו של WordCraft אינה מתעדכנת מעצמה: העדכונים שהיא הייתה מוצאת הם הגרסאות הרגילות באנגלית, שהיו מחליפות אותה. כדי לעדכן, יש להתקין גרסה חדשה יותר של מהדורה זו.
+	WordCraft isn't in the applications menu yet. Start the AppImage once with --install to add it, then try again.	WordCraft עדיין אינו בתפריט היישומים. כדי להוסיף אותו, יש להפעיל את קובץ ה-AppImage פעם אחת עם ‎--install, ואז לנסות שוב.
+@msg	{id} isn't installed (an AppImage needs desktop integration first)	{id} אינו מותקן (יש לשלב קודם את קובץ ה-AppImage בשולחן העבודה)
+	xdg-mime isn't installed (it comes with xdg-utils)	xdg-mime אינו מותקן (הוא חלק מהחבילה xdg-utils)
+@msg	couldn't run xdg-mime: {error}	לא ניתן היה להפעיל את xdg-mime: {error}
+@msg	xdg-mime failed: {message}	xdg-mime נכשל: {message}
+	this edition of WordCraft has no community link	במהדורה זו של WordCraft אין קישור לקהילה

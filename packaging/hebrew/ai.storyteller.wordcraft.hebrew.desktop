@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=WordCraft (עברית)
+GenericName=מעבד תמלילים
+Comment=כתיבה ועיצוב של מסמכים בעברית, מימין לשמאל; פתיחה ושמירה של קובצי Word
+Exec=wordcraft %F
+TryExec=wordcraft
+Icon=ai.storyteller.wordcraft.hebrew
+Terminal=false
+StartupNotify=true
+StartupWMClass=ai.storyteller.wordcraft.hebrew
+Categories=Office;WordProcessor;
+Keywords=מעבד תמלילים;תמלילן;מסמך;מסמכים;כתיבה;מכתב;דוח;עברית;word;processor;document;docx;writer;text;letter;report;hebrew;
+MimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.ms-word.document.macroEnabled.12;application/vnd.openxmlformats-officedocument.wordprocessingml.template;application/vnd.ms-word.template.macroEnabled.12;application/msword;application/msword-template;application/vnd.oasis.opendocument.text;application/rtf;text/rtf;text/markdown;text/x-tex;text/html;

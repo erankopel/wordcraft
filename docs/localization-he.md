@@ -1,6 +1,6 @@
 # Hebrew interface and the Hebrew edition
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (engine messages, catalog corrections, file dialogs) · **Target:** WordCraft 0.19.1
+> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (installing on Ubuntu, updates, licences, reproducible builds) · **Target:** WordCraft 0.19.1
 
 WordCraft has a Hebrew (`he`) interface language, mirrored right to left like the Arabic one, and a
 Hebrew edition: a build of the same program that starts in Hebrew, starts new documents right to
@@ -228,6 +228,69 @@ Labels start on the region's paper (a DL envelope and A4 label sheets). Starting
   Ctrl+arrow crosses a pointed word in one step in reading order; the word count is the same with
   or without points; typed Hebrew is never underlined as misspelled English.
 
+## Installing on Ubuntu
+
+The edition is one file, `wordcraft-hebrew-<version>-linux-x86_64.AppImage`, with its SHA-256 in
+the `.sha256` file beside it. It runs on **Ubuntu 22.04 or newer** (or another x86_64 Linux with
+glibc 2.35 or newer), and needs nothing installed: not libfuse2, not the fonts.
+
+```bash
+sha256sum -c wordcraft-hebrew-0.19.1-linux-x86_64.AppImage.sha256   # optional: the file is intact
+mkdir -p ~/Applications && mv wordcraft-hebrew-0.19.1-linux-x86_64.AppImage ~/Applications/
+chmod +x ~/Applications/wordcraft-hebrew-0.19.1-linux-x86_64.AppImage
+~/Applications/wordcraft-hebrew-0.19.1-linux-x86_64.AppImage --install
+```
+
+- **`--install`** adds WordCraft (עברית) to the applications menu and search (in Hebrew, on an
+  English desktop too: its name, description and search words, Hebrew and English, are the
+  entry's defaults), and to Files' Open With for Word, OpenDocument, RTF, Markdown, LaTeX and HTML
+  files. It is for the current user only and needs no password: it writes
+  `~/.local/share/applications/ai.storyteller.wordcraft.hebrew.desktop` (or under
+  `$XDG_DATA_HOME`), whose command is this AppImage at its current path, and the icons under
+  `~/.local/share/icons/hicolor`, then refreshes the Open With list (`update-desktop-database`).
+  The AppImage stays where it is, so put it somewhere lasting first (`~/Applications` above); after
+  moving or renaming it, run `--install` again. Running it twice changes nothing.
+- **Default app:** once it is in the menu, **File › Options › General › Make WordCraft the default
+  for Word documents…** (הגדרת WordCraft כברירת המחדל למסמכי Word…) makes it open .docx, .doc, .rtf
+  and .odt files and Word templates (`xdg-mime`, from xdg-utils). Before `--install` the button
+  says, in the status bar, that WordCraft isn't in the menu yet and how to add it.
+- **`--uninstall`** removes the menu entry and icons that `--install` wrote, and nothing else: not
+  the AppImage, not the settings, and not an entry of that name that it didn't write (it says so and
+  fails). A default-app choice in `~/.config/mimeapps.list` that named the entry is left; desktops
+  skip an entry that is gone.
+- **`--cli ARGS…`** runs the command-line tool: `… .AppImage --cli convert letter.docx letter.pdf`,
+  `--cli --help` for the rest. It gets the edition's region too.
+- **`--help`** and **`--version`** say the same about Ubuntu 22.04 and glibc 2.35.
+- Without FUSE (some containers and minimal systems) the AppImage's runtime unpacks itself to a
+  temporary folder each time it starts, which only makes the start slower; `--appimage-extract`
+  unpacks it once into `squashfs-root/`, whose `AppRun` takes the same options.
+- AppImageLauncher and Gear Lever can add it to the menu too, under a name of their own; the
+  default-app button then still needs `--install`'s entry. Use one or the other.
+
+The edition has its own desktop id, `ai.storyteller.wordcraft.hebrew` (the menu entry, the icons,
+the window's app id and the AppStream file), so it and a stock WordCraft install keep separate menu
+entries, taskbar buttons and default-app choices. They share the settings folder
+`~/.config/wordcraft`: a language, a region or a saved AI key chosen in one applies in the other.
+
+**Updates:** the edition never updates itself. The releases WordCraft's updater reads are the stock
+English ones, and installing one would replace the edition with them, so it doesn't check at start,
+and Help › Check for Updates… (בדיקת עדכונים…) says why instead of checking: no request is sent. The
+AppImage carries no update information, so AppImageUpdate and AppImageLauncher can't fetch the
+stock release either; README's line that the AppImage updates itself with AppImageUpdate does not
+apply to the edition. To update, replace the file with a newer build of the edition and run
+`--install` again if its name changed.
+
+**What is in the AppImage besides the programs** (`usr/share/doc/wordcraft`): `NOTICE-hebrew-edition.txt`
+(what the edition is and the licence of every font it bundles or embeds), the licence files it names
+(`OFL-<family>.txt` for the bundled Hebrew fonts and craft-fonts' faces, `OFL-Inter.txt` and the other
+assets/fonts licences, `epaint_default_fonts-*.txt` for egui's Ubuntu Light, Hack, Noto Emoji and icon
+fonts), `open-hebrew-fonts.sha256`, `BUILD-INFO.txt`, WordCraft's `NOTICE`, `LICENSE-*` and
+`ATTRIBUTION.md`, this page and [the AI assistant](assistant.md)'s. The ArtCraft name and marks are
+the ArtCraft Team's (`docs/brand/LICENSE-brand.txt`), which keeps them and the links to its community
+for WordCraft's own builds. The edition, a modified version, says in plain text that it is based on
+WordCraft by the ArtCraft team, and has no Discord button, Help › Community Discord or Backstage
+community link (`links_to_artcraft` in `crates/ui-egui/src/lib.rs`); see "Not done" for About.
+
 ## Building the edition
 
 ```bash
@@ -236,12 +299,61 @@ CRAFT_I18N_SRC=/path/to/craft-i18n CRAFT_FONTS_DIR=/path/to/craft-fonts \
 HEBREW_FONTS_DIR="$HOME/.cache/wordcraft-hebrew-fonts" packaging/hebrew/build-appimage.sh
 ```
 
-The script sets `WORDCRAFT_DEFAULT_LANGUAGE=he`, `CRAFT_I18N_REQUIRED` and `CRAFT_FONTS_REQUIRED`,
-the extra fonts, `WORDCRAFT_EDITION_REGION=he-IL` (the AppImage starts with Israel's A4 paper and
-metric units unless `WORDCRAFT_REGION` is set) and `WORDCRAFT_NO_UPDATE_INFO` (no AppImage update
-information, because the upstream releases are in English). The edition does not check for updates
-when it starts, for the same reason; Help › Check for Updates is still a manual action and would
-offer the upstream release, which would replace the edition.
+It writes `dist/release/wordcraft-hebrew-<version>-linux-x86_64.AppImage` and its `.sha256`, then
+runs `packaging/hebrew/test-appimage.sh` on it (below). Every input is pinned, and the script stops
+when one isn't the pinned one:
+
+| Input | Pin | Checked by |
+|---|---|---|
+| craft-i18n (`CRAFT_I18N_SRC`) | the commit in `craft-i18n.rev`, with `packaging/hebrew/he-supplement.tsv` appended to a copy | `git rev-parse HEAD` |
+| craft-fonts (`CRAFT_FONTS_DIR`), whose Noto Sans Hebrew the interface embeds | `CRAFT_FONTS_REV` in `build-appimage.sh`, `baf0f2c` | `git rev-parse HEAD` |
+| the bundled Hebrew fonts (`HEBREW_FONTS_DIR`) | google/fonts commit `5026800` in `fetch-open-hebrew-fonts.sh`, and the SHA-256 of all 25 files (14 fonts, 11 licences) in `open-hebrew-fonts.sha256` | `fetch-open-hebrew-fonts.sh --check`: the same files byte for byte and nothing else; a fetch checks itself too |
+| Rust | `RUST_VERSION` in `build-appimage.sh`, 1.97.0 (`WORDCRAFT_ANY_RUST=1` for a try-out with another) | `rustc --version` |
+| Rust crates | `Cargo.lock` | `cargo build --locked` |
+| appimagetool 1.9.1 and the type2-runtime 20251108 | SHA-256 in `packaging/linux/package.sh` | `sha256sum -c` on every run |
+
+It also sets `WORDCRAFT_DEFAULT_LANGUAGE=he`, `CRAFT_I18N_REQUIRED` and `CRAFT_FONTS_REQUIRED`, the
+edition's id (`WORDCRAFT_APP_ID`, built into the program for its window and default-app button, and
+the name of its desktop entry, AppStream file and icons), its desktop entry, AppStream file and
+AppRun (`packaging/hebrew/`), `WORDCRAFT_EDITION_REGION=he-IL` (the AppImage starts with Israel's A4
+paper and metric units unless `WORDCRAFT_REGION` is set) and `WORDCRAFT_NO_UPDATE_INFO`. The
+release date in the AppStream file and the times in the AppImage's file system are the commit's
+(`SOURCE_DATE_EPOCH`), not the clock's. `desktop-file-validate` and `appstreamcli` must be installed
+(`sudo apt install desktop-file-utils appstream`): `package.sh` validates the desktop entry and the
+AppStream file with them, and the script refuses to build without them.
+
+**Build system and glibc.** CI builds the stock packages on Ubuntu 22.04 so that they run on 22.04
+and later. The edition can be built on a newer Ubuntu: Rust's standard library refers to two
+functions of glibc 2.39 (`pidfd_spawnp`, `pidfd_getpid`) as weak symbols, which it does without when
+they are missing, but linked on a glibc 2.39 system the programs record glibc 2.39 as a requirement
+and a 22.04 system refuses to start them. `packaging/linux/glibc-floor.py`, run by `package.sh` with
+`WORDCRAFT_GLIBC_FLOOR=2.35`, drops every requirement newer than 2.35 that only weak symbols have (the
+symbols lose their version, as when linking against glibc 2.35, which has no such functions to
+version) and fails the build when any other requirement newer than 2.35 remains. Checked on Ubuntu
+24.04.5 (glibc 2.39): after it, both programs need glibc 2.35 (`libm`'s `GLIBC_2.35` is the newest),
+`--check-only 2.35` passes, and with a copy of the system's libc that lacks the `GLIBC_2.39` version
+both start (`--version`) and the CLI writes and converts a Hebrew document, where the unchanged
+programs stop with ``version `GLIBC_2.39' not found``. The two weak functions still bind to
+glibc 2.39's on 24.04. Not checked: a run on a real Ubuntu 22.04 desktop.
+
+**`test-appimage.sh`** checks an AppImage of the edition (it needs no FUSE and writes only to a
+temporary folder): both programs pass `glibc-floor.py --check-only 2.35`; the desktop id, the menu
+entry and the AppStream file validate; the icons are under the edition's id; the bundled fonts match
+`open-hebrew-fonts.sha256`; every bundled and embedded font has its licence file, and the notices
+are there; the AppImage has no update information; `--version`, `--help` and `--cli` (which writes a
+Hebrew document and converts it to PDF) work; and, in a throwaway HOME, `--install` run from a path
+with spaces, quotes, `$` and `%` writes an entry that validates, whose command (read as the Desktop
+Entry spec says) is that path and starts the AppImage, in Hebrew, with the Word types in Open With's
+cache and the icons; a second `--install` changes nothing; `--uninstall` removes all of it, succeeds
+when nothing is installed, and leaves (and fails over) an entry it didn't write; `XDG_DATA_HOME` is
+followed.
+
+**`BUILD-INFO.txt`**, in the AppImage, records the source commit and its date, the craft-i18n,
+craft-fonts and google/fonts revisions, the supplement's SHA-256, `rustc` and `cargo`, and the build
+system (`/etc/os-release`, the machine, `ldd --version`). Packaging the same programs again gives
+the same AppImage byte for byte (two runs of `build-appimage.sh --skip-build` gave one SHA-256).
+The programs themselves come out the same from the same commit, inputs and toolchain only when the
+source and Cargo home folders are the same too: the binaries carry some of their paths.
 
 ## Not done, or not checked
 
@@ -256,6 +368,13 @@ offer the upstream release, which would replace the edition.
   the Hebrew IME and keyboard layouts on each platform, Hebrew calendar dates and gematria date
   formats, and Hebrew hyphenation (no pattern file exists for it).
 - Windows and macOS builds of the edition.
+- The About window (Help › Help) still says the program is part of the Crafting Apps from the
+  ArtCraft team and links to getartcraft.com and the ArtCraft Discord. The brand licence keeps those
+  for WordCraft's own builds, so a copy of the edition that is passed on should say instead, in plain
+  text, that it is based on WordCraft by the ArtCraft team, without the links. The window is drawn in
+  `crates/ui-egui/src/dialogs/dispatch.rs`, which this change did not touch.
+- The AppImage on a real Ubuntu 22.04 desktop: its glibc needs were checked as above, and its menu
+  entry with `desktop-file-validate` and a throwaway HOME, not in GNOME's menu, dock and search.
 - Not mirrored yet: the mini toolbar, the results of the title bar's command search (each label
   and its shortcut), the Date and Time dialog and the previews of Table of Contents, Table of
   Figures, Index and Define New Multilevel List; most other drop-down lists still start their rows
@@ -284,3 +403,4 @@ offer the upstream release, which would replace the edition.
 | 2026-11-26 | major | First version: Hebrew interface language and numbering, Hebrew edition (default language, catalog supplement, fonts, right-to-left new documents, Hebrew proofing through the complex-script language) |
 | 2026-11-27 | minor | Mirrored task panes, balloons, directional icons and lists; Hebrew letters on Bold, Italic, Underline and Spelling; mixed Hebrew and Latin text in order; lengths number first; Hebrew in monospace text |
 | 2026-11-27 | minor | Engine messages through the catalog (rows and `@msg` templates); supplement rows correct published ones; Accessibility pane from rule ids; translated style, style set, Unicode subset, icon and Language data names; Language pack licence, confirmation and network failures; WordCraft's own file browser by default in the edition; Mailings on the region's paper |
+| 2026-11-27 | minor | Installing on Ubuntu (`--install`, `--uninstall`, `--cli`), the edition's own desktop id, Hebrew menu entry and AppStream text; no self-update (Help › Check for Updates says why); the licence of every font in the AppImage; pinned and checked build inputs, `BUILD-INFO.txt`, `test-appimage.sh`; programs held to glibc 2.35 (Ubuntu 22.04) |

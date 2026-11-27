@@ -387,7 +387,8 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                         // The room left of the account button and its space, less the spaces between the
                         // three controls and a gap from the Quick Access Toolbar.
                         let room = ui.available_width() - control_h - 8.0 - 3.0 * ui.spacing().item_spacing.x - 8.0;
-                        let fit = TitleBarFit::new(room, app.ui.show_discord, control_h);
+                        let discord = app.ui.show_discord && crate::links_to_artcraft();
+                        let fit = TitleBarFit::new(room, discord, control_h);
                         // Account / community.
                         let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
                         ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
@@ -398,7 +399,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                             let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
                         }
                         ui.add_space(8.0);
-                        if app.ui.show_discord {
+                        if discord {
                             let (r, resp) = ui.allocate_exact_size(vec2(if fit.discord_label { 84.0 } else { 22.0 }, 22.0), Sense::click());
                             ui.painter().rect_filled(r, 11.0, if resp.hovered() { t.accent_text } else { t.accent });
                             let icon_x = if fit.discord_label { 13.0 } else { 11.0 };

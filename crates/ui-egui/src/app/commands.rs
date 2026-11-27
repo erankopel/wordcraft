@@ -832,6 +832,9 @@ impl WordApp {
                 ));
             }
             "ui.discord" => {
+                if !crate::links_to_artcraft() {
+                    return Some(Err("this edition of WordCraft has no community link".into()));
+                }
                 self.canvas.open_url = Some("https://discord.gg/artcraft".into());
                 json!({})
             }
@@ -965,7 +968,8 @@ impl WordApp {
             }
             Err(e) => {
                 log::warn!("make default app: {e}");
-                let msg = i18n::fmt(tl!("Couldn't make WordCraft the default: {error}"), &[("error", &e)]);
+                // The host's reason is English, for the log; the status bar says it in the interface language.
+                let msg = i18n::fmt(tl!("Couldn't make WordCraft the default: {error}"), &[("error", &i18n::message(&e))]);
                 self.status(msg.clone());
                 Err(msg)
             }

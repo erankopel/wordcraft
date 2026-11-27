@@ -57,10 +57,10 @@ fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left
 
 /// The bottom of the backstage menu: About, and the community link unless the user turned the
 /// community button off — the title bar pill honors the same setting, so the menu hides the
-/// link with it.
+/// link with it — or this is an edition ([`crate::links_to_artcraft`]).
 fn bottom_links(app: &WordApp) -> Vec<(&'static str, &'static str)> {
     let mut links = vec![("About", "about")];
-    if app.ui.show_discord {
+    if app.ui.show_discord && crate::links_to_artcraft() {
         links.push(("Discord community", "discord"));
     }
     links

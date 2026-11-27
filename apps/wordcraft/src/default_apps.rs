@@ -6,10 +6,11 @@
 //! - **Windows** doesn't let apps set defaults: it opens Settings › Default apps on WordCraft's
 //!   page (`ms-settings:defaultapps?registeredAppMachine=WordCraft`; Windows 10 ignores the query
 //!   and shows the Default apps list), where the user picks WordCraft per type.
-//! - **Linux and BSD**: `xdg-mime default ai.storyteller.wordcraft.desktop <types>` for
-//!   [`WORD_MIME_TYPES`], which writes the user's `mimeapps.list`. Only when the desktop entry is
-//!   installed (deb, rpm, Flatpak; a bare AppImage has none), and not from inside the Flatpak
-//!   sandbox, which can't change the host's defaults.
+//! - **Linux and BSD**: `xdg-mime default <app id>.desktop <types>` for [`WORD_MIME_TYPES`],
+//!   which writes the user's `mimeapps.list`. Only when the desktop entry is installed (deb, rpm,
+//!   Flatpak; an edition's AppImage after `--install`; a bare AppImage has none), and not from
+//!   inside the Flatpak sandbox, which can't change the host's defaults. The app id is
+//!   [`crate::APP_ID`]: an edition's own, so its button never makes a stock install the default.
 //! - **macOS** has no API for it here: the Options page explains Finder's Get Info › Change All.
 //!
 //! [`WORD_MIME_TYPES`]: self::WORD_MIME_TYPES
@@ -30,9 +31,11 @@ pub fn hook() -> Option<Hook> {
     hook
 }
 
-/// The desktop entry the Linux packages install, and the Flatpak's app id.
+/// The desktop entry the Linux packages install (`<app id>.desktop`; the Flatpak's app id).
 #[cfg(any(all(unix, not(target_os = "macos")), test))]
-const DESKTOP_ID: &str = "ai.storyteller.wordcraft.desktop";
+fn desktop_id() -> String {
+    format!("{}.desktop", crate::APP_ID)
+}
 
 /// The types the button makes WordCraft the default for on Linux and BSD: Word documents and
 /// templates (also macro-enabled and legacy), RTF and ODT. The same set the Windows installer
@@ -99,7 +102,7 @@ mod xdg {
 
     use wordcraft_ui_egui::DefaultApp;
 
-    use super::{DESKTOP_ID, application_dirs, xdg_mime_args};
+    use super::{application_dirs, desktop_id, xdg_mime_args};
 
     /// The longest error text from `xdg-mime` shown in the status bar.
     const MAX_ERROR: usize = 200;
@@ -112,10 +115,17 @@ mod xdg {
         }
         let var = |k: &str| std::env::var(k).ok();
         let dirs = application_dirs(var("XDG_DATA_HOME").as_deref(), var("XDG_DATA_DIRS").as_deref(), var("HOME").as_deref());
-        if !dirs.iter().any(|d| d.join(DESKTOP_ID).is_file()) {
-            return Err(format!("{DESKTOP_ID} isn't installed (an AppImage needs desktop integration first)"));
+        let id = desktop_id();
+        if !dirs.iter().any(|d| d.join(&id).is_file()) {
+            // An edition's AppImage adds its own entry (its AppRun's `--install`); `APPIMAGE` is this
+            // copy's own here, `appimage_env` having dropped another program's.
+            return Err(if wordcraft_ui_egui::i18n::EDITION_LANGUAGE.is_some() && std::env::var_os("APPIMAGE").is_some() {
+                "WordCraft isn't in the applications menu yet. Start the AppImage once with --install to add it, then try again.".into()
+            } else {
+                format!("{id} isn't installed (an AppImage needs desktop integration first)")
+            });
         }
-        let out = Command::new("xdg-mime").args(xdg_mime_args(DESKTOP_ID)).output().map_err(|e| match e.kind() {
+        let out = Command::new("xdg-mime").args(xdg_mime_args(&id)).output().map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => "xdg-mime isn't installed (it comes with xdg-utils)".to_string(),
             _ => format!("couldn't run xdg-mime: {e}"),
         })?;
@@ -136,11 +146,23 @@ mod tests {
 
     use super::*;
 
+    /// The stock desktop entry and the Hebrew edition's (packaging/hebrew), which its AppImage's
+    /// `--install` puts in the menu.
+    const ENTRIES: [(&str, &str); 2] = [
+        ("ai.storyteller.wordcraft", include_str!("../../../packaging/linux/ai.storyteller.wordcraft.desktop")),
+        ("ai.storyteller.wordcraft.hebrew", include_str!("../../../packaging/hebrew/ai.storyteller.wordcraft.hebrew.desktop")),
+    ];
+
+    /// The value of `key` in a desktop entry.
+    fn value<'a>(entry: &'a str, key: &str) -> Option<&'a str> {
+        entry.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix('='))
+    }
+
     #[test]
     fn xdg_mime_sets_every_word_type_in_one_call() {
-        let args = xdg_mime_args(DESKTOP_ID);
+        let args = xdg_mime_args(&desktop_id());
         assert_eq!(args.first().map(String::as_str), Some("default"));
-        assert_eq!(args.get(1).map(String::as_str), Some("ai.storyteller.wordcraft.desktop"));
+        assert_eq!(args.get(1), Some(&desktop_id()), "the menu entry of this build's app id");
         assert_eq!(&args[2..], WORD_MIME_TYPES);
         for t in [
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -153,26 +175,39 @@ mod tests {
         assert!(!args.iter().any(|a| a == "text/plain" || a == "text/markdown"), "plain text and Markdown are never claimed");
     }
 
-    /// Every type the button claims is one the desktop entry declares, or desktops ignore it.
+    /// Every type the button claims is one the desktop entry declares, or desktops ignore it. The
+    /// edition's AppRun (`--install`) puts its own path in place of `wordcraft`.
     #[test]
     fn the_desktop_entry_declares_every_claimed_type() {
-        let entry = include_str!("../../../packaging/linux/ai.storyteller.wordcraft.desktop");
-        let declared: Vec<&str> =
-            entry.lines().find_map(|l| l.strip_prefix("MimeType=")).map(|v| v.split(';').filter(|s| !s.is_empty()).collect()).unwrap_or_default();
-        for t in WORD_MIME_TYPES {
-            assert!(declared.contains(t), "{t} missing from MimeType=");
+        for (id, entry) in ENTRIES {
+            let declared: Vec<&str> = value(entry, "MimeType").map(|v| v.split(';').filter(|s| !s.is_empty()).collect()).unwrap_or_default();
+            for t in WORD_MIME_TYPES {
+                assert!(declared.contains(t), "{id}: {t} missing from MimeType=");
+            }
+            assert_eq!(value(entry, "Exec"), Some("wordcraft %F"), "{id}: files are passed on the command line");
         }
-        assert!(entry.lines().any(|l| l == "Exec=wordcraft %F"), "files are passed on the command line");
     }
 
     /// Declaring `text/plain` makes WordCraft a handler for every config, script and log on systems with no default set.
     #[test]
     fn the_desktop_entry_does_not_declare_plain_text() {
-        let entry = include_str!("../../../packaging/linux/ai.storyteller.wordcraft.desktop");
-        let declared: Vec<&str> =
-            entry.lines().find_map(|l| l.strip_prefix("MimeType=")).map(|v| v.split(';').filter(|s| !s.is_empty()).collect()).unwrap_or_default();
-        assert!(!declared.is_empty(), "MimeType= line not found");
-        assert!(!declared.contains(&"text/plain"), "text/plain must not be declared");
+        for (id, entry) in ENTRIES {
+            let declared: Vec<&str> = value(entry, "MimeType").map(|v| v.split(';').filter(|s| !s.is_empty()).collect()).unwrap_or_default();
+            assert!(!declared.is_empty(), "{id}: MimeType= line not found");
+            assert!(!declared.contains(&"text/plain"), "{id}: text/plain must not be declared");
+        }
+    }
+
+    /// A desktop matches a window to its entry by the app id, and finds the icon by it: an
+    /// entry whose icon or window class were another's would show the other program's icon, or
+    /// group the windows of a stock install and the edition together.
+    #[test]
+    fn each_desktop_entry_names_its_own_icon_and_window_class() {
+        for (id, entry) in ENTRIES {
+            assert_eq!(value(entry, "Icon"), Some(id), "{id}");
+            assert_eq!(value(entry, "StartupWMClass"), Some(id), "{id}");
+        }
+        assert!(ENTRIES.iter().any(|(id, _)| *id == crate::APP_ID), "this build's app id {} has a desktop entry", crate::APP_ID);
     }
 
     #[cfg(unix)]

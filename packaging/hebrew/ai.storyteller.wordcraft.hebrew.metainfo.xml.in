@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata of WordCraft's Hebrew edition, a modified build of WordCraft with its own
+     id (packaging/hebrew/build-appimage.sh). package.sh substitutes @VERSION@ and @DATE@. It names
+     no ArtCraft site or community: docs/brand/LICENSE-brand.txt keeps those for WordCraft's own
+     builds, and lets a modified version say in plain text that it is based on WordCraft. -->
+<component type="desktop-application">
+  <id>ai.storyteller.wordcraft.hebrew</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>WordCraft (Hebrew edition)</name>
+  <name xml:lang="he">WordCraft (עברית)</name>
+  <summary>Word processor in Hebrew; documents start right to left; opens and saves Word files</summary>
+  <summary xml:lang="he">מעבד תמלילים בעברית; מסמכים מתחילים מימין לשמאל; פותח ושומר קובצי Word</summary>
+  <!-- No <developer>: WordCraft's (Learning Machines LLC) would claim the edition for them. -->
+  <description>
+    <p>
+      The Hebrew edition of WordCraft, based on WordCraft by the ArtCraft team. Its interface is in Hebrew on any system, mirrored right to left; new documents start right to left with Hebrew as their language; it carries open Hebrew fonts, which also stand in for Word's Hebrew fonts, and offers Hebrew spelling as a download. Like WordCraft, it reads and writes .docx, opens .odt, .rtf, .html, .md and .txt files, and exports PDF.
+    </p>
+    <p xml:lang="he">
+      המהדורה העברית של WordCraft, המבוססת על WordCraft של צוות ArtCraft. הממשק שלה בעברית בכל מערכת, בכיוון מימין לשמאל; מסמכים חדשים מתחילים מימין לשמאל ושפתם עברית; היא כוללת גופנים עבריים פתוחים, שמשמשים גם במקום הגופנים העבריים של Word, ומאפשרת להוריד בדיקת איות בעברית. כמו WordCraft, היא קוראת וכותבת קובצי ‎.docx, פותחת קובצי ‎.odt, ‎.rtf, ‎.html, ‎.md ו־‎.txt, ומייצאת ל־PDF.
+    </p>
+    <p>
+      It does not update itself from WordCraft's releases, which are in English: a newer build of this edition replaces it.
+    </p>
+    <p xml:lang="he">
+      היא אינה מתעדכנת מהגרסאות של WordCraft, שהן באנגלית: כדי לעדכן, מחליפים אותה בגרסה חדשה יותר של מהדורה זו.
+    </p>
+  </description>
+  <launchable type="desktop-id">ai.storyteller.wordcraft.hebrew.desktop</launchable>
+  <icon type="stock">ai.storyteller.wordcraft.hebrew</icon>
+  <!-- The project the edition is built from; the edition itself has no site. -->
+  <url type="homepage">https://github.com/storytold/wordcraft</url>
+  <categories>
+    <category>Office</category>
+    <category>WordProcessor</category>
+  </categories>
+  <keywords>
+    <keyword>word processor</keyword>
+    <keyword>docx</keyword>
+    <keyword>document</keyword>
+    <keyword>Hebrew</keyword>
+    <keyword xml:lang="he">מעבד תמלילים</keyword>
+    <keyword xml:lang="he">מסמך</keyword>
+    <keyword xml:lang="he">עברית</keyword>
+  </keywords>
+  <requires>
+    <display_length compare="ge">760</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>tablet</control>
+  </supports>
+  <!-- Document types it opens, as in the desktop entry's MimeType=. -->
+  <provides>
+    <binary>wordcraft</binary>
+    <mediatype>application/vnd.openxmlformats-officedocument.wordprocessingml.document</mediatype>
+    <mediatype>application/vnd.ms-word.document.macroEnabled.12</mediatype>
+    <mediatype>application/vnd.openxmlformats-officedocument.wordprocessingml.template</mediatype>
+    <mediatype>application/vnd.ms-word.template.macroEnabled.12</mediatype>
+    <mediatype>application/msword</mediatype>
+    <mediatype>application/msword-template</mediatype>
+    <mediatype>application/vnd.oasis.opendocument.text</mediatype>
+    <mediatype>application/rtf</mediatype>
+  </provides>
+  <languages>
+    <lang>he</lang>
+  </languages>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

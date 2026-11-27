@@ -82,3 +82,4 @@ icons	Power	לחצן הפעלה	the power button symbol ⏻; 'הפעלה וכי�
 	not in a table	הסמן אינו בטבלה	the English has no subject; 'the caret' (הסמן) is added so the Hebrew is a sentence
 	the file's sha256 doesn't match the index	ערך ה-sha256 של הקובץ אינו תואם לערך שברשימה	the same error comes from font and Language pack downloads, so 'the index' is rendered as 'the list' without naming which
 	downloading fonts is turned off	הורדת גופנים כבויה	the font store says 'fonts' for Language pack downloads too; a general 'ההורדה כבויה' is the alternative
+@msg	{id} isn't installed (an AppImage needs desktop integration first)	{id} אינו מותקן (יש לשלב קודם את קובץ ה-AppImage בשולחן העבודה)	'desktop integration' (adding an AppImage to the menu) has no settled Hebrew term; 'שילוב בשולחן העבודה' is a rendering

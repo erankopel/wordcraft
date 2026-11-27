@@ -426,3 +426,23 @@ spacing	Open	פתוח
 	Agreeing covers later requests in this run, whether they send a selection or the whole document.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו, בין אם הן שולחות טקסט נבחר ובין אם הן שולחות את המסמך כולו.
 	Your instruction (no document text goes with it: the document is empty) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree.	ההוראה שלכם (לא יישלח איתה טקסט מהמסמך: המסמך ריק) תישלח דרך האינטרנט אל {recipient}, כדי שהמודל {model} יקרא אותה. WordCraft לא שומר עותק. דבר לא יישלח עד שתאשרו.
 	The model sent no text, so there is no reply to place.	המודל לא שלח טקסט, ולכן אין תשובה להכניס.
+	You stopped the assistant. Nothing was changed.	עצרתם את העוזר. דבר לא שונה.
+	The assistant's changes were undone.	השינויים של העוזר בוטלו.
+	The assistant is working…	העוזר עובד…
+	The assistant is working: round {round}, {calls} steps so far…	העוזר עובד: סבב {round}, שלבים עד כה: {calls}…
+	The document changed while the assistant worked, so its changes were not applied. Ask again.	המסמך השתנה בזמן שהעוזר עבד, ולכן השינויים שלו לא הוחלו. יש לבקש שוב.
+	The assistant's changes were applied. Undo reverts all of them in one step.	השינויים של העוזר הוחלו. ביטול פעולה אחד מבטל את כולם.
+	The assistant's changes could not be applied: {why}	לא ניתן היה להחיל את השינויים של העוזר: {why}
+	The assistant answered without changing the document.	העוזר ענה בלי לשנות את המסמך.
+	The model declined this request, so nothing was changed.	המודל סירב לבקשה הזו, ולכן דבר לא שונה.
+	The assistant's answer reached its length limit before it finished, so nothing was changed.	התשובה של העוזר הגיעה למגבלת האורך לפני שסיים, ולכן דבר לא שונה.
+	The assistant used all the steps one request may take before it finished, so nothing was changed. Ask for less at a time.	העוזר ניצל את כל השלבים שבקשה אחת יכולה לכלול לפני שסיים, ולכן דבר לא שונה. כדאי לבקש פחות בכל פעם.
+	The assistant stopped before it finished, so nothing was changed.	העוזר הפסיק לפני שסיים, ולכן דבר לא שונה.
+	Ask for a change to your document, or a question about it. The assistant makes the changes itself, and Undo reverts them in one step.	אפשר לבקש שינוי במסמך שלכם, או לשאול עליו שאלה. העוזר מבצע את השינויים בעצמו, וביטול פעולה אחד מבטל את כולם.
+	Let the assistant make changes in the document	לאפשר לעוזר לבצע שינויים במסמך
+	Your instruction and the whole document ({chars} characters) will be sent over the internet to {recipient}, to be read by the model {model}. The assistant can also read the rest of the document, including headers, footers, notes, comments with their authors' names and the document's properties, and change it with WordCraft's editing commands. Its changes apply together when it finishes, and Undo reverts all of them in one step; with Track Changes on, the text it adds or deletes is tracked. WordCraft keeps no copy. Nothing is sent until you agree.	ההוראה שלכם והמסמך כולו (תווים: {chars}) יישלחו דרך האינטרנט אל {recipient}, כדי שהמודל {model} יקרא אותם. העוזר יכול גם לקרוא את שאר המסמך, כולל כותרות עליונות ותחתונות, הערות שוליים, הערות עם שמות הכותבים שלהן ואת מאפייני המסמך, ולשנות אותו בפקודות העריכה של WordCraft. השינויים שלו מוחלים יחד כשהוא מסיים, וביטול פעולה אחד מבטל את כולם; כשמעקב אחר שינויים פועל, הטקסט שהוא מוסיף או מוחק מסומן כשינוי. WordCraft לא שומר עותק. דבר לא יישלח עד שתאשרו.
+	The document starts: {start}	המסמך מתחיל כך: {start}
+	Agreeing covers later requests in this run, with or without changes to the document.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו, עם שינויים במסמך או בלעדיהם.
+	Undo These Changes	ביטול השינויים האלה
+	Apply Assistant Changes	החלת שינויי העוזר
+	No whole answer came within 10 minutes. The request reached the service, which may still process it. Try again, perhaps with less text.	לא התקבלה תשובה שלמה תוך 10 דקות. הבקשה הגיעה לשירות, שעשוי עדיין לטפל בה. יש לנסות שוב, אולי עם פחות טקסט.

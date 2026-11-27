@@ -275,6 +275,7 @@ impl Session {
             ribbon: _,
             editing_lang: _,
             new_documents_rtl: _,
+            agent_only: _,
             math_latex: _,
             math_normal_text: _,
             last_highlight: _,

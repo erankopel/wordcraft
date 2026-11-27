@@ -1,7 +1,7 @@
-//! The AI assistant's commands: which part of the document would be shared, and putting a reply into
-//! the document.
+//! The AI assistant's commands: which part of the document would be shared, putting a reply into
+//! the document, and applying the changes the assistant made with WordCraft's commands.
 //!
-//! Neither command touches the network. The AI pane sends a request only after the person has agreed
+//! None of them touches the network. The AI pane sends a request only after the person has agreed
 //! to what leaves the machine, and an agent that drives WordCraft through MCP or the CLI brings its own
 //! model, so nothing here can send text out or spend money. See `docs/assistant.md`.
 
@@ -25,7 +25,34 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("assistant.apply", "Apply Assistant Reply", "Agents", apply).params(
             r#"{"text": string, "mode"?: "replaceSelection" | "insertAfter" (default replaceSelection)}: puts a reply into the document as plain text, exactly as written (no AutoCorrect or AutoFormat). replaceSelection replaces the selection, or inserts at the caret when nothing is selected; insertAfter adds the text as new paragraphs after the paragraph the selection ends in. One undo step, and tracked when Track Changes is on. At most 1,000,000 bytes."#,
         ),
+        CommandSpec::new("assistant.runSteps", "Apply Assistant Changes", "Agents", run_steps).params(
+            r#"{"steps": [{"command": id, "params"?: {...}}], "author"?: string} → the selection: runs the steps in order on a private copy of the document in which only commands that read or edit the open document are allowed (no files, network, preferences, protection, macros, dialogs or Track Changes controls) and no file can be read or written; when every step succeeds the copy replaces the document as ONE undo step, else nothing changes. Text the steps add or delete is tracked when Track Changes is on, as `author` (default "AI Assistant"); formatting applies directly. At most 500 steps."#,
+        ),
     ]
+}
+
+/// Apply the steps an AI assistant made (see [`crate::agent`]): replayed on a fresh workspace of the
+/// open document, whose document then replaces it. `run` makes that one undo step and rolls back on
+/// failure.
+fn run_steps(s: &mut Session, v: &Value) -> CmdResult {
+    let steps = v
+        .get("steps")
+        .and_then(Value::as_array)
+        .ok_or_else(|| CmdError::Params("assistant.runSteps: `steps` must be a list of {\"command\", \"params\"}".into()))?;
+    if steps.is_empty() {
+        return Err(CmdError::Params("assistant.runSteps: `steps` is empty".into()));
+    }
+    let author = p::str(v, "author").unwrap_or(crate::agent::DEFAULT_AUTHOR);
+    let mut ws = crate::agent::replay(crate::agent::Seed::of(s, author), steps).map_err(|e| CmdError::Failed(format!("assistant.runSteps: {e}")))?;
+    s.doc = std::mem::take(&mut ws.doc);
+    s.sel = ws.sel.clone();
+    // The body is a new one, any equation being edited is gone, and the bibliography style is the
+    // document's (the steps may have changed it).
+    s.note_body_replaced();
+    s.math = None;
+    s.bib_style = crate::doc_state::doc_bib_style(&s.doc);
+    s.clamp_selection();
+    sel_result(s)
 }
 
 /// What `assistant.context` reads.

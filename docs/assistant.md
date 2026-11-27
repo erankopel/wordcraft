@@ -1,15 +1,25 @@
 # AI assistant
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-26 · **Change:** major (first version) · **Target:** WordCraft main after 0.19.1
+> **Last reviewed:** 2026-11-27 · **Last updated:** 2026-11-27 · **Change:** major (the assistant changes the document with WordCraft's commands) · **Target:** WordCraft 0.19.1 Hebrew edition
 
-Review › AI › **AI Assistant** opens a side pane where you ask for a change to your text, or a question
-about it, and put the reply into the document. The text is sent to the Claude Messages API with your own
-API key. Nothing is sent until you have agreed to it in the pane, and a reply is placed only when you press
-a button.
+Review › AI › **AI Assistant** opens a side pane where you ask for a change to your document, or a question
+about it. The text is sent to the Claude Messages API with your own API key. Nothing is sent until you have
+agreed to it in the pane.
+
+The assistant works in one of two ways, chosen with **Let the assistant make changes in the document** (on
+by default):
+
+- **It makes the changes itself.** The assistant reads the document and changes it with WordCraft's own
+  editing commands (styles, formatting, tables, comments, text). It works on a private copy; when it finishes,
+  all of its changes are applied to your document together, as one undo step, and **Undo These Changes** (or
+  Undo) takes all of them back. With Track Changes on, the text it adds or deletes is tracked under the name
+  AI Assistant; its formatting is applied directly. See [Changes made by the assistant](#changes-made-by-the-assistant).
+- **It answers with text.** The reply shows in the pane, and you place it with a button.
 
 ## Using it
 
-1. Select the text, or tick **Use the whole document instead of the selection**.
+1. Select the text, or tick **Use the whole document instead of the selection** (text answers only; when the
+   assistant makes changes it can read the whole document).
 2. Give the key: type it in **API key**, or set the `ANTHROPIC_API_KEY` environment variable before
    starting WordCraft. A typed key is used first. By default the key is kept in memory for this run only.
    To keep it between runs, tick **Remember this key on this computer**: once the service has accepted the
@@ -41,10 +51,32 @@ a button.
 **New Chat** forgets the conversation. A new document starts a new chat; what you agreed to and the key you
 typed stay for the run.
 
+## Changes made by the assistant
+
+- **What it may do.** Only commands that read or edit the open document: text, formatting, paragraphs,
+  styles, lists, tables, inserts of content, fields, comments, headers and footers, page setup, find and
+  replace. It may not open, save, export or print files, read or write any file (its work runs with every
+  file access refused), use the network, change preferences or protection, record or play macros, open
+  dialogs, turn Track Changes off, or accept or reject anyone's changes. The engine refuses these inside its
+  command runner, so a command that runs other commands cannot reach them either (`crates/engine/src/agent.rs`).
+- **How it applies.** Its steps are recorded while it works and replayed on a fresh copy of your document by
+  the command `assistant.runSteps`, whose result replaces the document as one undo step. If you edited the
+  document while it worked, nothing is applied and the pane says so: ask again.
+- **When it does not finish** (it declines, reaches its length limit, uses all the steps one request may take,
+  or you press **Stop Waiting**), nothing is applied and the pane says why.
+- **Limits.** One request may take up to 25 rounds with the model and 60 tool calls; each tool result is cut at
+  30 KB and says so. Each round is a separate request to the service, so a long task costs more than a text
+  answer, and the earlier turns are cached to keep that down.
+- **The conversation.** The model's turns are sent back to it byte for byte, as the API requires for tool use.
+
 ## What leaves the machine
 
 - Your instruction, the earlier turns of this chat (at most 24 turns and 300 KB) and the text of the scope you
   chose (at most 600 KB). Too much is refused with a message, never cut.
+- When the assistant makes the changes itself: your instruction, the selected text, an overview of the
+  document's paragraphs (at most 60 KB), and whatever its tools read: any part of the document, including
+  headers, footers, notes, comments with their authors' names and the document's properties. The agreement
+  says so, and is asked once per run for this mode.
 - Track Changes is read as accepted: text deleted with tracking on is **not** sent, in either scope. Text
   formatted as hidden **is** sent, and counted. Headers, footers, notes and text boxes are not part of the whole
   document scope.
@@ -74,6 +106,10 @@ the token is private to the user. Two engine commands serve an agent:
   scope, with its size. It changes nothing.
 - `assistant.apply {"text": "…", "mode": "replaceSelection" | "insertAfter"}` puts text into the document as
   written, as one undo step.
+- `assistant.runSteps {"steps": [{"command", "params"}], "author"?}` runs a list of document-editing commands
+  on a private copy (only what an assistant may run, with no file access) and, when every step succeeds, puts
+  the result in as one undo step; else nothing changes. Text the steps add or delete is tracked when Track
+  Changes is on; formatting applies directly.
 
 `view.assistantPane` opens and closes the pane. Sending a request is deliberately not a command: it needs the
 person's agreement, which only the pane's button gives (AGENTS.md rule 14 asks that every feature work without the
@@ -104,4 +140,5 @@ interface).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-27 | major | The assistant changes the document with WordCraft's commands (tools), one undo step; `assistant.runSteps` |
 | 2026-11-26 | major | First version: the AI pane, `assistant.context`, `assistant.apply`, `view.assistantPane` |

@@ -94,6 +94,13 @@ impl Session {
         let ime_text_join = self.ime_text_join.take();
         let reg = self.registry.clone();
         let Some(spec) = reg.get(id) else { return Err(CmdError::Unknown(id.to_string())) };
+        // An assistant's workspace runs only what an assistant may run, also when a command runs
+        // another one (a macro, Repeat).
+        if self.agent_only
+            && let Some(why) = crate::agent::refusal(id, params)
+        {
+            return Err(CmdError::Disabled(format!("{id}: {why}")));
+        }
         self.forget_review_style(id, spec.mutates);
         let join = join
             || (equation_join && matches!(id, "equation.type" | "equation.backspace"))

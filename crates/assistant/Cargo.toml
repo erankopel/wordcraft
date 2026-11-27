@@ -9,7 +9,8 @@ description = "WordCraft AI assistant core: the request a model gets, the reply 
 workspace = true
 
 [dependencies]
-serde_json = "1"
+# raw_value: a tool conversation sends the model's turns back byte for byte (see agent.rs).
+serde_json = { version = "1", features = ["raw_value"] }
 
 # The same HTTP client, with the same features, craft-font-store already links, so this adds nothing
 # new to the build. The browser build has no network provider.

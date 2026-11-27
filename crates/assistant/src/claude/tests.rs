@@ -137,3 +137,62 @@ fn the_provider_the_app_makes_will_not_send_over_plain_http() {
     assert!(!format!("{error}").contains(KEY));
     assert!(listener.accept().is_err(), "nothing connected to the plain HTTP server");
 }
+
+/// A busy or failing service is asked again, a spent usage limit and a refused request are not, and the
+/// service's own x-should-retry decides when it is there.
+#[test]
+fn which_answers_are_asked_again() {
+    for status in [408, 409, 429, 500, 529] {
+        assert!(retryable(status, "{}", None), "{status}");
+    }
+    for status in [400, 401, 403, 404, 413] {
+        assert!(!retryable(status, "{}", None), "{status}");
+    }
+    assert!(
+        !retryable(429, r#"{"error":{"details":{"error_code":"enforced_spend_limit_reached"}}}"#, None),
+        "a spent limit does not come back by waiting"
+    );
+    assert!(!retryable(529, "{}", Some("false")) && retryable(400, "{}", Some("true")));
+    assert!(backoff(1, Some(Duration::from_secs(600))) <= MAX_RETRY_WAIT, "never waits longer than the cap");
+}
+
+/// An overloaded service is asked again, and the second answer is the reply.
+#[test]
+fn an_overloaded_service_is_asked_again() {
+    let overloaded = r#"{"type":"error","error":{"type":"overloaded_error","message":"busy"}}"#;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1/messages", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for answer in [("529 Overloaded", overloaded), ("200 OK", GOOD)] {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut raw = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = stream.read(&mut chunk).unwrap_or(0);
+                raw.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&raw).to_lowercase();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length =
+                        text.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+                    if raw.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+                if n == 0 {
+                    break;
+                }
+            }
+            let (status, body) = answer;
+            let reply = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nRetry-After: 0\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(reply.as_bytes()).unwrap();
+        }
+    });
+    let mut claude = Claude::with_endpoint(KEY, DEFAULT_MODEL, &url);
+    let reply = claude.send(&request()).unwrap();
+    assert_eq!(reply.text, "Short.");
+    server.join().unwrap();
+}

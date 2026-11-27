@@ -22,11 +22,12 @@ use wordcraft_doc::{Block, Blocks, Document, Paragraph, Path, Revision, Revision
 use crate::Session;
 
 /// Commands whose formatting edits aren't the author's own changes: accepting or rejecting
-/// changes, comparing documents, undo and redo, and opening or replacing the document.
+/// changes, comparing documents, undo and redo, opening or replacing the document, and an AI
+/// assistant's changes, whose formatting applies directly (its text changes are tracked inside them).
 fn records(id: &str) -> bool {
     !(id.starts_with("review.accept")
         || id.starts_with("review.reject")
-        || matches!(id, "review.compare" | "review.combine" | "edit.undo" | "edit.redo")
+        || matches!(id, "review.compare" | "review.combine" | "edit.undo" | "edit.redo" | "assistant.runSteps")
         || id.starts_with("file."))
 }
 

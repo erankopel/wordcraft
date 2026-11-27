@@ -9,13 +9,21 @@
 use std::fmt;
 use std::time::Duration;
 
+use crate::agent::{Step, ToolRequest, build_tool_body, parse_step};
 use crate::{
     API_VERSION, DEFAULT_MODEL, Disclosure, ENDPOINT, Error, FALLBACK_BETA, KEY_ENV, MAX_RESPONSE_BYTES, Provider, Reply, Request, build_body,
-    parse_reply,
+    clean_key, parse_reply,
 };
 
 /// How long one request may take, in all. A reply is read whole, and a long one takes minutes.
 const TIMEOUT: Duration = Duration::from_secs(600);
+/// How long finding the host and connecting may take, so a request that cannot start fails fast.
+const SETUP_TIMEOUT: Duration = Duration::from_secs(20);
+/// How many times a request is sent again after a busy or failing service or a connection that could not
+/// be made, as the official SDKs do.
+const RETRIES: u32 = 2;
+/// The longest wait before sending again.
+const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
 
 /// A key that never prints.
 struct Secret(String);
@@ -48,8 +56,8 @@ impl Claude {
 
     /// The provider for a key already read. A missing or blank key is [`Error::MissingKey`].
     pub fn from_key(key: Option<&str>) -> Result<Claude, Error> {
-        let key = key.map(str::trim).filter(|k| !k.is_empty()).ok_or(Error::MissingKey)?;
-        Ok(Claude::build(key, DEFAULT_MODEL, ENDPOINT, true))
+        let key = key.map(clean_key).filter(|k| !k.is_empty()).ok_or(Error::MissingKey)?;
+        Ok(Claude::build(&key, DEFAULT_MODEL, ENDPOINT, true))
     }
 
     /// Whether [`KEY_ENV`] holds a key, for the pane to say so. The key itself is not read out.
@@ -58,8 +66,14 @@ impl Claude {
     }
 
     fn build(key: &str, model: &str, endpoint: &str, https_only: bool) -> Claude {
-        let config =
-            ureq::Agent::config_builder().http_status_as_error(false).max_redirects(0).https_only(https_only).timeout_global(Some(TIMEOUT)).build();
+        let config = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .https_only(https_only)
+            .timeout_resolve(Some(SETUP_TIMEOUT))
+            .timeout_connect(Some(SETUP_TIMEOUT))
+            .timeout_global(Some(TIMEOUT))
+            .build();
         Claude { key: Secret(key.to_owned()), model: model.to_owned(), endpoint: endpoint.to_owned(), agent: ureq::Agent::new_with_config(config) }
     }
 
@@ -85,20 +99,95 @@ impl Provider for Claude {
 
     fn send(&mut self, request: &Request) -> Result<Reply, Error> {
         let body = build_body(request, &self.model)?;
-        let response = self
-            .agent
-            .post(self.endpoint.as_str())
-            .header("x-api-key", self.key.0.as_str())
-            .header("anthropic-version", API_VERSION)
-            .header("anthropic-beta", FALLBACK_BETA)
-            .content_type("application/json")
-            .send(body.as_str())
-            .map_err(|e| Error::Network(e.to_string()))?;
-        let status = response.status().as_u16();
-        let mut answer = response.into_body();
-        let text = answer.with_config().limit(MAX_RESPONSE_BYTES).read_to_string().map_err(|e| Error::Network(e.to_string()))?;
+        let (status, text) = self.post(&body)?;
         parse_reply(status, &text)
     }
+
+    fn send_tools(&mut self, request: &ToolRequest) -> Result<Step, Error> {
+        let body = build_tool_body(request, &self.model)?;
+        let (status, text) = self.post(&body)?;
+        parse_step(status, &text)
+    }
+}
+
+impl Claude {
+    /// POST `body` to the endpoint with the key, the version and the fallback beta; the status and
+    /// the whole answer. A busy or failing service, and a connection that could not be made, are tried
+    /// again up to [`RETRIES`] times, waiting as the service asks (sending again is safe: nothing runs
+    /// until a whole answer has come); a spent usage limit is not.
+    fn post(&self, body: &str) -> Result<(u16, String), Error> {
+        let mut attempt = 0;
+        loop {
+            let sent = self
+                .agent
+                .post(self.endpoint.as_str())
+                .header("x-api-key", self.key.0.as_str())
+                .header("anthropic-version", API_VERSION)
+                .header("anthropic-beta", FALLBACK_BETA)
+                .content_type("application/json")
+                .send(body);
+            let response = match sent {
+                Ok(response) => response,
+                Err(e) if attempt < RETRIES && never_sent(&e) => {
+                    attempt += 1;
+                    std::thread::sleep(backoff(attempt, None));
+                    continue;
+                }
+                Err(e) => return Err(transport(e)),
+            };
+            let status = response.status().as_u16();
+            let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let retry_after = header("retry-after").and_then(|v| v.trim().parse::<u64>().ok()).map(Duration::from_secs);
+            let should_retry = header("x-should-retry");
+            let mut answer = response.into_body();
+            // The answer has begun: a failure now means it ended without one.
+            let text = answer.with_config().limit(MAX_RESPONSE_BYTES).read_to_string().map_err(|e| match e {
+                ureq::Error::Timeout(_) => Error::NoAnswerInTime,
+                _ => Error::Interrupted,
+            })?;
+            if attempt < RETRIES && retryable(status, &text, should_retry.as_deref()) {
+                attempt += 1;
+                std::thread::sleep(backoff(attempt, retry_after));
+                continue;
+            }
+            return Ok((status, text));
+        }
+    }
+}
+
+/// A transport failure that happened before anything was sent: trying again is safe.
+fn never_sent(e: &ureq::Error) -> bool {
+    matches!(e, ureq::Error::ConnectionFailed | ureq::Error::HostNotFound | ureq::Error::Timeout(ureq::Timeout::Connect | ureq::Timeout::Resolve))
+}
+
+/// A transport failure, in the words the pane uses: a time limit after the request went out is not
+/// "could not be reached".
+fn transport(e: ureq::Error) -> Error {
+    match e {
+        ureq::Error::Timeout(ureq::Timeout::Global | ureq::Timeout::PerCall | ureq::Timeout::PerRead) => Error::NoAnswerInTime,
+        e => Error::Network(e.to_string()),
+    }
+}
+
+/// Should an answer with `status` be asked for again? The service's `x-should-retry` decides when it is
+/// there; else a timeout, a conflict, a busy service (429, except a spent usage limit) or a failing one
+/// (5xx, 529 included).
+fn retryable(status: u16, body: &str, should_retry: Option<&str>) -> bool {
+    match should_retry {
+        Some("true") => return true,
+        Some("false") => return false,
+        _ => {}
+    }
+    match status {
+        408 | 409 | 500..=599 => true,
+        429 => !body.contains("enforced_spend_limit_reached"),
+        _ => false,
+    }
+}
+
+/// How long to wait before attempt `attempt` again: what the service asked, else 1 s, then 2 s.
+fn backoff(attempt: u32, retry_after: Option<Duration>) -> Duration {
+    retry_after.unwrap_or_else(|| Duration::from_millis(500 << attempt.min(6))).min(MAX_RETRY_WAIT)
 }
 
 #[cfg(test)]

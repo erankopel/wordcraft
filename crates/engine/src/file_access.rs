@@ -76,6 +76,12 @@ impl AutomationRoots {
         Ok(Some(Arc::new(Self { read, write })))
     }
 
+    /// Roots that grant nothing: every read and every write is refused. An AI assistant's work in the
+    /// app runs under these ([`crate::agent`]).
+    pub fn deny_all() -> Arc<Self> {
+        Arc::new(Self { read: None, write: None })
+    }
+
     /// The read root, absolute with its links followed.
     pub fn read_root(&self) -> Option<&Path> {
         self.read.as_ref().map(|r| r.shown.as_path())

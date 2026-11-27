@@ -163,6 +163,7 @@ impl Session {
             ribbon: crate::RibbonLayout::default(),
             editing_lang: None,
             new_documents_rtl: false,
+            agent_only: false,
             read_aloud: Default::default(),
             windows: Default::default(),
             password,

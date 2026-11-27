@@ -26,10 +26,14 @@ fn the_body_names_the_model_a_reply_limit_and_the_fallback_but_no_sampling() {
     assert_eq!(body["max_tokens"], MAX_REPLY_TOKENS);
     assert_eq!(body["system"], SYSTEM_PROMPT);
     assert_eq!(body["fallbacks"], "default", "a refusal is retried by the API on its fallback model");
-    // The current models reject these, so a body that names one fails for every user.
-    for key in ["temperature", "top_p", "top_k", "thinking", "budget_tokens", "stream", "tool_choice"] {
+    // Sampling parameters and thinking budgets are refused by the current models, the reader expects
+    // one whole JSON reply (no stream), and a text request has no tools.
+    for key in ["temperature", "top_p", "top_k", "budget_tokens", "stream", "tool_choice", "tools"] {
         assert!(body.get(key).is_none(), "{key} must not be sent");
     }
+    // Adaptive thinking is Claude Opus 5.5's default; named, it stays on when a declined request falls
+    // back to an older model.
+    assert_eq!(body["thinking"], serde_json::json!({"type": "adaptive"}));
 }
 
 #[test]
@@ -256,4 +260,21 @@ fn the_mock_answers_in_order_and_remembers_what_it_was_asked() {
     assert_eq!(mock.send(&r), Err(Error::MissingKey));
     assert!(matches!(mock.send(&r), Err(Error::Network(_))), "an exhausted mock fails instead of panicking");
     assert_eq!(mock.requests().len(), 3);
+}
+
+/// A key pasted with the invisible marks of a right-to-left field, or a byte-order mark, is the key
+/// without them; blanks inside are kept, so a sentence is still not a key.
+#[test]
+fn a_pasted_key_loses_its_invisible_marks() {
+    assert_eq!(clean_key("\u{200F}sk-ant-abc\u{200E}\n"), "sk-ant-abc");
+    assert_eq!(clean_key("\u{FEFF} sk-ant-\u{200B}abc "), "sk-ant-abc");
+    assert_eq!(clean_key("two words"), "two words");
+}
+
+/// When the fallback model declined too, no fallback wrote the reply.
+#[test]
+fn a_refusal_by_the_fallback_too_is_not_a_fallback_reply() {
+    let both = serde_json::json!({"model": "m", "stop_reason": "refusal", "content": [{"type": "fallback"}], "usage": {"iterations": [{"type": "fallback_message"}]}});
+    let reply = parse_reply(200, &both.to_string()).unwrap();
+    assert!(!reply.fallback_used && matches!(reply.stop, Stop::Refusal { .. }));
 }

@@ -12,7 +12,8 @@
 #     packaging/hebrew/build-appimage.sh [--skip-build]
 #
 # Writes $DIST/wordcraft-hebrew-<version>-linux-<arch>.AppImage and its .sha256 (DIST defaults to
-# dist/release), then checks the result with test-appimage.sh.
+# dist/release), then checks the result with test-appimage.sh. --skip-build packages the programs
+# built last, which must be the edition's.
 #
 # Every input is pinned, and the build stops when one isn't the pinned one:
 # CRAFT_I18N_SRC: a checkout of storytold/craft-i18n at the commit in craft-i18n.rev. It is copied,
@@ -109,6 +110,13 @@ export WORDCRAFT_EXTRA_DOCS="$HERE/NOTICE-hebrew-edition.txt:$HERE/open-hebrew-f
 export WORDCRAFT_EDITION_REGION=he-IL
 export WORDCRAFT_GLIBC_FLOOR="$GLIBC_FLOOR"
 export WORDCRAFT_NO_UPDATE_INFO=1
+# --skip-build packages the programs built last, so they have to be the edition's: built in Hebrew
+# with the edition's desktop id, which their --version names (test-appimage.sh checks the AppImage's).
+if [[ " $* " = *" --skip-build "* && -z "${CROSS_TARGET:-}" ]]; then
+  BUILT="$("$CARGO_TARGET_DIR/release/wordcraft" --version 2>/dev/null)" || BUILT=""
+  [[ "$BUILT" = *"edition: language he, desktop id $APP_ID"* ]] ||
+    fail "$CARGO_TARGET_DIR/release/wordcraft is not the edition's build (its --version doesn't name Hebrew and $APP_ID); build without --skip-build"
+fi
 cd "$ROOT"
 packaging/linux/package.sh --formats appimage "$@"
 

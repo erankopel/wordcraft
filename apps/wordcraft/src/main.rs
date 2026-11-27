@@ -44,8 +44,11 @@ use wordcraft_ui_egui::{
 /// a stock install each keep their menu entry, icon, taskbar button and default-app association.
 pub(crate) const APP_ID: &str = match option_env!("WORDCRAFT_APP_ID") {
     Some(id) => id,
-    None => "ai.storyteller.wordcraft",
+    None => STOCK_APP_ID,
 };
+
+/// WordCraft's own desktop id, which a build without `WORDCRAFT_APP_ID` has.
+const STOCK_APP_ID: &str = "ai.storyteller.wordcraft";
 
 /// The app, the restored window geometry (or, with none, the default: no position) until the
 /// first frame that knows the monitor has checked it, the control server's key file (removed on
@@ -517,6 +520,22 @@ fn build_sha() -> &'static str {
     option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or("dev")
 }
 
+/// What `--version` prints: the version and the commit, and for an edition's build (one built with
+/// its own language or desktop id) a line naming them, which packaging reads to tell an edition's
+/// programs from the stock ones (`packaging/hebrew/test-appimage.sh`).
+fn version_text() -> String {
+    let mut text = format!("wordcraft {} ({})", env!("CARGO_PKG_VERSION"), build_sha());
+    let language = wordcraft_ui_egui::i18n::EDITION_LANGUAGE;
+    if language.is_some() || APP_ID != STOCK_APP_ID {
+        text.push_str("\nedition:");
+        if let Some(language) = language {
+            text.push_str(&format!(" language {language},"));
+        }
+        text.push_str(&format!(" desktop id {APP_ID}"));
+    }
+    text
+}
+
 /// The arguments as text, and apart the files whose names aren't valid Unicode, such as a Latin-1
 /// one (#1440). A `--control` port that isn't is an error.
 fn text_args() -> (Vec<String>, Vec<std::path::PathBuf>) {
@@ -622,8 +641,9 @@ fn main() -> eframe::Result {
                 }
             }
             "--sample" => sample = true,
+            // Unlike `println!`, a closed stdout can't panic.
             "--version" => {
-                println!("wordcraft {} ({})", env!("CARGO_PKG_VERSION"), build_sha());
+                let _ = std::io::Write::write_all(&mut std::io::stdout(), format!("{}\n", version_text()).as_bytes());
                 return Ok(());
             }
             // Before the window opens (#968). Unlike `print!`, a closed stdout can't panic.

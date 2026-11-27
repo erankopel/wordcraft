@@ -83,3 +83,4 @@ icons	Power	לחצן הפעלה	the power button symbol ⏻; 'הפעלה וכי�
 	the file's sha256 doesn't match the index	ערך ה-sha256 של הקובץ אינו תואם לערך שברשימה	the same error comes from font and Language pack downloads, so 'the index' is rendered as 'the list' without naming which
 	downloading fonts is turned off	הורדת גופנים כבויה	the font store says 'fonts' for Language pack downloads too; a general 'ההורדה כבויה' is the alternative
 @msg	{id} isn't installed (an AppImage needs desktop integration first)	{id} אינו מותקן (יש לשלב קודם את קובץ ה-AppImage בשולחן העבודה)	'desktop integration' (adding an AppImage to the menu) has no settled Hebrew term; 'שילוב בשולחן העבודה' is a rendering
+@plural	{n} file selected|{n} files selected	{n} קובץ נבחר|{n} קבצים נבחרו|{n} קבצים נבחרו	@plural: the 'two' form repeats the 'other' form, as the existing rows do; WordCraft's own file browser shows it from 2 files up, for Add Font…; 'נבחרו {n} קבצים' is the alternative word order

@@ -3,14 +3,16 @@
 #
 #   packaging/hebrew/test-appimage.sh dist/release/wordcraft-hebrew-<version>-linux-x86_64.AppImage
 #
-# - What it carries: programs that start on glibc 2.35 (Ubuntu 22.04); the edition's own id, menu
-#   entry and AppStream file, both validated; its icons; the pinned fonts and the licence of every
-#   font; the notices; no update information.
+# - What it carries: the edition's programs (built in Hebrew with the edition's desktop id), which
+#   start on glibc 2.35 (Ubuntu 22.04); the edition's own id, menu entry and AppStream file, both
+#   validated; its icons; the pinned fonts and the licence of every font; the notices, without the
+#   stock README and its links to the ArtCraft team's site and community; no update information.
 # - Its AppRun: --version, --help and --cli; and --install and --uninstall in a throwaway HOME, run
 #   from a path with spaces, quotes, $ and %: the menu entry validates, starts this AppImage, is in
 #   Hebrew and lists the Word types; the icons and the Open With cache are there; --install again
-#   changes nothing; --uninstall removes all of it and nothing it didn't write; XDG_DATA_HOME is
-#   followed.
+#   changes nothing; --uninstall removes all of it; neither touches an entry of that name it didn't
+#   write, or its icons; XDG_DATA_HOME is followed; run from an extracted folder, --install ignores
+#   the APPIMAGE and APPDIR another AppImage program passed down.
 #
 # Needs python3, desktop-file-validate and appstreamcli (desktop-file-utils, appstream). Runs the
 # AppImage without FUSE (APPIMAGE_EXTRACT_AND_RUN=1) and writes only to a temporary folder.
@@ -46,9 +48,13 @@ run() { env -i HOME="$T/home" PATH="$PATH" LANG=C.UTF-8 TMPDIR="$T/tmp" APPIMAGE
 R="$T/squashfs-root"
 APP_ID="$(basename "$(find "$R" -maxdepth 1 -name '*.desktop' | head -n 1)" .desktop)"
 DOC="$R/usr/share/doc/wordcraft"
-VERSION="$("$R/usr/bin/wordcraft" --version | awk '{ print $2 }')"
+VERSION="$("$R/usr/bin/wordcraft" --version | head -n 1 | awk '{ print $2 }')"
 SUMS="$HERE/open-hebrew-fonts.sha256"
 check "its own desktop id ($APP_ID), not the stock one" test "$APP_ID" = ai.storyteller.wordcraft.hebrew
+# The program's window must carry that id too (the menu entry's StartupWMClass), and it must start
+# in Hebrew: `build-appimage.sh --skip-build` packages whatever programs were built last.
+edition_build() { "$R/usr/bin/wordcraft" --version | grep -qxF "edition: language he, desktop id $APP_ID"; }
+check "the program is the edition's build: Hebrew, with the edition's desktop id" edition_build
 check "both programs start on glibc 2.35 (Ubuntu 22.04)" \
   python3 -I "$ROOT/packaging/linux/glibc-floor.py" --check-only 2.35 "$R/usr/bin/wordcraft" "$R/usr/bin/wordcraft-cli"
 check "AppRun is the edition's script" grep -q -e '--install' "$R/AppRun"
@@ -85,6 +91,10 @@ licences() {
   done
 }
 check "a licence for every bundled font family and every font the programs embed, and the notices" licences
+# A modified version keeps none of the ArtCraft team's site and community links
+# (docs/brand/LICENSE-brand.txt): the stock README, which has them and the ArtCraft logo, stays out.
+no_artcraft_links() { [[ ! -e "$DOC/README.md" ]] && ! grep -rlF -e discord.gg/artcraft -e https://getartcraft.com "$DOC"; }
+check "no stock README and no link to the ArtCraft team's site or community in the documents" no_artcraft_links
 no_update_information() { [[ -z "$(env -u APPIMAGE_EXTRACT_AND_RUN "$IMAGE" --appimage-updateinformation 2>/dev/null)" ]]; }
 check "no update information (AppImageUpdate would fetch the English releases)" no_update_information
 
@@ -190,16 +200,38 @@ check "--uninstall" run "$P" --uninstall
 all_removed() { [[ ! -e "$E" ]] && ! find "$ICONS" -name "$APP_ID.*" | grep .; }
 check "--uninstall removes the entry and the icons" all_removed
 check "--uninstall with nothing installed" run "$P" --uninstall
-printf '[Desktop Entry]\nType=Application\nName=Not ours\nExec=true\n' >"$E"
-if run "$P" --uninstall >"$T/out" 2>&1; then bad "--uninstall succeeded over an entry --install didn't write"; else
-  check "--uninstall leaves an entry --install didn't write, and fails" test -f "$E"
+# An entry of that name that --install didn't write (the person's own, say one that starts WordCraft
+# in English, or one copied out of the AppImage by hand), with the icons it shows: --install doesn't
+# replace them and --uninstall doesn't remove them; both say so and fail. Each starts from that entry.
+printf '[Desktop Entry]\nType=Application\nName=Mine\nExec=env WORDCRAFT_LANGUAGE=en wordcraft\n' >"$T/mine.desktop"
+mkdir -p "$ICONS/256x256/apps"
+put_foreign() { cp "$T/mine.desktop" "$E" && cp "$R/usr/share/icons/hicolor/256x256/apps/$APP_ID.png" "$ICONS/256x256/apps/"; }
+foreign_kept() { cmp "$T/mine.desktop" "$E" && [[ -f "$ICONS/256x256/apps/$APP_ID.png" ]]; }
+put_foreign
+if run "$P" --install >"$T/out" 2>&1; then bad "--install replaced an entry it didn't write"; else
+  check "--install leaves an entry it didn't write, and its icons, and fails" foreign_kept
 fi
-rm -f "$E"
+put_foreign
+if run "$P" --uninstall >"$T/out" 2>&1; then bad "--uninstall succeeded over an entry --install didn't write"; else
+  check "--uninstall leaves an entry --install didn't write, and its icons, and fails" foreign_kept
+fi
+rm -f "$E" "$ICONS/256x256/apps/$APP_ID.png"
 follows_xdg_data_home() {
   env -i HOME="$T/home" XDG_DATA_HOME="$T/data" PATH="$PATH" TMPDIR="$T/tmp" APPIMAGE_EXTRACT_AND_RUN=1 "$P" --install &&
     [[ -f "$T/data/applications/$APP_ID.desktop" && ! -e "$E" ]]
 }
 check "--install follows XDG_DATA_HOME" follows_xdg_data_home
+# The extracted folder's AppRun (systems without FUSE), in a shell another AppImage program started:
+# the APPIMAGE and APPDIR it passed down name that program, which the entry must not start.
+mkdir -p "$T/.mount_Editor"
+printf '#!/bin/sh\necho another program\n' >"$T/Editor.AppImage"
+chmod +x "$T/Editor.AppImage"
+from_extracted_folder() {
+  env -i HOME="$T/home" XDG_DATA_HOME="$T/data2" PATH="$PATH" TMPDIR="$T/tmp" APPIMAGE="$T/Editor.AppImage" APPDIR="$T/.mount_Editor" \
+    "$R/AppRun" --install &&
+    [[ "$(python3 -I "$T/entry.py" "$T/data2/applications/$APP_ID.desktop" Exec)" = "$R/AppRun" ]]
+}
+check "--install from an extracted folder starts its AppRun, not another program's AppImage" from_extracted_folder
 
 if ((FAILS)); then
   echo "$FAILS checks failed for $IMAGE" >&2

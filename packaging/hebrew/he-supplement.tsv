@@ -802,3 +802,5 @@ icons	Map Pin	סיכת מפה
 @msg	couldn't run xdg-mime: {error}	לא ניתן היה להפעיל את xdg-mime: {error}
 @msg	xdg-mime failed: {message}	xdg-mime נכשל: {message}
 	this edition of WordCraft has no community link	במהדורה זו של WordCraft אין קישור לקהילה
+	A free, open-source word processor written from scratch in Rust.\nBased on WordCraft by the ArtCraft team.	מעבד תמלילים חינמי בקוד פתוח, שנכתב מאפס ב-Rust.\nמבוסס על WordCraft של צוות ArtCraft.
+@plural	{n} file selected|{n} files selected	{n} קובץ נבחר|{n} קבצים נבחרו|{n} קבצים נבחרו

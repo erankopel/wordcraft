@@ -19,6 +19,7 @@ mod fit_one_page;
 mod font_sizes;
 mod fonts;
 mod hebrew;
+mod hebrew_document_words;
 mod hebrew_formatting;
 mod ime_noop;
 mod page_number_formats_in_lists;

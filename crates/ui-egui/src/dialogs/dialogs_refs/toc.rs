@@ -1,4 +1,4 @@
-use super::common::{BUILT_IN_LABELS, LEADERS, choice, heading, leader_char, sample};
+use super::common::{LEADERS, built_in_label, built_in_labels, choice, heading, leader_char, sample, shown_label};
 use super::index::body_field;
 use super::shell::{Next, go};
 use super::{Dialog, FieldCode, RefsDialog, Serialize, StyleKind, Ui, Value, WordApp, buttons, json, vec2};
@@ -225,13 +225,15 @@ pub struct FiguresForm {
 
 impl FiguresForm {
     pub fn read(app: &WordApp) -> FiguresForm {
-        let mut labels: Vec<String> = BUILT_IN_LABELS.iter().map(ToString::to_string).collect();
+        // The built-in labels as the document's text has them (`איור` in Hebrew text).
+        let mut labels: Vec<String> = built_in_labels(app).iter().map(ToString::to_string).collect();
         for l in app.ui.caption_labels.iter().cloned().chain(wordcraft_engine::cmd::citations::caption_labels(&app.session)) {
             if !labels.contains(&l) {
                 labels.push(l);
             }
         }
-        FiguresForm { label: "Figure".into(), labels, include_label: true, page_numbers: true, right_align: true, leader: "dot".into() }
+        let label = built_in_label(app, "Figure").into();
+        FiguresForm { label, labels, include_label: true, page_numbers: true, right_align: true, leader: "dot".into() }
     }
 
     /// `references.tableOfFigures` parameters.
@@ -252,7 +254,7 @@ pub(super) fn figures_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FiguresForm) ->
     let lines: Vec<(usize, String, String)> = [(1, "1"), (2, "3")]
         .iter()
         .map(|(n, page)| {
-            let text = if f.include_label { format!("{} {n}: {}", tl!(&f.label), tl!("Text")) } else { tl!("Text").to_string() };
+            let text = if f.include_label { format!("{} {n}: {}", shown_label(&f.label), tl!("Text")) } else { tl!("Text").to_string() };
             (0, text, if f.page_numbers { page.to_string() } else { String::new() })
         })
         .collect();
@@ -261,9 +263,9 @@ pub(super) fn figures_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FiguresForm) ->
     ui.horizontal(|ui| {
         let label_label = ui.label(tl!("Label:"));
         let labels: Vec<(String, &str)> = f.labels.iter().map(|l| (l.clone(), l.as_str())).collect();
-        let combo = craft_ui::ComboBox::from_id_salt("tof_label").selected_text(tl!(&f.label)).width(150.0).show_ui(ui, |ui| {
+        let combo = craft_ui::ComboBox::from_id_salt("tof_label").selected_text(shown_label(&f.label)).width(150.0).show_ui(ui, |ui| {
             for (v, l) in &labels {
-                ui.selectable_value(&mut f.label, v.clone(), tl!(l));
+                ui.selectable_value(&mut f.label, v.clone(), shown_label(l));
             }
         });
         combo.response.labelled_by(label_label.id);

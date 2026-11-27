@@ -1,6 +1,7 @@
 //! New blank documents that start right to left (a Hebrew interface): the document defaults carry
 //! the direction, so the caret starts at the right margin before a letter is typed, while a
-//! headless session, opened files, templates and documents already begun stay as they are.
+//! headless session, templates (unless asked for right to left: their Hebrew versions), opened
+//! files and documents already begun stay as they are.
 
 use serde_json::json;
 use wordcraft_doc::props::ParaProps;
@@ -91,9 +92,17 @@ fn new_blank_documents_start_right_to_left_but_templates_and_opened_files_do_not
     s.prefs.default_language = Some("en-US".into());
     run(&mut s, "file.new", json!({}));
     assert!(reads_rtl(&s) && s.doc.styles.default_chr.lang.as_deref() == Some("en-US"));
+    // A template keeps its own direction; asked for right to left, it is its Hebrew version,
+    // with a right-to-left section, in a headless session too.
+    let mut headless = Session::new(Document::new());
     for template in ["sample", "letter", "resume", "report"] {
         run(&mut s, "file.new", json!({"template": template}));
         assert!(!reads_rtl(&s), "the {template} template is left to right");
+        for session in [&mut s, &mut headless] {
+            run(session, "file.new", json!({"template": template, "direction": "rtl"}));
+            assert!(reads_rtl(session) && session.doc.last_section.rtl, "the {template} template right to left");
+            assert!(wordcraft_doc::bidi::has_rtl(&session.doc.plain_text(StoryRef::Body)), "the {template} template is written in Hebrew");
+        }
     }
     // A file brings its own direction; plain text carries none.
     run(&mut s, "file.open", json!({"path": "a.txt", "data": "SGVsbG8="}));

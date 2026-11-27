@@ -276,7 +276,8 @@ fn items_of(v: &Value) -> Result<Vec<SmartArtItem>, CmdError> {
 
 fn insert(s: &mut Session, v: &Value) -> CmdResult {
     let layout = layout_of(v)?.unwrap_or_default();
-    let mut spec = SmartArtSpec::sample(layout);
+    // Sample items in the language of the text the graphic goes into (Hebrew in Hebrew text).
+    let mut spec = SmartArtSpec::sample_in(layout, super::words::caret_lang(s).as_deref());
     if let Some(items) = v.get("items").filter(|i| !i.is_null()) {
         spec.items = items_of(items)?;
     }

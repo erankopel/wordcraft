@@ -54,8 +54,9 @@ pub(super) fn index_ui(app: &mut WordApp, ui: &mut Ui, f: &mut IndexForm) -> Nex
     let page = |p: &str| p.to_string();
     let lines: Vec<(usize, String, String)> = {
         let mut v = Vec::new();
+        // The heading is the first letter of the sample entries, in the interface's language.
         if f.headings {
-            v.push((0, "A".to_string(), String::new()));
+            v.push((0, tl!("Atmosphere").chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default(), String::new()));
         }
         if f.kind == "runIn" {
             v.push((0, format!("{}: {}, 4; {}", tl!("Atmosphere"), tl!("Ionosphere"), tl!("Mesosphere")), page("3")));

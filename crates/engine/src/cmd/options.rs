@@ -276,3 +276,46 @@ fn folder_setting(key: &str, f: &str, local_only: bool) -> Result<Option<String>
 pub fn use_dictionaries_folder(folder: Option<&str>) {
     wordcraft_proof::set_dictionaries_folder(folder.map(std::path::PathBuf::from));
 }
+
+/// The real name of the system account WordCraft runs under, for a user name nobody has set yet
+/// (File › Options › General): the account's full name in `/etc/passwd` (Linux and the BSDs),
+/// read through the checked gateway like any file ([`crate::io::read_file`]). `None` where there
+/// is none to read there (Windows, macOS, the web, accounts kept in a directory service, a
+/// session held to other folders) or it is empty.
+pub fn system_user_name() -> Option<String> {
+    let login = std::env::var("USER").or_else(|_| std::env::var("LOGNAME")).ok()?;
+    let passwd = String::from_utf8(crate::io::read_file("/etc/passwd").ok()?).ok()?;
+    real_name_in(&passwd, &login)
+}
+
+/// The full name `passwd` (the text of a `/etc/passwd`) gives the account `login`, as a user name
+/// ([`super::file::normalize_author`]): the comment field up to its first comma, an `&` in it
+/// standing for the login name with a capital first letter (the BSD convention).
+fn real_name_in(passwd: &str, login: &str) -> Option<String> {
+    let entry = passwd.lines().map(|l| l.split(':').collect::<Vec<_>>()).find(|f| f.first() == Some(&login))?;
+    let full = entry.get(4)?.split(',').next()?.trim();
+    let capitalised: String = login.chars().take(1).flat_map(char::to_uppercase).chain(login.chars().skip(1)).collect();
+    super::file::normalize_author(&full.replace('&', &capitalised)).ok()
+}
+
+#[cfg(test)]
+mod user_name_tests {
+    use super::real_name_in;
+
+    const PASSWD: &str = "root:x:0:0:root:/root:/bin/bash\n\
+                          dana:x:1000:1000:דנה כהן,,,:/home/dana:/bin/bash\n\
+                          bsd:*:1001:1001:& Lee,Room 1:/home/bsd:/bin/sh\n\
+                          svc:x:1002:1002::/nonexistent:/usr/sbin/nologin\n\
+                          blank:x:1003:1003: , :/home/blank:/bin/sh";
+
+    /// The account's full name, without the rest of the comment field; nothing for an account with
+    /// no name, a blank one, or one that isn't there.
+    #[test]
+    fn the_full_name_comes_from_the_accounts_comment_field() {
+        assert_eq!(real_name_in(PASSWD, "dana").as_deref(), Some("דנה כהן"));
+        assert_eq!(real_name_in(PASSWD, "bsd").as_deref(), Some("Bsd Lee"), "& is the login name");
+        for login in ["svc", "blank", "nobody", ""] {
+            assert_eq!(real_name_in(PASSWD, login), None, "{login:?}");
+        }
+    }
+}

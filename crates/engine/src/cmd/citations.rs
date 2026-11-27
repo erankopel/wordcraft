@@ -51,7 +51,9 @@ pub fn specs() -> Vec<CommandSpec> {
             r#"{"style": "APA|Chicago|GB/T 7714|GOST (name sort)|GOST (title sort)|Harvard (Anglia)|IEEE|ISO 690 (author-date)|ISO 690 (numerical)|MLA|SIST02|Turabian" (Word's style names work too)}"#,
         ),
         CommandSpec::new("references.bibliography", "Bibliography", "References › Citations & Bibliography", |s, v| {
-            let title = p::str(v, "title").unwrap_or(style(&s.bib_style).bib_title).to_string();
+            // The style's title in the language of the text it goes into.
+            let lang = super::words::caret_lang(s);
+            let title = p::str(v, "title").unwrap_or(super::words::word(lang.as_deref(), style(&s.bib_style).bib_title)).to_string();
             generated_list(s, "BIBLIOGRAPHY", &title)?;
             sel_result(s)
         })
@@ -75,7 +77,8 @@ pub fn specs() -> Vec<CommandSpec> {
         .params(r#"{"entry"?: string}"#)
         .key(super::non_mac("Alt+Shift+I")),
         CommandSpec::new("references.tableOfAuthorities", "Insert Table of Authorities", "References › Table of Authorities", |s, _| {
-            generated_list(s, "TOA", "Table of Authorities")?;
+            let title = super::words::word(super::words::caret_lang(s).as_deref(), "Table of Authorities");
+            generated_list(s, "TOA", title)?;
             sel_result(s)
         }),
         CommandSpec::new("references.updateAuthorities", "Update Table", "References › Table of Authorities", |s, _| {

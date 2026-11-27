@@ -341,7 +341,7 @@ fn toggle_scripts(s: &mut Session, v: &Value, get: fn(&ResolvedChar, bool) -> bo
 /// it, else after it) is, and in a paragraph without letters, when the paragraph reads right to
 /// left. So a caret in Hebrew text, or in an empty paragraph of a Hebrew document, is in Hebrew
 /// text, as the status bar shows it.
-fn context_is_complex(s: &Session, at: &Pos, rc: &ResolvedChar) -> bool {
+pub(crate) fn context_is_complex(s: &Session, at: &Pos, rc: &ResolvedChar) -> bool {
     let Some(p) = s.doc.para_at(at) else { return rc.rtl || rc.cs };
     let off = at.off.min(p.text.len());
     let before = p.text.get(..off).and_then(|t| t.chars().rev().find(|ch| ch.is_alphabetic()));
@@ -1046,7 +1046,7 @@ enum LangAt {
 /// letter of a right-to-left run) is in the language of complex-script text (`w:lang/@w:bidi`),
 /// any other in the text language (`w:lang/@w:val`). An unset complex-script language reads as
 /// the text language.
-fn script_lang(rc: &ResolvedChar, complex: bool) -> Option<String> {
+pub(crate) fn script_lang(rc: &ResolvedChar, complex: bool) -> Option<String> {
     if complex { rc.lang_bidi.clone().or_else(|| rc.lang.clone()) } else { rc.lang.clone() }
 }
 

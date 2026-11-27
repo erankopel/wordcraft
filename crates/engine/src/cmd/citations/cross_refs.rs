@@ -130,10 +130,12 @@ pub fn ref_targets(s: &Session, to: &str) -> Vec<(String, Pos)> {
                 "equation" => "Equation",
                 _ => "Figure",
             };
+            // The label in English or as a Hebrew document writes it (`איור`).
+            let hebrew = crate::cmd::words::word(Some("he"), label);
             for path in s.doc.para_paths(StoryRef::Body) {
                 if let Some(p) = s.doc.para(StoryRef::Body, &path)
                     && is_caption(&s.doc, p)
-                    && p.plain_text().starts_with(label)
+                    && [label, hebrew].iter().any(|l| p.plain_text().starts_with(l))
                 {
                     targets.push((p.plain_text(), Pos { story: StoryRef::Body, path: path.clone(), off: 0 }));
                 }

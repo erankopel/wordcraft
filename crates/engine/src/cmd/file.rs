@@ -87,7 +87,7 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name; its extension is kept, so the name may be given with or without it)}"#).pure(),
-        CommandSpec::new("file.new", "New", "File", new).key("Mod+N").params(r#"{"template"?: "blank|sample|letter|resume|report", "direction"?: "rtl|ltr" (a blank document only: "rtl" starts it right to left with Hebrew as the complex-script language and a Hebrew body font; "ltr" left to right; omitted: as the interface language sets it, left to right in a headless session)}"#).pure(),
+        CommandSpec::new("file.new", "New", "File", new).key("Mod+N").params(r#"{"template"?: "blank|sample|letter|resume|report", "direction"?: "rtl|ltr" (a blank document: "rtl" starts it right to left with Hebrew as the complex-script language and a Hebrew body font, "ltr" left to right, omitted as the interface language sets it, left to right in a headless session; a template: "rtl" makes its Hebrew right-to-left version, otherwise it is the English one)}"#).pure(),
         CommandSpec::new("file.open", "Open", "File", open)
             .key("Mod+O / Mod+F12 / Mod+Alt+F2")
             .params(r#"{"path": string, "data"?: base64 (the file's bytes; `path` then only names it), "password"?: string (for a password-protected Word or OpenDocument text file)}"#)
@@ -216,20 +216,19 @@ fn privacy(s: &Session) -> Value {
 }
 
 /// Open a new document beside the open ones and make it active: a blank one in the saved
-/// proofing language, or the requested template.
+/// proofing language, or the requested template. A template asked for right to left is its
+/// Hebrew, right-to-left version; otherwise it is the English one, whatever the interface, so a
+/// template keeps its own direction unless the caller (File › New in a Hebrew interface) asks.
 fn new(s: &mut Session, v: &Value) -> CmdResult {
-    let rtl = match p::str(v, "direction") {
-        None => s.new_documents_rtl,
-        Some("rtl") => true,
-        Some("ltr") => false,
+    let direction = match p::str(v, "direction") {
+        None => None,
+        Some("rtl") => Some(true),
+        Some("ltr") => Some(false),
         Some(other) => return Err(CmdError::Params(format!("`direction` must be \"rtl\" or \"ltr\", not {other:?}"))),
     };
-    let doc = match p::str(v, "template").unwrap_or("blank") {
-        "sample" => crate::sample::sample_document(),
-        "letter" => crate::sample::letter(),
-        "resume" => crate::sample::resume(),
-        "report" => crate::sample::report(),
-        _ => blank_document_in(s, rtl),
+    let doc = match crate::sample::template(p::str(v, "template").unwrap_or("blank"), direction == Some(true)) {
+        Some(template) => template,
+        None => blank_document_in(s, direction.unwrap_or(s.new_documents_rtl)),
     };
     s.add_document(doc);
     sel_result(s)

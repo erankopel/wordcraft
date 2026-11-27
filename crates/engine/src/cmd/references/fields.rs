@@ -28,10 +28,12 @@ pub const CHAPTER_SEPARATORS: [&str; 5] = ["-", ".", ":", "\u{2014}", "\u{2013}"
 
 /// Insert a caption paragraph below (or above) the caret's paragraph, table or object: the label,
 /// a chapter number (`STYLEREF n \s` and a separator) and a `SEQ label \* format \s n` number
-/// (ECMA-376 §17.16.5.56, §17.16.5.59).
+/// (ECMA-376 §17.16.5.56, §17.16.5.59). Without a label of its own a caption is a Figure, in the
+/// language of the text at the caret (`איור` in Hebrew text, numbered by `SEQ איור`).
 pub(super) fn caption(s: &mut Session, v: &Value) -> CmdResult {
-    let label: String = p::str(v, "label").unwrap_or("Figure").chars().filter(|c| !matches!(c, '"' | '\\') && !c.is_control()).take(40).collect();
-    let label = if label.trim().is_empty() { "Figure".to_string() } else { label.trim().to_string() };
+    let figure = crate::cmd::words::word(crate::cmd::words::caret_lang(s).as_deref(), "Figure");
+    let label: String = p::str(v, "label").unwrap_or(figure).chars().filter(|c| !matches!(c, '"' | '\\') && !c.is_control()).take(40).collect();
+    let label = if label.trim().is_empty() { figure.to_string() } else { label.trim().to_string() };
     // SEQ identifiers are one word: Word joins a multi-word label with underscores.
     let ident = label.split_whitespace().collect::<Vec<_>>().join("_");
     let text = p::str(v, "text").unwrap_or("").to_string();
@@ -569,15 +571,18 @@ pub fn refresh_date_fields(doc: &mut wordcraft_doc::Document) {
     }
 }
 
-/// Resolve a field object's language through the paragraph and document defaults.
+/// Resolve a field object's language through the paragraph and document defaults: that of
+/// complex-script text when its run is complex-script text (`w:rtl`, `w:cs`), as a Hebrew date's
+/// is (ECMA-376 Part 1 §17.3.2.20), else the text language.
 fn field_lang(doc: &wordcraft_doc::Document, p: &wordcraft_doc::Paragraph, k: usize) -> Option<String> {
     let off = p.object_offsets().get(k).copied()?;
-    doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(off)).lang
+    let rc = doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(off));
+    crate::cmd::format::script_lang(&rc, rc.rtl || rc.cs)
 }
 
 /// Word's default date or time picture when a field instruction carries no `\@` picture switch.
 fn default_picture(name: &str, lang: Option<&str>) -> String {
-    if name == "TIME" { "h:mm am/pm".into() } else { crate::cmd::insert::default_date_picture(lang).into() }
+    if name == "TIME" { crate::cmd::insert::default_time_picture(lang).into() } else { crate::cmd::insert::default_date_picture(lang).into() }
 }
 /// Most names SET fields give values.
 const MAX_SET: usize = 10_000;

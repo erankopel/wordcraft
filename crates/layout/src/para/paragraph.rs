@@ -483,7 +483,8 @@ impl<'a> Shaped<'a> {
 
     fn equation(&mut self, cx: &Cx, k: usize, slot: Slot, rc: &Arc<ResolvedChar>, (linear, display, math): (&str, bool, &wordcraft_doc::math::Math)) {
         let avail = (cx.env.width - cx.rp.indent_left.max(0.0) - cx.rp.indent_right.max(0.0)).max(12.0);
-        let ml = crate::math::layout_equation(math, linear, rc, display, avail, &cx.math_props, &mut self.eq_counter);
+        let place = crate::math::EquationPlace { display, avail, rtl: cx.rp.bidi };
+        let ml = crate::math::layout_equation_at(math, linear, rc, place, &cx.math_props, &mut self.eq_counter);
         // The line is at least as tall as the text around it.
         let (a, d) = self.b.styles.get(slot.style as usize).map(|s| (s.ascent, s.descent)).unwrap_or((0.0, 0.0));
         self.b.clusters.push(slot.cluster(ClKind::Object(k), ml.width, (ml.ascent.max(a).max(0.01), ml.descent.max(d))));

@@ -35,7 +35,7 @@ use toc::{insert_toc, remove_toc, toc_range};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("references.toc", "Table of Contents", "References › Table of Contents", insert_toc).params(
-            r#"{"levels"?: 1-9, "title"?: string (at most 1024 characters), "pageNumbers"?: bool, "rightAlign"?: bool, "tabLeader"?: "dot|hyphen|underscore|none", "hyperlinks"?: bool, "headingStyles"?: bool, "outlineLevels"?: bool, "tcFields"?: bool, "styleLevels"?: {style name: 1-9}} (replaces an existing table; {} updates it)"#,
+            r#"{"levels"?: 1-9, "title"?: string (at most 1024 characters; omitted, or WordCraft's own "Contents" or "Table of Contents": that title in the language of the text at the caret, Hebrew in Hebrew text), "pageNumbers"?: bool, "rightAlign"?: bool, "tabLeader"?: "dot|hyphen|underscore|none", "hyperlinks"?: bool, "headingStyles"?: bool, "outlineLevels"?: bool, "tcFields"?: bool, "styleLevels"?: {style name: 1-9}} (replaces an existing table; {} updates it)"#,
         ),
         CommandSpec::new("references.updateToc", "Update Table", "References › Table of Contents", |s, _| {
             update_toc(s)?;

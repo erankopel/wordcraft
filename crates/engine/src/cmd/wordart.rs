@@ -254,9 +254,12 @@ fn transform(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"transform": warp.map(|w| w.preset)}))
 }
 
-/// How wide `text` is at `size` points in the document's body font, points.
+/// How wide `text` is at `size` points in the document's body font, points: its complex-script
+/// font for right-to-left text such as Hebrew, which is drawn in that font.
 fn text_width(s: &Session, text: &str, size: f32, bold: bool) -> f32 {
-    let family = s.doc.styles.default_chr.font.clone().unwrap_or_else(|| s.doc.settings.minor_font.clone());
+    let chr = &s.doc.styles.default_chr;
+    let complex = chr.font_cs.clone().filter(|_| wordcraft_doc::bidi::has_rtl(text));
+    let family = complex.or_else(|| chr.font.clone()).unwrap_or_else(|| s.doc.settings.minor_font.clone());
     let face = wordcraft_fonts::word::resolve(&family, bold, false).face;
     let k = size / face.upem.max(1.0) as f32;
     wordcraft_fonts::shape(&face, text, &[], |c| c).iter().map(|g| g.x_advance as f32 * k).sum::<f32>()
@@ -264,10 +267,12 @@ fn text_width(s: &Session, text: &str, size: f32, bold: bool) -> f32 {
 
 /// `insert.wordArt`: a floating text box without fill or line, its text in a WordArt style (and
 /// optionally bent), centred on the column at the caret's paragraph; its text is selected so
-/// typing replaces it.
+/// typing replaces it. Without text of its own it holds a placeholder in the language of the
+/// text at the caret (Hebrew in Hebrew text).
 fn insert(s: &mut Session, v: &Value) -> CmdResult {
-    let text: String = p::str(v, "text").unwrap_or("Your text here").chars().filter(|c| !c.is_control()).take(1000).collect();
-    let text = if text.trim().is_empty() { "Your text here".to_string() } else { text };
+    let placeholder = super::words::word(super::words::caret_lang(s).as_deref(), "Your text here");
+    let text: String = p::str(v, "text").unwrap_or(placeholder).chars().filter(|c| !c.is_control()).take(1000).collect();
+    let text = if text.trim().is_empty() { placeholder.to_string() } else { text };
     let style = p::str(v, "style").unwrap_or("solid");
     let fx = art_style(style, &theme(s)).ok_or_else(|| CmdError::Params(format!("unknown decorative text style `{style}`")))?;
     let warp = match p::str(v, "transform") {

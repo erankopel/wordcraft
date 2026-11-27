@@ -371,6 +371,12 @@ fn back_chevron_keeps_clear_of_traffic_lights_only_windowed() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn recovery_fixture() -> (WordApp, std::path::PathBuf) {
+    recovery_fixture_named("Synthetic draft")
+}
+
+/// An English app and a recovery folder with one copy, which the engine stores as `name`.
+#[cfg(not(target_arch = "wasm32"))]
+fn recovery_fixture_named(name: &str) -> (WordApp, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!(
         "wordcraft-recovery-ui-{}-{}",
         std::process::id(),
@@ -382,7 +388,7 @@ fn recovery_fixture() -> (WordApp, std::path::PathBuf) {
     std::fs::write(
         dir.join("snapshot-00000000000000000001.json"),
         serde_json::to_vec(&json!({
-            "version": 1, "generation": 1, "info": {"id": id, "name": "Synthetic draft", "savedAt": "2026-10-11T10:42:00Z"},
+            "version": 1, "generation": 1, "info": {"id": id, "name": name, "savedAt": "2026-10-11T10:42:00Z"},
             "document": wordcraft_doc::Document::from_text("Recovered synthetic work")
         }))
         .unwrap(),
@@ -591,6 +597,43 @@ fn recovery_page_keeps_dismissed_copies_and_confirms_discard() {
     settle_recovery(&mut h);
     assert!(h.state().session.recovery_documents().is_empty());
     assert!(h.query_by_label("No recovery copies.").is_some());
+    drop(h);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// The Discard… question names the copy of a document that was never saved as File › Recover
+/// lists it, in the interface's language, not by the English name the engine stores, which the
+/// control channel keeps reporting.
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn discard_question_names_an_untitled_copy_as_recover_lists_it() {
+    let (mut app, root) = recovery_fixture_named(super::UNTITLED_DRAFT);
+    app.session.enable_recovery(root.clone(), std::sync::Arc::new(|| {})).unwrap();
+    let hebrew =
+        crate::i18n::fixture_lang("he", "\tUntitled draft\tטיוטה ללא שם\n\tDiscard the recovery copy of {name}?\tלמחוק את עותק השחזור של {name}?\n");
+    // The dialog alone, in the fixture's language (the app's frame would set its own).
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 700.0)).allow_missing_glyphs().build_ui_state(
+        move |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            crate::i18n::set_current(hebrew);
+            crate::rtl::sync(&ctx);
+            crate::dialogs::show(app, &ctx);
+        },
+        app,
+    );
+    settle_recovery(&mut h);
+    let copy = h.state().session.recovery_documents().pop().expect("the fixture's copy");
+    h.state_mut().run("ui.recoveryDiscard", json!({"id": &copy.id})).unwrap();
+    h.run_steps(4);
+    crate::i18n::set_current(hebrew);
+    let listed = super::recovery_name(&copy.name);
+    crate::i18n::set_current(crate::i18n::Lang::EN);
+    assert_ne!(listed, copy.name, "File › Recover lists the copy in the interface's language");
+    assert!(h.query_by_label_contains(&listed).is_some(), "the question names the copy as File › Recover lists it");
+    assert!(h.query_by_label_contains(&copy.name).is_none(), "and not by the engine's English name");
+    let reported = serde_json::to_value(h.state().dialog.as_ref()).unwrap();
+    assert_eq!(reported["name"], copy.name.as_str(), "the control channel keeps the engine's name");
     drop(h);
     let _ = std::fs::remove_dir_all(root);
 }

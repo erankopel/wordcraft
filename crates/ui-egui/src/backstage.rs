@@ -236,9 +236,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
 /// (`crates/engine/src/recovery/desktop.rs`).
 const UNTITLED_DRAFT: &str = "Untitled draft";
 
-/// A recovery copy's name as File › Recover shows it: its file's name, set apart from
-/// right-to-left text around it, or for a document never saved, the interface's name for an
-/// untitled draft (the copy keeps the English one).
+/// A recovery copy's name as File › Recover and its Discard question show it: its file's name,
+/// set apart from right-to-left text around it, or for a document never saved, the interface's
+/// name for an untitled draft (the copy keeps the English one).
 pub(crate) fn recovery_name(name: &str) -> String {
     if name == UNTITLED_DRAFT { tl!("Untitled draft").to_string() } else { crate::i18n::isolate(name) }
 }

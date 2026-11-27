@@ -1,6 +1,6 @@
 # Hebrew interface and the Hebrew edition
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (templates, names of new things, Ignore Once, watermarks) · **Target:** WordCraft 0.19.1
+> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (the Discard question's name for an untitled copy; no Match diacritics in Find and Replace) · **Target:** WordCraft 0.19.1
 
 WordCraft has a Hebrew (`he`) interface language, mirrored right to left like the Arabic one, and a
 Hebrew edition: a build of the same program that starts in Hebrew, starts new documents right to
@@ -103,12 +103,12 @@ Hebrew catalog as the build embeds it, supplement and corrections included.
   New Style offers `סגנון 1`, `סגנון 2`… (the first name no style has yet; it was always `Style1`,
   which a second new style couldn't take), New Table Style `סגנון טבלה 1`…, and Customize Ribbon's
   New Tab and New Group make `כרטיסייה חדשה` and `קבוצה חדשה` (the engine names a new tab's first
-  group in English; the dialog renames it). File › Recover names the copy of a document that was
-  never saved `טיוטה ללא שם` (the copy itself keeps the engine's English name, which the Discard
-  question in `dialogs/dispatch.rs` still shows). The columns of a new mail-merge address list stay
-  English: Address Block and Greeting Line find a name and an address by those English column
-  names (`address_map` in `crates/engine/src/cmd/mailings/merge.rs`), so Hebrew ones would leave
-  them empty until the engine knows the Hebrew names too.
+  group in English; the dialog renames it). File › Recover and its Discard question name the copy
+  of a document that was never saved `טיוטה ללא שם` (the copy itself keeps the engine's English
+  name, which `file.recover` and the control channel report). The columns of a new mail-merge
+  address list stay English: Address Block and Greeting Line find a name and an address by those
+  English column names (`address_map` in `crates/engine/src/cmd/mailings/merge.rs`), so Hebrew
+  ones would leave them empty until the engine knows the Hebrew names too.
 
 - **Review:** no native Hebrew speaker has read the catalog or the supplement. The rows were
   written from the plain meaning of the English, like the rest of the catalog. The 84 rows least
@@ -443,10 +443,14 @@ source and Cargo home folders are the same too: the binaries carry some of their
   Hebrew word reads backwards (סודי comes out as ידוס). A Hebrew watermark typed into Custom
   Watermark shows the same. Once those draw Hebrew right, the gallery and the dialog can write the
   words in the language of the text at the caret, as the engine does for its own words.
-- Find and Replace's Match diacritics: the searches take `matchDiacritics` and the dialog keeps the
-  option (`FindExtra::diacritics`, read from the last search), but its check box in Search Options
-  and the option's place in the dialog's searches are in `dialogs/dispatch.rs` and not there yet; the
-  catalog row (התאמת ניקוד וטעמים) is in the supplement.
+- Find and Replace has no Match diacritics check box. The searches take `matchDiacritics`
+  (`edit.find` and the others; off by default, so שלום finds שָׁלוֹם), but the dialog's searches
+  don't send it, so they keep whatever the last search that sent it set: after a script's
+  `"matchDiacritics": true`, the dialog's searches match points and cantillation marks too (שלום
+  no longer finds שָׁלוֹם), and nothing in the dialog shows that or turns it off; a search sent
+  with `"matchDiacritics": false` does. The check box, with the option in the dialog's searches and
+  Search Options opening for it, belongs in Search Options (`dialogs/dispatch.rs`) with its field
+  in `FindExtra` (`dialogs/find.rs`); the catalog row (התאמת ניקוד וטעמים) is in the supplement.
 
 ## Revision history
 
@@ -458,3 +462,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-27 | minor | Installing on Ubuntu (`--install`, `--uninstall`, `--cli`), the edition's own desktop id, Hebrew menu entry and AppStream text; no self-update and no Check for Updates button; the licence of every font in the AppImage; pinned and checked build inputs, `BUILD-INFO.txt`, `test-appimage.sh`; programs held to glibc 2.35 (Ubuntu 22.04) |
 | 2026-11-27 | minor | `--install` and `--uninstall` leave an entry they didn't write and its icons; the extracted folder's `--install` ignores another program's `APPIMAGE`; `--version` names the edition, which `test-appimage.sh` and `build-appimage.sh --skip-build` check; no stock README in the AppImage; Add Font… takes several files in WordCraft's own browser; the edition's About page (`credits::about_ui`), not yet in the window |
 | 2026-11-27 | minor | The File view's templates open in Hebrew, right to left, where new documents do; New Style, New Table Style and Customize Ribbon name what they make in the interface language (New Style no longer offers a taken name); untitled recovery copies named in it; the pane's Ignore Once leaves the word until its paragraph changes; why watermarks stay English in Hebrew text; the Find dialog keeps Match diacritics |
+| 2026-11-27 | minor | File › Recover's Discard question names an untitled copy as the Recover page does; corrects the row above: Find and Replace has no Match diacritics, and its searches keep the setting the last search sent |

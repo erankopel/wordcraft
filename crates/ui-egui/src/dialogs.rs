@@ -341,7 +341,14 @@ pub enum Dialog {
     /// Confirm before deleting a recovery copy.
     DiscardRecovery {
         id: String,
+        /// The copy as the question names it, as File › Recover lists it
+        /// ([`crate::backstage::recovery_name`]): a document never saved has the interface's name.
+        #[serde(skip)]
         name: String,
+        /// The copy's name as the engine stores it (`file.recover`), which the control channel
+        /// reports as `name`.
+        #[serde(rename = "name")]
+        stored_name: String,
     },
     /// "Do you want to save changes?" before a user's New, Open, Close, Envelopes, Labels or
     /// Finish & Merge replaces the document (see [`WordApp::run`]); `then` runs once it is
@@ -731,13 +738,11 @@ impl Dialog {
                     suffix: app.session.find.match_suffix,
                     ignore_punct: app.session.find.ignore_punct,
                     ignore_space: app.session.find.ignore_space,
-                    diacritics: app.session.find.match_diacritics,
                     more: app.session.find.wildcards
                         || app.session.find.match_prefix
                         || app.session.find.match_suffix
                         || app.session.find.ignore_punct
-                        || app.session.find.ignore_space
-                        || app.session.find.match_diacritics,
+                        || app.session.find.ignore_space,
                     to_replace: false,
                 },
                 tab: match name {

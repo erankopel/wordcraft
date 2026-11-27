@@ -787,7 +787,8 @@ impl WordApp {
                     let Some(info) = self.session.recovery_documents().into_iter().find(|d| d.id == id) else {
                         return Some(Err("no such recovery copy".into()));
                     };
-                    self.dialog = Some(dialogs::Dialog::DiscardRecovery { id: info.id, name: info.name });
+                    let name = crate::backstage::recovery_name(&info.name);
+                    self.dialog = Some(dialogs::Dialog::DiscardRecovery { id: info.id, name, stored_name: info.name });
                     json!({"pending": "discardRecovery"})
                 }
             }

@@ -560,6 +560,61 @@ fn perm_end<'a>(blocks: impl Iterator<Item = &'a Arc<Block>>) -> u32 {
     end
 }
 
+/// The character formatting of a style: its own and its table parts'.
+fn style_chars(st: &crate::styles::Style) -> impl Iterator<Item = &CharProps> {
+    let parts = st.table.iter().flat_map(|t| {
+        [&t.header_chr, &t.band_chr, &t.first_col_chr, &t.last_col_chr, &t.total_chr, &t.col_band_chr]
+            .into_iter()
+            .chain(t.regions.values().map(|p| &p.chr))
+    });
+    std::iter::once(&st.chr).chain(parts)
+}
+
+/// Does `doc` set a complex-script size anywhere (`w:szCs`): its defaults, a style, a run or a
+/// paragraph mark of any story?
+fn sets_complex_size(doc: &Document) -> bool {
+    let styles = &doc.styles;
+    if styles.default_chr.size_cs.is_some() || styles.styles.iter().flat_map(style_chars).any(|c| c.size_cs.is_some()) {
+        return true;
+    }
+    let mut found = false;
+    for b in doc.body.iter().chain(doc.parts.values().flat_map(|p| p.blocks.iter())) {
+        each_para(b, 0, &mut |p| found |= p.mark.size_cs.is_some() || p.runs.iter().any(|r| r.props.size_cs.is_some()));
+        if found {
+            return true;
+        }
+    }
+    false
+}
+
+/// Set the complex-script size beside every size `doc` sets, to the same value: how a document
+/// that sets none sizes its complex-script text, said explicitly.
+fn pair_complex_sizes(doc: &mut Document) {
+    let pair = |c: &mut CharProps| {
+        if c.size_cs.is_none() {
+            c.size_cs = c.size;
+        }
+    };
+    let styles = Arc::make_mut(&mut doc.styles);
+    pair(&mut styles.default_chr);
+    for st in &mut styles.styles {
+        pair(&mut st.chr);
+        if let Some(t) = st.table.as_mut() {
+            for c in [&mut t.header_chr, &mut t.band_chr, &mut t.first_col_chr, &mut t.last_col_chr, &mut t.total_chr, &mut t.col_band_chr] {
+                pair(c);
+            }
+            t.regions.values_mut().for_each(|p| pair(&mut p.chr));
+        }
+    }
+    for b in doc.body.iter_mut().chain(doc.parts.values_mut().flat_map(|p| p.blocks.iter_mut())) {
+        each_para_mut(Arc::make_mut(b), 0, &mut |p| {
+            pair(&mut p.mark);
+            p.runs.iter_mut().for_each(|r| pair(&mut r.props));
+            p.touch();
+        });
+    }
+}
+
 /// Text box story ids of a paragraph's shapes.
 fn box_ids(p: &Paragraph) -> impl Iterator<Item = u32> + '_ {
     p.objects.iter().flat_map(InlineObject::text_boxes)
@@ -1112,6 +1167,13 @@ impl Document {
     /// [`Self::adopt_with`], its permission range ids from at least `perms` on (and past ours);
     /// `perms` moves past them.
     fn adopt_in(&mut self, mut src: Document, keep_styles: bool, perms: &mut u32) -> Fragment {
+        // A document that never sets a complex-script size (HTML, RTF or Markdown read in, Word's
+        // HTML clipboard) sizes its Hebrew and Arabic text by the other size. Here, where the
+        // defaults and styles may set both (a new document does), its runs would take ours
+        // instead: so it says so, everywhere it sets a size, and its text keeps its size.
+        if !sets_complex_size(&src) {
+            pair_complex_sizes(&mut src);
+        }
         let mut renamed = BTreeMap::new();
         let mut default_style = None;
         if keep_styles {

@@ -245,10 +245,10 @@ pub(crate) fn normal_document(s: &Session) -> Document {
 fn blank_document_in(s: &Session, rtl: bool) -> Document {
     let mut d = s.blank_document();
     if let Some(lang) = s.prefs.default_language.as_ref().or(s.editing_lang.as_ref()) {
-        Arc::make_mut(&mut d.styles).default_chr.lang = Some(lang.clone());
+        crate::cmd::tools::set_language(&mut Arc::make_mut(&mut d.styles).default_chr, lang);
     }
     if rtl {
-        set_rtl_defaults(Arc::make_mut(&mut d.styles), true);
+        set_rtl_defaults(&mut d, true);
     }
     d
 }
@@ -256,16 +256,20 @@ fn blank_document_in(s: &Session, rtl: bool) -> Document {
 /// The document defaults of a blank document that starts right to left in Hebrew (`on`), or
 /// without them again. Paragraphs read right to left (`w:bidi` in `w:pPrDefault`, ECMA-376 Part 1
 /// §17.3.1.6) and, being start-aligned, begin at the right margin; complex-script text is Hebrew
-/// (`w:lang/@w:bidi`, §17.3.2.20) in a Hebrew body font (`w:rFonts/@w:cs`, §17.3.2.26). Only what
-/// this sets is taken back off, so a document that was given its own values keeps them.
-pub(crate) fn set_rtl_defaults(styles: &mut wordcraft_doc::StyleSheet, on: bool) {
+/// (`w:lang/@w:bidi`, §17.3.2.20) in a Hebrew body font (`w:rFonts/@w:cs`, §17.3.2.26); and the
+/// section is laid out right to left (`w:bidi` in `w:sectPr`, §17.6.1), so its first column is the
+/// right one. Only what this sets is taken back off, so a document that was given its own values
+/// keeps them.
+pub(crate) fn set_rtl_defaults(doc: &mut Document, on: bool) {
     use wordcraft_doc::styles::{HEBREW_BODY_FONT, HEBREW_LANG};
+    let styles = Arc::make_mut(&mut doc.styles);
     if on {
         styles.default_para.bidi = Some(true);
         styles.default_chr.lang_bidi = Some(HEBREW_LANG.into());
         styles.default_chr.font_cs = Some(HEBREW_BODY_FONT.into());
         // The explicit `pPrDefault` is what carries the direction to the file.
         styles.default_para_present = true;
+        doc.last_section.rtl = true;
     } else {
         if styles.default_para.bidi == Some(true) {
             styles.default_para.bidi = None;
@@ -276,6 +280,7 @@ pub(crate) fn set_rtl_defaults(styles: &mut wordcraft_doc::StyleSheet, on: bool)
         if styles.default_chr.font_cs.as_deref() == Some(HEBREW_BODY_FONT) {
             styles.default_chr.font_cs = None;
         }
+        doc.last_section.rtl = false;
     }
 }
 
@@ -367,7 +372,7 @@ fn read_document(s: &Session, path: &str, v: &Value) -> Result<(Document, bool),
     if let Some(lang) = s.prefs.default_language.as_ref().or(s.editing_lang.as_ref())
         && matches!(ext.as_str(), "txt" | "text" | "md" | "markdown")
     {
-        Arc::make_mut(&mut doc.styles).default_chr.lang = Some(lang.clone());
+        crate::cmd::tools::set_language(&mut Arc::make_mut(&mut doc.styles).default_chr, lang);
     }
     Ok((doc, encrypted))
 }

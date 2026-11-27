@@ -224,14 +224,18 @@ pub fn define_bullet(s: &mut Session, v: &Value) -> CmdResult {
         if let Some(lv) = levels.get_mut(usize::from(l)) {
             lv.text = ch.to_string();
             lv.chr.font = font.clone();
+            // A label in a right-to-left paragraph takes the complex-script size, bold and italic.
             if size.is_some() {
                 lv.chr.size = size;
+                lv.chr.size_cs = size;
             }
             if bold.is_some() {
                 lv.chr.bold = bold;
+                lv.chr.bold_cs = bold;
             }
             if italic.is_some() {
                 lv.chr.italic = italic;
+                lv.chr.italic_cs = italic;
             }
             if color.is_some() {
                 lv.chr.color = color;

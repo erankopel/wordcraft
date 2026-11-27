@@ -36,6 +36,28 @@ pub fn is_word_char(c: char) -> bool {
         || matches!(u32::from(c), 0x200C | 0x200D | 0x0640 | 0x0610..=0x061A | 0x064B..=0x065F | 0x0670 | 0x06D6..=0x06DC | 0x06DF..=0x06E8 | 0x06EA..=0x06ED | 0x08D3..=0x08FF | 0x0300..=0x036F | 0x0591..=0x05AF | 0x05F3 | 0x05F4)
 }
 
+/// A Hebrew point (niqqud: vowel points, dagesh, shin and sin dots, meteg, rafe) or cantillation
+/// mark (te'amim): a mark that sits on a letter and doesn't make another letter, so a search may
+/// look past it and sorting reads it as a secondary difference. The maqaf (U+05BE), paseq
+/// (U+05C0), sof pasuq (U+05C3) and nun hafukha (U+05C6) are punctuation, not marks.
+pub fn is_hebrew_point(c: char) -> bool {
+    matches!(u32::from(c), 0x0591..=0x05BD | 0x05BF | 0x05C1 | 0x05C2 | 0x05C4 | 0x05C5 | 0x05C7)
+}
+
+/// A language tag (`he-IL`, `yi`, `ar-EG`, `fa-IR`, `pa-Arab`…) of a language written right to
+/// left: text in it is complex-script text, whose language Word keeps in `w:lang/@w:bidi`
+/// (ECMA-376 Part 1 §17.3.2.20) rather than in `w:lang/@w:val`.
+pub fn is_rtl_language(tag: &str) -> bool {
+    let rtl_script =
+        tag.split(['-', '_']).skip(1).any(|s| matches!(s.to_ascii_lowercase().as_str(), "arab" | "hebr" | "syrc" | "thaa" | "nkoo" | "adlm"));
+    rtl_script || matches!(primary_subtag(tag).as_str(), "he" | "iw" | "yi" | "ji" | "ar" | "fa" | "ur" | "ps" | "sd" | "ug" | "ckb" | "syr" | "dv")
+}
+
+/// The language of a tag without its region or script, lowercase: `he` for `he-IL` and `HE_il`.
+pub fn primary_subtag(tag: &str) -> String {
+    tag.trim().split(['-', '_']).next().unwrap_or("").to_ascii_lowercase()
+}
+
 /// Does `text` contain a right-to-left character?
 pub fn has_rtl(text: &str) -> bool {
     text.chars().any(is_rtl_script)
@@ -90,5 +112,17 @@ mod tests {
         assert!(!first_strong_is_rtl("Hello سلام"));
         assert!(!first_strong_is_rtl("123 Hello"));
         assert!(!first_strong_is_rtl(""));
+    }
+
+    /// The languages Word keeps in the complex-script attribute: those written right to left,
+    /// whatever the tag's case, region or separator, or a tag that names a right-to-left script.
+    #[test]
+    fn right_to_left_language_tags() {
+        for tag in ["he-IL", "he", "iw", "HE_il", "yi", "ar-SA", "fa-IR", "ur", "pa-Arab-PK", "az-arab"] {
+            assert!(is_rtl_language(tag), "{tag}");
+        }
+        for tag in ["en-US", "", "hu", "pa-IN", "az-Latn", "ru", "zh-Hant"] {
+            assert!(!is_rtl_language(tag), "{tag}");
+        }
     }
 }

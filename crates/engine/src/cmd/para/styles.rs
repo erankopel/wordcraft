@@ -108,6 +108,14 @@ pub(super) fn create_style(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 /// Modify a style's character and paragraph formatting, display name or next-paragraph style.
+///
+/// Bold, italic and a new size given for the text reach its complex-script text too (Hebrew,
+/// Arabic…: `w:bCs`, `w:iCs`, `w:szCs`) unless the style already gives that text values of its
+/// own. When the style is used for right-to-left text ([`used_for_rtl`]) a new size always does,
+/// and so does a new font (`w:rFonts/@w:cs`): a Hebrew Heading 1 takes the font and size chosen for
+/// Heading 1. A font or size the style already has is no change: the Modify Style dialog sends the
+/// ones it shows, changed or not, and the complex-script text keeps its own. Complex-script values
+/// given explicitly win.
 pub(super) fn modify_style(s: &mut Session, v: &Value) -> CmdResult {
     let id = style_id(s, p::req_str(v, "style")?)?;
     let chr: Option<CharProps> = v.get("chr").map(|c| serde_json::from_value(c.clone())).transpose().map_err(|e| CmdError::Params(e.to_string()))?;
@@ -120,6 +128,18 @@ pub(super) fn modify_style(s: &mut Session, v: &Value) -> CmdResult {
         s.doc.styles.chain(&id).into_iter().fold((d.bold, d.bold_cs, d.italic, d.italic_cs), |(b, b_cs, i, i_cs), st| {
             (st.chr.bold.or(b), st.chr.bold_cs.or(b_cs), st.chr.italic.or(i), st.chr.italic_cs.or(i_cs))
         });
+    let (eff_sz, eff_sz_cs) =
+        s.doc.styles.chain(&id).into_iter().fold((d.size, d.size_cs), |(sz, sz_cs), st| (st.chr.size.or(sz), st.chr.size_cs.or(sz_cs)));
+    // The complex-script size differs from the other: a size of its own the style keeps.
+    let own_cs_size = matches!((eff_sz, eff_sz_cs), (Some(a), Some(b)) if (a - b).abs() > 0.01) || (eff_sz.is_none() && eff_sz_cs.is_some());
+    // The font and size the style gives its text now, as the Modify Style dialog shows them.
+    let character = s.doc.styles.get(&id).is_some_and(|st| st.kind == StyleKind::Character);
+    let now = if character {
+        s.doc.styles.resolve_char(None, &CharProps { style: Some(id.clone()), ..Default::default() })
+    } else {
+        s.doc.styles.resolve_char(Some(&id), &CharProps::default())
+    };
+    let rtl = chr.is_some() && used_for_rtl(&s.doc, &id);
     let st = Arc::make_mut(&mut s.doc.styles).get_mut(&id).ok_or_else(|| CmdError::Params("no such style".into()))?;
     if let Some(mut c) = chr {
         if eff_b_cs.filter(|&cs| Some(cs) != eff_b).is_none() {
@@ -127,6 +147,14 @@ pub(super) fn modify_style(s: &mut Session, v: &Value) -> CmdResult {
         }
         if eff_i_cs.filter(|&cs| Some(cs) != eff_i).is_none() {
             c.italic_cs = c.italic_cs.or(c.italic);
+        }
+        let new_size = c.size.filter(|z| (z - now.size).abs() > 0.01);
+        if new_size.is_some() && (rtl || !own_cs_size) {
+            c.size_cs = c.size_cs.or(new_size);
+        }
+        let new_font = c.font.clone().filter(|f| *f != now.font);
+        if rtl && new_font.is_some() {
+            c.font_cs = c.font_cs.or(new_font);
         }
         st.chr.overlay(&c);
     }
@@ -142,6 +170,42 @@ pub(super) fn modify_style(s: &mut Session, v: &Value) -> CmdResult {
     // Every paragraph's layout depends on styles: bump all revisions.
     touch_all(s);
     sel_result(s)
+}
+
+/// Is style `id` used for right-to-left text? A paragraph style is when it lays its paragraphs out
+/// right to left (its own direction, or the document's: every style of a new Hebrew document), and
+/// any style is when text formatted with it, or with a style based on it, has right-to-left
+/// letters (a Hebrew paragraph in Heading 1 of an English document, Hebrew words in Emphasis).
+fn used_for_rtl(doc: &wordcraft_doc::Document, id: &str) -> bool {
+    use wordcraft_doc::StoryRef;
+    let styles = &doc.styles;
+    let paragraph = match styles.get(id).map(|st| st.kind) {
+        Some(StyleKind::Paragraph) => true,
+        Some(StyleKind::Character) => false,
+        _ => return false,
+    };
+    if paragraph && styles.resolve_para(&ParaProps { style: Some(id.into()), ..Default::default() }).bidi {
+        return true;
+    }
+    // The styles whose chain holds `id`: it and the styles based on it.
+    let users: std::collections::HashSet<&str> =
+        styles.styles.iter().filter(|st| styles.chain(&st.id).iter().any(|c| c.id == id)).map(|st| st.id.as_str()).collect();
+    let stories = std::iter::once(StoryRef::Body).chain(doc.parts.keys().map(|k| StoryRef::Part(*k)));
+    for story in stories {
+        for path in doc.para_paths(story) {
+            let Some(p) = doc.para(story, &path) else { continue };
+            let rtl_text = if paragraph {
+                users.contains(p.props.style.as_deref().unwrap_or("Normal")) && wordcraft_doc::bidi::has_rtl(&p.text)
+            } else {
+                p.run_ranges()
+                    .any(|(r, c)| c.style.as_deref().is_some_and(|x| users.contains(x)) && p.text.get(r).is_some_and(wordcraft_doc::bidi::has_rtl))
+            };
+            if rtl_text {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Update Style to Match Selection: the style takes on how the selection looks — its paragraph

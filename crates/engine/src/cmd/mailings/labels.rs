@@ -64,7 +64,8 @@ pub(super) fn envelopes(s: &mut Session, v: &Value) -> CmdResult {
     let mut blocks = Vec::new();
     let ret_lines = if ret.is_empty() { Vec::new() } else { lines(&ret) };
     for l in &ret_lines {
-        blocks.push(para_block(Paragraph::with_text(l, CharProps { size: Some(10.0), ..Default::default() }).styled("NoSpacing")));
+        blocks
+            .push(para_block(Paragraph::with_text(l, CharProps { size: Some(10.0), size_cs: Some(10.0), ..Default::default() }).styled("NoSpacing")));
     }
     let spacer = (6 - ret_lines.len().min(6)).max(1);
     for _ in 0..spacer + 2 {

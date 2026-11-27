@@ -9,13 +9,16 @@ use super::{
     sel_result,
 };
 
-/// The `\*` format switch value for a caption's number format (OOXML names work too).
+/// The `\*` format switch value for a caption's number format (OOXML names work too):
+/// `hebrew1` numbers in Hebrew numerals (א … י, יא), `hebrew2` in the Hebrew alphabet (א … ת).
 pub fn seq_format(name: &str) -> &'static str {
     match name {
         "alphabetic" | "lowerLetter" => "alphabetic",
         "ALPHABETIC" | "upperLetter" => "ALPHABETIC",
         "roman" | "lowerRoman" => "roman",
         "ROMAN" | "upperRoman" => "ROMAN",
+        n if n.eq_ignore_ascii_case("hebrew1") => "hebrew1",
+        n if n.eq_ignore_ascii_case("hebrew2") => "hebrew2",
         _ => "ARABIC",
     }
 }

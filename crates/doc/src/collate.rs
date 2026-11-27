@@ -6,7 +6,9 @@
 //! Polish puts `ą` right after `a` and `ż` after `ź` after `z`, Swedish puts `å ä ö` after `z`,
 //! Czech puts `ch` after `h`, Spanish `ñ` after `n`, Hungarian `cs`, `gy`, `sz`… after their
 //! first letter. The per-language tables follow the published alphabets of those languages.
-//! Text without diacritics sorts exactly as a case-insensitive code-point compare.
+//! Hebrew points and cantillation marks are diacritics too, and a final letter (ם) sorts with its
+//! regular form (מ). Other text without diacritics sorts exactly as a case-insensitive code-point
+//! compare.
 
 use std::cmp::Ordering;
 
@@ -381,7 +383,35 @@ fn next_elem<'a>(rest: &'a str, rules: &[Tailor]) -> Option<(Elem<'a>, usize)> {
     if ('\u{300}'..='\u{36f}').contains(&c) {
         return Some((Elem { primary: Vec::new(), sec: 32 + (c as u32 - 0x300) as u16, text, own: false }, n));
     }
+    // So do the Hebrew points and cantillation marks: a pointed word files with the same word
+    // written without them (בַּיִת with בית), not before every letter.
+    if crate::bidi::is_hebrew_point(c) {
+        return Some((Elem { primary: Vec::new(), sec: HEBREW_POINTS + (c as u32 - 0x591) as u16, text, own: false }, n));
+    }
+    // A final letter (ך ם ן ף ץ) is its letter written at the end of a word: it sorts with that
+    // letter, after it when nothing else differs.
+    if let Some(letter) = hebrew_final_letter(c) {
+        return Some((Elem { primary: vec![weight(letter, 0)], sec: HEBREW_FINAL, text, own: false }, n));
+    }
     Some((Elem { primary: vec![weight(c, 0)], sec: 0, text, own: false }, n))
+}
+
+/// The secondary weights of the Hebrew points and cantillation marks start here, past the Latin
+/// combining marks' (32 to 143).
+const HEBREW_POINTS: u16 = 160;
+/// The secondary weight of a Hebrew final letter, past any marks its letter can carry.
+const HEBREW_FINAL: u16 = 2048;
+
+/// The letter a Hebrew final form is written for: kaf for final kaf, and so on.
+fn hebrew_final_letter(c: char) -> Option<char> {
+    Some(match c {
+        '\u{05DA}' => '\u{05DB}',
+        '\u{05DD}' => '\u{05DE}',
+        '\u{05DF}' => '\u{05E0}',
+        '\u{05E3}' => '\u{05E4}',
+        '\u{05E5}' => '\u{05E6}',
+        _ => return None,
+    })
 }
 
 /// A sort key: compare keys to sort strings in a language's order. Equal keys mean the strings
@@ -520,6 +550,41 @@ mod tests {
         assert_eq!(collate("Łódź", "Lodz", None), Ordering::Greater);
         assert_eq!(collate("Łódź", "Lodzia", None), Ordering::Less);
         assert_eq!(collate("ABC", "abc", None), Ordering::Equal);
+    }
+
+    /// Hebrew points and cantillation marks are a secondary difference, as accents are: a pointed
+    /// word files with the same letters unpointed, not ahead of every word. Final letters sort with
+    /// their regular forms.
+    #[test]
+    fn hebrew_points_and_final_letters_sort_with_their_letters() {
+        // גמל, בַּיִת, אבא, בא, בְּרֵאשִׁית, דג
+        let words = [
+            "\u{05D2}\u{05DE}\u{05DC}",
+            "\u{05D1}\u{05BC}\u{05B7}\u{05D9}\u{05B4}\u{05EA}",
+            "\u{05D0}\u{05D1}\u{05D0}",
+            "\u{05D1}\u{05D0}",
+            "\u{05D1}\u{05B0}\u{05BC}\u{05E8}\u{05B5}\u{05D0}\u{05E9}\u{05C1}\u{05B4}\u{05D9}\u{05EA}",
+            "\u{05D3}\u{05D2}",
+        ];
+        let [gamal, bayit, aba, ba, bereshit, dag] = words;
+        assert_eq!(sorted(&words, "he-IL"), [aba, ba, bayit, bereshit, gamal, dag]);
+        // The same word with and without points sit together, the unpointed one first; with
+        // cantillation (tipha on the shin) too.
+        let (shalom, pointed, shlomi) = (
+            "\u{05E9}\u{05DC}\u{05D5}\u{05DD}",
+            "\u{05E9}\u{05C1}\u{05B8}\u{05DC}\u{05D5}\u{05B9}\u{05DD}",
+            "\u{05E9}\u{05DC}\u{05D5}\u{05DE}\u{05D9}",
+        );
+        let chanted = "\u{05E9}\u{05C1}\u{05B8}\u{0596}\u{05DC}\u{05D5}\u{05B9}\u{05DD}";
+        assert_eq!(sorted(&[shlomi, chanted, pointed, shalom], "he"), [shalom, pointed, chanted, shlomi]);
+        assert_ne!(collate(shalom, pointed, Some("he")), Ordering::Equal, "the points still tell them apart");
+        // Mem, final mem, nun, final nun, samekh.
+        assert_eq!(
+            sorted(&["\u{05E1}", "\u{05DF}", "\u{05E0}", "\u{05DD}", "\u{05DE}"], "he"),
+            ["\u{05DE}", "\u{05DD}", "\u{05E0}", "\u{05DF}", "\u{05E1}"]
+        );
+        // Whatever the language the text is marked with.
+        assert_eq!(sorted(&words, "en-US"), sorted(&words, "he-IL"));
     }
 
     #[test]

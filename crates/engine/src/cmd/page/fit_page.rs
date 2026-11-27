@@ -1257,6 +1257,7 @@ mod tests {
                 let size = if i == 0 { 24.0 } else { 12.0 };
                 for r in &mut p.runs {
                     r.props.size = Some(size);
+                    r.props.size_cs = Some(size);
                 }
             }
         }
@@ -1269,6 +1270,7 @@ mod tests {
         if let wordcraft_doc::Block::Para(p) = Arc::make_mut(&mut doc.body[0]) {
             for r in &mut p.runs {
                 r.props.size = Some(24.0);
+                r.props.size_cs = Some(24.0);
             }
         }
         assert!(has_previously_reduced_text(&doc, doc.fit_state.as_ref().unwrap()));
@@ -1277,6 +1279,7 @@ mod tests {
             if let wordcraft_doc::Block::Para(p) = Arc::make_mut(b) {
                 for r in &mut p.runs {
                     r.props.size = Some(12.0);
+                    r.props.size_cs = Some(12.0);
                 }
             }
         }
@@ -1321,11 +1324,13 @@ mod tests {
         if let wordcraft_doc::Block::Para(p) = Arc::make_mut(&mut doc.body[0]) {
             for r in &mut p.runs {
                 r.props.size = Some(12.0);
+                r.props.size_cs = Some(12.0);
             }
         }
         if let wordcraft_doc::Block::Para(p) = Arc::make_mut(&mut doc.body[1]) {
             for r in &mut p.runs {
                 r.props.size = Some(11.0);
+                r.props.size_cs = Some(11.0);
             }
         }
         let orig = OriginalTypography::from_doc(&doc);
@@ -1339,6 +1344,7 @@ mod tests {
             if let wordcraft_doc::Block::Para(p) = Arc::make_mut(&mut doc.body[i]) {
                 for r in &mut p.runs {
                     r.props.size = Some(size);
+                    r.props.size_cs = Some(size);
                 }
             }
         }
@@ -1387,6 +1393,7 @@ mod tests {
                 p.props.space_after = Some(0.0);
                 for r in &mut p.runs {
                     r.props.size = Some(12.0);
+                    r.props.size_cs = Some(12.0);
                 }
             }
         }
@@ -1418,6 +1425,7 @@ mod tests {
             if let wordcraft_doc::Block::Para(p) = Arc::make_mut(p) {
                 for r in &mut p.runs {
                     r.props.size = Some(12.0);
+                    r.props.size_cs = Some(12.0);
                 }
             }
         }
@@ -1455,11 +1463,13 @@ mod tests {
         if let wordcraft_doc::Block::Para(p) = Arc::make_mut(&mut doc.body[0]) {
             for r in &mut p.runs {
                 r.props.size = Some(12.0);
+                r.props.size_cs = Some(12.0);
             }
         }
         if let wordcraft_doc::Block::Para(p) = Arc::make_mut(&mut doc.body[1]) {
             for r in &mut p.runs {
                 r.props.size = Some(11.0);
+                r.props.size_cs = Some(11.0);
             }
         }
         let orig = OriginalTypography::from_doc(&doc);
@@ -1472,6 +1482,7 @@ mod tests {
         if let wordcraft_doc::Block::Para(p) = Arc::make_mut(&mut doc.body[1]) {
             for r in &mut p.runs {
                 r.props.size = Some(12.0);
+                r.props.size_cs = Some(12.0);
             }
         }
         assert!(font_reduction_present(&doc, doc.fit_state.as_ref().unwrap()), "Slot 0 is still reduced");
@@ -1481,11 +1492,13 @@ mod tests {
         if let wordcraft_doc::Block::Para(p) = Arc::make_mut(&mut doc.body[0]) {
             for r in &mut p.runs {
                 r.props.size = Some(12.0);
+                r.props.size_cs = Some(12.0);
             }
         }
         if let wordcraft_doc::Block::Para(p) = Arc::make_mut(&mut doc.body[1]) {
             for r in &mut p.runs {
                 r.props.size = Some(11.0);
+                r.props.size_cs = Some(11.0);
             }
         }
         assert!(!font_reduction_present(&doc, doc.fit_state.as_ref().unwrap()));

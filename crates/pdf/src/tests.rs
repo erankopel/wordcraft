@@ -2609,6 +2609,57 @@ fn metadata_language_overrides_and_fallbacks_are_preserved() {
     }
 }
 
+/// A document whose paragraphs read right to left in Hebrew is Hebrew to a screen reader: the
+/// catalog's `/Lang` and the structure tree's are its complex-script language, he-IL, though its
+/// Latin words are en-US. A paragraph in the other language says so on its own tag, both ways.
+#[test]
+fn a_hebrew_document_and_its_paragraphs_carry_their_languages() {
+    use hayro_syntax::object::{Dict, Name, Object};
+    let shalom = "\u{05E9}\u{05DC}\u{05D5}\u{05DD} \u{05E2}\u{05D5}\u{05DC}\u{05DD}";
+    let doc = |rtl: bool| {
+        let mut d = Document::new();
+        let st = Arc::make_mut(&mut d.styles);
+        st.default_chr.lang = Some("en-US".into());
+        st.default_chr.lang_bidi = Some("he-IL".into());
+        st.default_para.bidi = rtl.then_some(true);
+        d.body = vec![
+            para_block(Paragraph::with_text(shalom, CharProps::default())),
+            para_block(Paragraph::with_text("Hello world", CharProps::default())),
+        ];
+        d
+    };
+    // The catalog's language, and the languages of the structure elements: (type, /Lang).
+    let languages = |d: &Document| {
+        let bytes = export(d, &PdfOptions { compress: false, ..Default::default() }).unwrap();
+        let pdf = hayro_syntax::Pdf::new(bytes).unwrap();
+        let catalog = pdf.xref().get::<Dict<'_>>(pdf.xref().root_id()).unwrap();
+        let lang = |d: &Dict<'_>| d.get::<hayro_syntax::object::String<'_>>(b"Lang").map(|s| String::from_utf8_lossy(s.as_bytes()).into_owned());
+        let catalog_lang = lang(&catalog);
+        let elements: Vec<(String, Option<String>)> = pdf
+            .objects()
+            .into_iter()
+            .filter_map(|o| match o {
+                Object::Dict(d) => d.get::<Name>(b"S").map(|s| (s.as_str().to_string(), lang(&d))),
+                _ => None,
+            })
+            .collect();
+        (catalog_lang, elements)
+    };
+    let (catalog, elements) = languages(&doc(true));
+    assert_eq!(catalog.as_deref(), Some("he-IL"), "a Hebrew document");
+    assert!(elements.iter().any(|(s, l)| s == "Document" && l.as_deref() == Some("he-IL")), "{elements:?}");
+    // The paragraphs' languages, in any order.
+    let langs = |elements: &[(String, Option<String>)]| {
+        let mut v = elements.iter().filter(|(s, _)| s == "P").map(|(_, l)| l.clone()).collect::<Vec<_>>();
+        v.sort();
+        v
+    };
+    assert_eq!(langs(&elements), [None, Some("en-US".to_string())], "only the English paragraph says its language");
+    let (catalog, elements) = languages(&doc(false));
+    assert_eq!(catalog.as_deref(), Some("en-US"), "a left-to-right document is in its text language");
+    assert_eq!(langs(&elements), [None, Some("he-IL".to_string())], "its Hebrew paragraph is Hebrew");
+}
+
 #[test]
 fn bundled_unicode_glyphs_are_visible_and_extractable() {
     const TEXT: &str = "café naïve — coöperate Ελληνικά Привет Tiếng Việt";

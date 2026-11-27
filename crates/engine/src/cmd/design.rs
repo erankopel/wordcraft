@@ -156,20 +156,27 @@ fn style_set(s: &mut Session, v: &Value) -> CmdResult {
             "basic" if heading => {
                 st.chr.color = Some(TextColor::Rgb(Rgb(0x26, 0x26, 0x26)));
                 st.chr.bold = Some(true);
+                st.chr.bold_cs = Some(true);
             }
             "lines" if st.id == "Heading1" || st.id == "Title" => st.para.borders = Some(Borders { bottom: Some(line), ..Default::default() }),
             "shaded" if st.id == "Heading1" => {
                 st.para.shading = Some(accent);
                 st.chr.color = Some(TextColor::Rgb(Rgb::WHITE));
             }
-            "casual" if heading => st.chr.italic = Some(true),
+            "casual" if heading => {
+                st.chr.italic = Some(true);
+                st.chr.italic_cs = Some(true);
+            }
             "centered" if heading => st.para.align = Some(wordcraft_doc::Align::Center),
             "minimalist" if heading => {
                 st.chr.caps = Some(true);
                 st.chr.spacing = Some(1.0);
                 st.chr.color = Some(TextColor::Rgb(Rgb(0x40, 0x40, 0x40)));
             }
-            "title" if st.id == "Title" => st.chr.size = Some(36.0),
+            "title" if st.id == "Title" => {
+                st.chr.size = Some(36.0);
+                st.chr.size_cs = Some(36.0);
+            }
             _ => {}
         }
     }

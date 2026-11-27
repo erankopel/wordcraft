@@ -532,7 +532,14 @@ impl StyleSheet {
     /// The built-in style set used for new documents.
     pub fn builtin() -> Self {
         let mut s = StyleSheet {
-            default_chr: CharProps { font: Some(BODY_FONT.into()), size: Some(12.0), kern: Some(1.0), lang: Some("en-US".into()), ..chr() },
+            default_chr: CharProps {
+                font: Some(BODY_FONT.into()),
+                size: Some(12.0),
+                size_cs: Some(12.0),
+                kern: Some(1.0),
+                lang: Some("en-US".into()),
+                ..chr()
+            },
             default_para: ParaProps {
                 space_after: Some(8.0),
                 space_before: Some(0.0),
@@ -591,7 +598,15 @@ impl StyleSheet {
                     outline_level: Some(i as u8),
                     ..para()
                 },
-                chr: CharProps { font: Some(font.into()), size: Some(size), italic, italic_cs: italic, color: color(c), ..chr() },
+                chr: CharProps {
+                    font: Some(font.into()),
+                    size: Some(size),
+                    size_cs: Some(size),
+                    italic,
+                    italic_cs: italic,
+                    color: color(c),
+                    ..chr()
+                },
                 priority: Some(9 + n as u32),
                 quick: n <= 3,
                 ..p_style()
@@ -603,7 +618,7 @@ impl StyleSheet {
             based_on: Some("Normal".into()),
             next: Some("Normal".into()),
             para: ParaProps { space_after: Some(4.0), contextual_spacing: Some(true), line_spacing: Some(LineSpacing::Multiple(1.0)), ..para() },
-            chr: CharProps { font: Some(HEADING_FONT.into()), size: Some(28.0), spacing: Some(-0.5), kern: Some(14.0), ..chr() },
+            chr: CharProps { font: Some(HEADING_FONT.into()), size: Some(28.0), size_cs: Some(28.0), spacing: Some(-0.5), kern: Some(14.0), ..chr() },
             priority: Some(10),
             quick: true,
             ..p_style()
@@ -613,7 +628,7 @@ impl StyleSheet {
             name: "Subtitle".into(),
             based_on: Some("Normal".into()),
             next: Some("Normal".into()),
-            chr: CharProps { size: Some(14.0), spacing: Some(0.75), color: color(Rgb(0x59, 0x59, 0x59)), ..chr() },
+            chr: CharProps { size: Some(14.0), size_cs: Some(14.0), spacing: Some(0.75), color: color(Rgb(0x59, 0x59, 0x59)), ..chr() },
             priority: Some(11),
             quick: true,
             ..p_style()
@@ -706,7 +721,14 @@ impl StyleSheet {
             based_on: Some("Normal".into()),
             next: Some("Normal".into()),
             para: ParaProps { space_after: Some(10.0), line_spacing: Some(LineSpacing::Multiple(1.0)), ..para() },
-            chr: CharProps { italic: Some(true), italic_cs: Some(true), size: Some(9.0), color: color(Rgb(0x0E, 0x28, 0x41)), ..chr() },
+            chr: CharProps {
+                italic: Some(true),
+                italic_cs: Some(true),
+                size: Some(9.0),
+                size_cs: Some(9.0),
+                color: color(Rgb(0x0E, 0x28, 0x41)),
+                ..chr()
+            },
             priority: Some(35),
             ..p_style()
         });
@@ -733,7 +755,7 @@ impl StyleSheet {
             name: "Footnote Text".into(),
             based_on: Some("Normal".into()),
             para: ParaProps { space_after: Some(0.0), line_spacing: Some(LineSpacing::Multiple(1.0)), ..para() },
-            chr: CharProps { size: Some(10.0), ..chr() },
+            chr: CharProps { size: Some(10.0), size_cs: Some(10.0), ..chr() },
             priority: Some(99),
             ..p_style()
         });
@@ -746,7 +768,7 @@ impl StyleSheet {
             name: "Endnote Text".into(),
             based_on: Some("Normal".into()),
             para: ParaProps { space_after: Some(0.0), line_spacing: Some(LineSpacing::Multiple(1.0)), ..para() },
-            chr: CharProps { size: Some(10.0), ..chr() },
+            chr: CharProps { size: Some(10.0), size_cs: Some(10.0), ..chr() },
             priority: Some(99),
             ..p_style()
         });
@@ -786,6 +808,27 @@ impl StyleSheet {
         });
         s.styles.extend(table_styles());
         s
+    }
+
+    /// Put the Header and Footer styles' centre and right tab stops at the middle and the end of a
+    /// text width of `text_width` points, as a blank document on paper other than Letter needs:
+    /// on A4 with 1" margins 225.65 pt and 451.3 pt (4513 and 9026 twips) rather than Letter's
+    /// 234 pt and 468 pt, so the last of three header items ends at the margin instead of in it.
+    /// Only the built-in pair (one centre tab, then one right tab) moves; other tabs stay.
+    pub fn fit_header_footer_tabs(&mut self, text_width: f32) {
+        if !text_width.is_finite() || text_width <= 0.0 {
+            return;
+        }
+        for id in ["Header", "Footer"] {
+            let Some(tabs) = self.get_mut(id).and_then(|st| st.para.tabs.as_mut()) else { continue };
+            if let [centre, end] = tabs.as_mut_slice()
+                && centre.align == TabAlign::Center
+                && end.align == TabAlign::Right
+            {
+                centre.pos = text_width / 2.0;
+                end.pos = text_width;
+            }
+        }
     }
 
     pub fn get(&self, id: &str) -> Option<&Style> {
@@ -1161,5 +1204,22 @@ mod tests {
         let blue = s.get("GridTable4AccentBlue").unwrap();
         assert_eq!((blue.table_part(TablePart::FirstRow).chr.bold, blue.table_part(TablePart::FirstRow).chr.bold_cs), (Some(true), Some(true)));
         assert_eq!((blue.table_part(TablePart::FirstCol).chr.bold, blue.table_part(TablePart::FirstCol).chr.bold_cs), (Some(true), Some(true)));
+    }
+
+    /// Word sizes complex-script (Hebrew, Arabic…) text only from `w:szCs` (ECMA-376 Part 1
+    /// §17.3.2.39), so the document defaults and every built-in style and table-style part that
+    /// set a size set the complex-script size with it: a Hebrew Heading 1 is as large as a Latin
+    /// one in Word too, not only where WordCraft falls back from one size to the other.
+    #[test]
+    fn builtin_styles_pair_complex_script_size() {
+        let s = StyleSheet::builtin();
+        assert_eq!(s.default_chr.size_cs, s.default_chr.size, "document defaults");
+        for st in &s.styles {
+            assert_eq!(st.chr.size_cs, st.chr.size, "{}: chr.size", st.id);
+            for part in TablePart::ALL {
+                let f = st.table_part(part);
+                assert_eq!(f.chr.size_cs, f.chr.size, "{} {part:?}: size", st.id);
+            }
+        }
     }
 }

@@ -907,9 +907,99 @@ pub fn state(s: &Session) -> Value {
         "style": style,
         "styleName": style_name,
         // The proofing language (a BCP 47 tag; null when mixed or unset) and "Do not check".
-        "lang": same(&|r| json!(r.lang)),
+        // Hebrew text reports the language of complex-script text ([`selection_lang`]).
+        "lang": match selection_lang(s) {
+            LangAt::One(l) => json!(l),
+            LangAt::Mixed => Value::Null,
+        },
         "noProof": all.iter().all(|r| r.no_proof),
     })
+}
+
+/// The proofing language of the selection: one (or none set), or several.
+enum LangAt {
+    One(Option<String>),
+    Mixed,
+}
+
+/// The language a letter is filed under, as Word files it: a letter formatted with the
+/// complex-script properties (Hebrew, Arabic…, any letter of a right-to-left run) is in the
+/// language of complex-script text (`w:lang/@w:bidi`), any other in the text language
+/// (`w:lang/@w:val`). An unset complex-script language reads as the text language.
+fn letter_lang(rc: &ResolvedChar, c: char) -> Option<String> {
+    script_lang(rc, rc.uses_complex(c))
+}
+
+/// The language of a run's complex-script letters (`complex`) or of its other letters.
+fn script_lang(rc: &ResolvedChar, complex: bool) -> Option<String> {
+    if complex { rc.lang_bidi.clone().or_else(|| rc.lang.clone()) } else { rc.lang.clone() }
+}
+
+/// The proofing language of the selection, letter by letter ([`letter_lang`]), over what the Font
+/// group reads ([`resolved`]): the selected text, or the word around a caret. A caret elsewhere,
+/// or a selection without letters, takes the class of the nearest letter in its paragraph (before
+/// it, else after it) with the formatting typing would use; in a paragraph without letters, the
+/// complex-script language when the paragraph reads right to left. So Hebrew text in a Hebrew
+/// document reads Hebrew though its Latin words are English, as the status bar shows it.
+fn selection_lang(s: &Session) -> LangAt {
+    let ranges = column_rows(s).or_else(|| selected_text_box(s).or_else(|| target(s)).map(|r| vec![r])).unwrap_or_default();
+    let mut found: Option<Option<String>> = None;
+    let mut runs = 0usize;
+    'walk: for (a, b) in &ranges {
+        for path in s.doc.paths_between(a, b) {
+            let Some(p) = s.doc.para(a.story, &path) else { continue };
+            let from = if path == a.path { a.off } else { 0 };
+            let to = if path == b.path { b.off } else { p.len() };
+            for (r, c) in p.run_ranges() {
+                let Some(text) = p.text.get(r.start.max(from)..r.end.min(to)) else { continue };
+                if !text.chars().any(char::is_alphabetic) {
+                    continue;
+                }
+                let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), c);
+                // Which kinds of letter the run has here: complex-script ones, other ones.
+                let (mut complex, mut other) = (false, false);
+                for ch in text.chars().filter(|ch| ch.is_alphabetic()) {
+                    if rc.uses_complex(ch) { complex = true } else { other = true }
+                }
+                for kind in [other.then_some(false), complex.then_some(true)].into_iter().flatten() {
+                    let l = script_lang(&rc, kind);
+                    match &found {
+                        None => found = Some(l),
+                        Some(f) if *f != l => return LangAt::Mixed,
+                        Some(_) => {}
+                    }
+                }
+                // As `resolved` samples the runs: enough to tell.
+                runs += 1;
+                if runs > 10_000 {
+                    break 'walk;
+                }
+            }
+        }
+    }
+    if let Some(l) = found {
+        return LangAt::One(l);
+    }
+    let at = ranges.first().map_or_else(|| s.sel.ordered().0, |(a, _)| a.clone());
+    let Some(p) = s.doc.para_at(&at) else { return LangAt::One(None) };
+    let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), &s.typing_props());
+    let off = at.off.min(p.text.len());
+    let before = p.text.get(..off).and_then(|t| t.chars().rev().find(|ch| ch.is_alphabetic()));
+    let nearest = before.or_else(|| p.text.get(off..).and_then(|t| t.chars().find(|ch| ch.is_alphabetic())));
+    LangAt::One(match nearest {
+        Some(ch) => letter_lang(&rc, ch),
+        None if s.doc.styles.resolve_para(&p.props).bidi => rc.lang_bidi.clone().or(rc.lang),
+        None => rc.lang,
+    })
+}
+
+/// The proofing language of the selection as the Language dialog opens on it ([`selection_lang`]):
+/// `None` when its letters are in different languages or none is set.
+pub fn selection_language(s: &Session) -> Option<String> {
+    match selection_lang(s) {
+        LangAt::One(l) => l,
+        LangAt::Mixed => None,
+    }
 }
 
 /// What Enclose Characters works on: the selected text (one full-width or up to two half-width

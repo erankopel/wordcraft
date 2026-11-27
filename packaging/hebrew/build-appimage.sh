@@ -10,8 +10,8 @@
 #     packaging/hebrew/build-appimage.sh
 #
 # CRAFT_I18N_SRC: a checkout of storytold/craft-i18n at the rev in craft-i18n.rev. It is copied, the
-#   rows of he-supplement.tsv are added to the copy's Hebrew catalog, and the copy is the build's
-#   CRAFT_I18N_DIR. Your checkout is not changed.
+#   rows of he-supplement.tsv are added to the copy's Hebrew catalog (a row with a key the catalog
+#   has replaces that row), and the copy is the build's CRAFT_I18N_DIR. Your checkout is not changed.
 # CRAFT_FONTS_DIR: a checkout of storytold/craft-fonts: the build needs its Noto Sans Hebrew for the
 #   interface (the build fails without it).
 # HEBREW_FONTS_DIR: the folder fetch-open-hebrew-fonts.sh fills.
@@ -28,7 +28,8 @@ trap 'rm -rf "$WORK"' EXIT
 cp -a "$CRAFT_I18N_SRC" "$WORK/craft-i18n"
 CATALOG="$WORK/craft-i18n/locales/he/wordcraft.tsv"
 [[ -f "$CATALOG" ]] || { echo "error: $CATALOG not found: is CRAFT_I18N_SRC a craft-i18n checkout?" >&2; exit 1; }
-# The file ends with a newline; the supplement's rows are new keys (none is in the catalog yet).
+# The file ends with a newline. Most of the supplement's rows are new keys; a row that repeats a
+# key of the catalog corrects it: the build embeds the later row (crates/ui-egui/src/i18n/merge.rs).
 cat "$HERE/he-supplement.tsv" >>"$CATALOG"
 
 export CRAFT_I18N_DIR="$WORK/craft-i18n" CRAFT_I18N_REQUIRED=1 CRAFT_FONTS_REQUIRED=1

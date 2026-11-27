@@ -571,9 +571,10 @@ pub fn export_formats(app: &mut WordApp, ui: &mut Ui) {
         }
         ui.add_space(4.0);
     }
-    // Linux and the BSDs (#3535): WordCraft's own browser when the system dialog doesn't appear.
+    // Linux and the BSDs (#3535): WordCraft's own browser when the system dialog doesn't appear
+    // (where the buttons above show it already, nothing more).
     #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
-    {
+    if !app.uses_own_file_browser() {
         ui.add_space(8.0);
         if ui.add(egui::Button::new(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(13.5))).min_size(vec2(320.0, 34.0))).clicked() {
             let _ = app.run("ui.fileBrowser", json!({"purpose": "export"}));

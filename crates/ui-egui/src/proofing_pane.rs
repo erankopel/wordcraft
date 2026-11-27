@@ -147,7 +147,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, form: &mut SpellingForm) {
     let spelling = form.issue.get("kind").and_then(Value::as_str) == Some("spelling");
     ui.label(egui::RichText::new(tl!(if spelling { "Spelling" } else { "Grammar" })).font(regular(14.0)))
         .on_hover_text(form.issue.get("lang").and_then(Value::as_str).unwrap_or(""));
-    let message = if spelling { tl!("Not in Dictionary") } else { tl!(form.issue.get("message").and_then(Value::as_str).unwrap_or("")) };
+    let message = if spelling {
+        tl!("Not in Dictionary").to_string()
+    } else {
+        crate::i18n::message(form.issue.get("message").and_then(Value::as_str).unwrap_or(""))
+    };
     ui.label(egui::RichText::new(message).font(regular(11.0)).color(t.text_dim));
     ui.add_space(8.0);
     context(ui, app, form, spelling);
@@ -240,7 +244,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, form: &mut SpellingForm) {
         }
     }
     if !form.message.is_empty() {
-        ui.colored_label(ui.visuals().error_fg_color, &form.message);
+        ui.colored_label(ui.visuals().error_fg_color, crate::i18n::message(&form.message));
         if action_link(ui, "Check Again") {
             form.next(app, true);
         }

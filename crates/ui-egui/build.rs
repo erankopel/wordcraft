@@ -12,7 +12,9 @@
 //!   `craft-i18n.rev`): `craft_i18n.rs` holds `CRAFT_I18N`, one (locale, shared catalog, WordCraft
 //!   catalog) entry per locale that has a `wordcraft.tsv`. Unset, or not a checkout (a warning),
 //!   it is empty and the interface is English only; with `CRAFT_I18N_REQUIRED=1` (releases) that
-//!   is an error instead. Recipe: craft-i18n's `docs/integration.md`.
+//!   is an error instead. Recipe: craft-i18n's `docs/integration.md`. A row appended to a
+//!   WordCraft catalog that repeats an earlier row's context and English replaces it (an edition's
+//!   corrections, `packaging/hebrew/he-supplement.tsv`; see `src/i18n/merge.rs`).
 
 use std::fmt::Write as _;
 
@@ -66,11 +68,35 @@ fn craft_i18n() -> String {
     for (code, shared, app) in entries {
         // `{:?}` escapes the path (Windows backslashes) as a Rust string literal.
         let shared = shared.map_or_else(|| "\"\"".to_string(), |p| format!("include_str!({p:?})"));
+        let app = corrected(&code, &app);
         let _ = writeln!(o, "    ({code:?}, {shared}, include_str!({app:?})),");
     }
     o.push_str("];\n");
     o
 }
+
+/// The app catalog to embed for `code`: `app` itself, or a copy in `OUT_DIR` where rows appended
+/// to it (an edition's supplement, `packaging/hebrew/he-supplement.tsv`) correct earlier ones
+/// ([`merge::last_rows_win`]). A file that can't be read is embedded as it is, so `include_str!`
+/// says what is wrong with it.
+fn corrected(code: &str, app: &std::path::Path) -> std::path::PathBuf {
+    let Ok(text) = std::fs::read_to_string(app) else { return app.to_path_buf() };
+    let merged = merge::last_rows_win(&text);
+    if merged == text {
+        return app.to_path_buf();
+    }
+    let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap_or_default()).join(format!("craft_i18n_{code}_{APP_CATALOG}"));
+    match std::fs::write(&out, merged) {
+        Ok(()) => out,
+        Err(e) => {
+            println!("cargo::warning=writing {}: {e}; the catalog is embedded without its corrections", out.display());
+            app.to_path_buf()
+        }
+    }
+}
+
+#[path = "src/i18n/merge.rs"]
+mod merge;
 
 /// A locale's code, its `common.tsv` if any, and its app catalog.
 type Locale = (String, Option<std::path::PathBuf>, std::path::PathBuf);

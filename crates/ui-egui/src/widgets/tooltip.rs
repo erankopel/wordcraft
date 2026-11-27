@@ -30,7 +30,7 @@ pub(crate) fn tooltip_lines(label: &str, shortcut: &str, desc: &str, disabled: O
         notes.push(desc.to_string());
     }
     if let Some(reason) = disabled {
-        notes.push(if reason.is_empty() { tl!("Not available right now").to_string() } else { capitalised(tl!(reason)) });
+        notes.push(if reason.is_empty() { tl!("Not available right now").to_string() } else { capitalised(&crate::i18n::message(reason)) });
     }
     (title, notes)
 }

@@ -14,10 +14,14 @@ pub struct EnvelopeForm {
 }
 
 impl EnvelopeForm {
-    /// The delivery address starts as the selected text (an address in the letter).
+    /// The delivery address starts as the selected text (an address in the letter). The size
+    /// starts as the region's usual one: #10 where Letter paper is used, DL elsewhere (A4 regions
+    /// such as he-IL, the Hebrew edition's).
     pub fn read(app: &WordApp) -> EnvelopeForm {
         let sel = if app.session.sel.is_collapsed() { String::new() } else { app.session.selected_text() };
-        EnvelopeForm { delivery: sel.trim().replace("\r\n", "\n").replace('\r', "\n"), ret: String::new(), omit_return: false, size: 0 }
+        let usual = if app.session.region().uses_letter() { "Envelope #10" } else { "Envelope DL" };
+        let size = ENVELOPE_SIZES.iter().position(|(name, ..)| *name == usual).unwrap_or(0);
+        EnvelopeForm { delivery: sel.trim().replace("\r\n", "\n").replace('\r', "\n"), ret: String::new(), omit_return: false, size }
     }
 
     /// `mailings.envelopes` parameters; `add` puts the envelope at the start of this document.
@@ -99,11 +103,15 @@ pub struct LabelsForm {
 }
 
 impl LabelsForm {
+    /// The labels start as the selected text, on the region's paper: the first address-label
+    /// sheet in Letter where Letter is used, in A4 elsewhere.
     pub fn read(app: &WordApp) -> LabelsForm {
         let sel = if app.session.sel.is_collapsed() { String::new() } else { app.session.selected_text() };
+        let paper = if app.session.region().uses_letter() { "Letter" } else { "A4" };
+        let product = LABEL_PRODUCTS.iter().position(|p| p.kind == "address" && p.paper == paper).unwrap_or(0);
         LabelsForm {
             text: sel.trim().replace("\r\n", "\n").replace('\r', "\n"),
-            product: 0,
+            product,
             single: false,
             row: 1,
             col: 1,

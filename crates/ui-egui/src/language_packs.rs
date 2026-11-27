@@ -95,6 +95,9 @@ pub(crate) struct Runtime {
     /// The person clicked the bar's Install before the list was known: the list's failure then
     /// shows in the bar (an automatic fetch's stays in Options).
     asked: bool,
+    /// The bar's Install was clicked for (document, pack locale or language tag): once that pack
+    /// is installed, the bar says so, with its licence and source, until it is closed.
+    confirm: Option<(u64, String)>,
 }
 
 /// What the bar can offer.
@@ -209,10 +212,61 @@ fn error_of(app: &WordApp, locale: &str) -> Option<String> {
     }
     let e = packs::error(locale)?;
     Some(if locale.is_empty() {
-        crate::i18n::fmt(tl!("Couldn't get the list of languages: {error}"), &[("error", &shown_error(&e))])
+        crate::i18n::fmt(tl!("Couldn't get the list of languages: {error}"), &[("error", &shown_error(&failure(&e)))])
     } else {
-        crate::i18n::fmt(tl!("Couldn't install: {error}"), &[("error", &shown_error(&e))])
+        crate::i18n::fmt(tl!("Couldn't install: {error}"), &[("error", &shown_error(&failure(&e)))])
     })
+}
+
+/// The font store's failure `e` (English, as scripts get it) as the window says it. A download a
+/// network stopped gets a sentence of what happened and what to try: a certificate out of its
+/// dates (or a computer clock that is wrong), a security certificate the network put in place of
+/// the server's (an inspecting filter at work, at school or in an antivirus program, which
+/// WordCraft's downloads don't trust), no connection, no answer in time, a refusal. Anything else
+/// is the store's own words, translated where the catalog knows them.
+pub(crate) fn failure(e: &str) -> String {
+    let lower = e.to_lowercase();
+    let any = |words: &[&str]| words.iter().any(|w| lower.contains(w));
+    if any(&["certificate expired", "certificate: expired", "notvalidyet", "not valid yet"]) {
+        return tl!(
+            "The secure connection couldn't be checked: the server's certificate is out of date, or this computer's date and time are wrong. Check the date and time and try again."
+        )
+        .to_string();
+    }
+    if any(&["certificate", "unknownissuer", "unknown issuer", "badsignature", "tls handshake"]) {
+        return tl!(
+            "The secure connection couldn't be checked: something on this network replaces the server's certificate (a filter at work or at school, or an antivirus program). Try another network."
+        )
+        .to_string();
+    }
+    if any(&["timed out", "timeout"]) {
+        return tl!("The server didn't answer in time. Check the internet connection and try again.").to_string();
+    }
+    if any(&[
+        "failed to lookup address",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "no such host",
+        "dns",
+        "network is unreachable",
+        "no route to host",
+        "connection refused",
+        "connection reset",
+        "host is down",
+    ]) {
+        return tl!("Couldn't reach the server. Check the internet connection and try again.").to_string();
+    }
+    if let Some(code) = http_status(&lower) {
+        return crate::i18n::fmt(tl!("The server refused the download (HTTP {code}). Try again later."), &[("code", &code.to_string())]);
+    }
+    crate::i18n::message(e)
+}
+
+/// The HTTP status a failure names (`… github.com: HTTP 403`), when it is an error status.
+fn http_status(lower: &str) -> Option<u16> {
+    let (_, after) = lower.split_once("http ")?;
+    let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok().filter(|code| (400..600).contains(code))
 }
 
 /// Downloading on for a click on Install, Add a language… or Refresh: the person's
@@ -228,7 +282,9 @@ fn consent(app: &mut WordApp, ctx: &egui::Context, key: &str) -> bool {
         return false;
     }
     if let Err(e) = backend.enable_network() {
-        app.packs_rt.errors.insert(key.to_string(), crate::i18n::fmt(tl!("Couldn't turn on downloading: {error}"), &[("error", &shown_error(&e))]));
+        app.packs_rt
+            .errors
+            .insert(key.to_string(), crate::i18n::fmt(tl!("Couldn't turn on downloading: {error}"), &[("error", &shown_error(&failure(&e)))]));
         return false;
     }
     true
@@ -241,7 +297,7 @@ fn start_install(app: &mut WordApp, ctx: &egui::Context, pack: &Pack) {
         return;
     }
     if let Err(e) = packs::start_install(&pack.locale) {
-        app.packs_rt.errors.insert(pack.locale.clone(), crate::i18n::fmt(tl!("Couldn't install: {error}"), &[("error", &shown_error(&e))]));
+        app.packs_rt.errors.insert(pack.locale.clone(), crate::i18n::fmt(tl!("Couldn't install: {error}"), &[("error", &shown_error(&failure(&e)))]));
     }
     app.packs_rt.missing = None;
 }
@@ -256,7 +312,7 @@ fn start_fetch(app: &mut WordApp, ctx: &egui::Context) {
     if let Err(e) = packs::start_refresh() {
         app.packs_rt
             .errors
-            .insert(String::new(), crate::i18n::fmt(tl!("Couldn't get the list of languages: {error}"), &[("error", &shown_error(&e))]));
+            .insert(String::new(), crate::i18n::fmt(tl!("Couldn't get the list of languages: {error}"), &[("error", &shown_error(&failure(&e)))]));
     }
 }
 
@@ -267,7 +323,9 @@ fn remove(app: &mut WordApp, locale: &str) {
             app.packs_rt.missing = None;
         }
         Err(e) => {
-            app.packs_rt.errors.insert(locale.to_string(), crate::i18n::fmt(tl!("Couldn't remove: {error}"), &[("error", &shown_error(&e))]));
+            app.packs_rt
+                .errors
+                .insert(locale.to_string(), crate::i18n::fmt(tl!("Couldn't remove: {error}"), &[("error", &shown_error(&failure(&e)))]));
         }
     }
 }
@@ -294,6 +352,21 @@ fn missing(app: &mut WordApp, now: f64) -> Offers {
     m
 }
 
+/// The Hunspell dictionary the caret's language needs when the bar offers to get that language's
+/// pack before the list of packs is known (Hebrew on a first launch), so the status bar says
+/// "(no dictionary)" then too, as it does once the list is known. The engine's own answer
+/// ([`packs::missing_dictionary`]) waits for the list; what the bar offers was worked out by its
+/// last frame.
+pub(crate) fn caret_dictionary_to_get(app: &WordApp) -> Option<&'static str> {
+    let (_, _, offers) = app.packs_rt.missing.as_ref()?;
+    let tag = crate::ribbon::caret_lang_tag(app)?;
+    let lang = wordcraft_engine::proof::ProofLang::from_tag(Some(&tag));
+    if !offers.unlisted.iter().any(|t| wordcraft_engine::proof::ProofLang::from_tag(Some(t)) == lang) {
+        return None;
+    }
+    wordcraft_engine::proof::missing_dictionary(Some(&tag))
+}
+
 /// Get `tag`'s pack before the list is known: the person clicked the bar's Install. Their click
 /// turns on downloading ([`consent`]); the list is fetched, then the pack installed if it lists
 /// one (on the engine's thread).
@@ -303,10 +376,11 @@ fn start_get(app: &mut WordApp, ctx: &egui::Context, tag: &str) {
         return;
     }
     app.packs_rt.asked = true;
+    app.packs_rt.confirm = Some((app.session.document_id(), tag.to_string()));
     if let Err(e) = packs::start_get(tag) {
         app.packs_rt
             .errors
-            .insert(String::new(), crate::i18n::fmt(tl!("Couldn't get the list of languages: {error}"), &[("error", &shown_error(&e))]));
+            .insert(String::new(), crate::i18n::fmt(tl!("Couldn't get the list of languages: {error}"), &[("error", &shown_error(&failure(&e)))]));
     }
     app.packs_rt.missing = None;
 }
@@ -319,6 +393,13 @@ pub(crate) fn bar(app: &mut WordApp, ui: &mut Ui) {
         return;
     }
     let document = app.session.document_id();
+    if let Some((asked_in, key)) = app.packs_rt.confirm.clone()
+        && asked_in == document
+        && let Some(done) = installed_for(&key)
+    {
+        installed_bar(app, ui, &done);
+        return;
+    }
     let now = ui.input(|i| i.time);
     let offers = missing(app, now);
     // The whole list, for a tag closed before it was known (only then: it is a copy).
@@ -353,15 +434,73 @@ pub(crate) fn bar(app: &mut WordApp, ui: &mut Ui) {
                             let label = crate::i18n::fmt(tl!("Install ({size})"), &[("size", &size_text(pack.size))]);
                             if ui.add(crate::widgets::primary_button(ui, label)).on_hover_text(licence_hover(&pack)).clicked() {
                                 start_install(app, &ui.ctx().clone(), &pack);
+                                app.packs_rt.confirm = Some((document, pack.locale.clone()));
                             }
                         }
                     }
+                    // The licence and where the data comes from, before anything is installed.
+                    licence_and_source(ui, &t, &pack.licence, pack.source_link());
                     if let Some(e) = error_of(app, &pack.locale) {
                         ui.add(egui::Label::new(RichText::new(e).color(t.red)).truncate());
                     }
                     ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
-                        if crate::widgets::icon_button(ui, "close", tl!("Not now")).clicked() {
+                        if named_close(ui, tl!("Not now")).clicked() {
                             app.packs_rt.dismissed.insert((document, pack.locale.clone()));
+                        }
+                    });
+                })
+            });
+        });
+}
+
+/// A bar's close button, named for screen readers as its tooltip reads.
+fn named_close(ui: &mut Ui, name: &str) -> egui::Response {
+    let r = crate::widgets::icon_button(ui, "close", name);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
+    r
+}
+
+/// A pack's licence and a link to its source, small, in a bar's row.
+fn licence_and_source(ui: &mut Ui, t: &Tokens, licence: &str, source: &str) {
+    let licence = crate::i18n::fmt(tl!("Licence: {licence}"), &[("licence", &shown(licence, 120))]);
+    ui.label(RichText::new(licence).small().color(t.text_dim));
+    if !source.is_empty() {
+        ui.hyperlink_to(RichText::new(tl!("Source")).small(), source).on_hover_text(shown(source, 300));
+    }
+}
+
+/// The pack installed for `key` (a pack locale, or the language tag the bar offered before the
+/// list was known), if it is installed now.
+fn installed_for(key: &str) -> Option<packs::Installed> {
+    let installed = packs::installed();
+    if let Some(i) = installed.iter().find(|i| i.locale == key) {
+        return Some(i.clone());
+    }
+    let pack = packs::pack_for_tag(key, &packs::available())?.locale.clone();
+    installed.into_iter().find(|i| i.locale == pack)
+}
+
+/// After the bar's Install: "<Language> proofing is installed.", the pack's licence and source,
+/// and Close. Shown in the document Install was clicked in until it is closed.
+fn installed_bar(app: &mut WordApp, ui: &mut Ui, done: &packs::Installed) {
+    let t = Tokens::get(ui.ctx());
+    egui::Panel::top("language_pack_bar")
+        .exact_size(36.0)
+        .show_separator_line(false)
+        .frame(egui::Frame::NONE.fill(t.panel).inner_margin(egui::Margin::symmetric(12, 0)))
+        .show(ui, |ui| {
+            let bottom = ui.max_rect().bottom();
+            let full = ui.max_rect();
+            ui.painter().hline(full.x_range(), bottom - 0.5, egui::Stroke::new(1.0, t.border));
+            crate::rtl::root(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    let language = shown(&language_of(&done.locale, &done.name), MAX_BAR_NAME);
+                    ui.label(RichText::new(crate::i18n::fmt(tl!("{language} proofing is installed."), &[("language", &language)])).color(t.green));
+                    let source = packs::find(&done.locale).map(|p| p.source_link().to_string()).unwrap_or_default();
+                    licence_and_source(ui, &t, &done.licence, &source);
+                    ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
+                        if named_close(ui, tl!("Close this message")).clicked() {
+                            app.packs_rt.confirm = None;
                         }
                     });
                 })
@@ -423,7 +562,7 @@ fn unlisted_bar(app: &mut WordApp, ui: &mut Ui, tag: &str) {
                         ui.add(egui::Label::new(RichText::new(e).color(t.red)).truncate());
                     }
                     ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
-                        if crate::widgets::icon_button(ui, "close", tl!("Not now")).clicked() {
+                        if named_close(ui, tl!("Not now")).clicked() {
                             app.packs_rt.dismissed_tags.insert((document, tag.to_string()));
                         }
                     });
@@ -571,7 +710,10 @@ pub(crate) fn your_languages_section(app: &mut WordApp, ui: &mut Ui) {
     let installed = packs::installed();
     let caret = crate::ribbon::caret_lang_tag(app);
     let view = your_view(app, &index, &installed);
+    // With no list yet, the languages the bar offers to get (Hebrew in a fresh install).
+    let unlisted = packs::unlisted(&app.session);
     let mut install = None;
+    let mut get = None;
     let mut removal = None;
     let mut default = None;
     // As wide as the window leaves room for (the rows scroll sideways in a narrow one).
@@ -617,7 +759,11 @@ pub(crate) fn your_languages_section(app: &mut WordApp, ui: &mut Ui) {
                     cells.cell(|ui| {
                         crate::rtl::vertical(ui, |ui| {
                             ui.set_width(190.0);
+                            let offered = unlisted.iter().find(|tag| row.is_tag(tag)).map(String::as_str);
                             proofing_cell(ui, &t, row, pack, &size, &mut install);
+                            if row.proofing == Proofing::NotAvailable {
+                                not_available_cell(ui, offered, &mut get);
+                            }
                             if narrow {
                                 actions(ui);
                             }
@@ -679,6 +825,9 @@ pub(crate) fn your_languages_section(app: &mut WordApp, ui: &mut Ui) {
     if let Some(p) = install {
         start_install(app, &ui.ctx().clone(), &p);
     }
+    if let Some(tag) = get {
+        start_get(app, &ui.ctx().clone(), &tag);
+    }
     if let Some(l) = removal {
         remove(app, &l);
     }
@@ -704,9 +853,8 @@ fn proofing_cell(ui: &mut Ui, t: &Tokens, row: &LanguageRow, pack: Option<&Pack>
         Proofing::SystemDictionary => {
             ui.label(tl!("System dictionary"));
         }
-        Proofing::NotAvailable => {
-            ui.label(RichText::new(tl!("Not available yet")).weak());
-        }
+        // [`not_available_cell`]: before the list is known a pack may still be there.
+        Proofing::NotAvailable => {}
         Proofing::GrammarBuiltIn => {
             ui.label(tl!("Grammar built in"));
         }
@@ -736,6 +884,25 @@ fn proofing_cell(ui: &mut Ui, t: &Tokens, row: &LanguageRow, pack: Option<&Pack>
                 }
             }
         }
+    }
+}
+
+/// A language with no proofing here: "Not available yet", or, while the list of packs isn't known,
+/// for a language the bar offers to get (`offered`, its tag), "Available to download" and Install,
+/// which fetches the list and then installs the language's pack, as the bar's Install does.
+fn not_available_cell(ui: &mut Ui, offered: Option<&str>, get: &mut Option<String>) {
+    let Some(tag) = offered else {
+        ui.label(RichText::new(tl!("Not available yet")).weak());
+        return;
+    };
+    ui.label(tl!("Available to download"));
+    if packs::fetching() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(RichText::new(tl!("Getting the list of languages…")).small());
+        });
+    } else if ui.button(tl!("Install")).on_hover_text(tl!("Gets the list of Language packs, then this language's pack if there is one.")).clicked() {
+        *get = Some(tag.to_string());
     }
 }
 
@@ -896,27 +1063,36 @@ fn licence_texts() -> Arc<Vec<(String, String)>> {
 }
 
 /// About › Language data: the full licence text of the embedded English data and of each
-/// installed pack.
+/// installed pack. The titles are in the interface language where the catalog has them (the
+/// embedded data's are fixed English from craft-proof); a pack's title is its own name, locale and
+/// file, and the licence texts stay as their authors wrote them, left to right.
 pub(crate) fn about_tab(ui: &mut Ui) {
-    ui.label(RichText::new(tl!("The spelling and hyphenation data WordCraft uses, and their licences.")).small().weak());
-    ui.add_space(4.0);
-    let texts = licence_texts();
-    // A fixed height: entries open and long texts scroll inside it, and the dialog keeps its size.
-    egui::ScrollArea::vertical()
-        .id_salt("about_language_data")
-        .min_scrolled_height(ABOUT_HEIGHT)
-        .max_height(ABOUT_HEIGHT)
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            for (title, text) in texts.iter() {
-                egui::CollapsingHeader::new(RichText::new(title.as_str()).font(semibold(13.0))).id_salt(("language_data", title.as_str())).show(
-                    ui,
-                    |ui| {
-                        ui.add(egui::Label::new(RichText::new(text).small().monospace()).wrap());
-                    },
-                );
-            }
-        });
+    crate::rtl::root(ui, |ui| {
+        ui.label(RichText::new(tl!("The spelling and hyphenation data WordCraft uses, and their licences.")).small().weak());
+        ui.add_space(4.0);
+        let texts = licence_texts();
+        // A fixed height: entries open and long texts scroll inside it, and the dialog keeps its size.
+        egui::ScrollArea::vertical()
+            .id_salt("about_language_data")
+            .min_scrolled_height(ABOUT_HEIGHT)
+            .max_height(ABOUT_HEIGHT)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                crate::rtl::root(ui, |ui| {
+                    for (title, text) in texts.iter() {
+                        let shown = crate::i18n::message(title);
+                        egui::CollapsingHeader::new(RichText::new(shown).font(semibold(13.0))).id_salt(("language_data", title.as_str())).show(
+                            ui,
+                            |ui| {
+                                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                                    ui.add(egui::Label::new(RichText::new(text).small().monospace()).wrap());
+                                });
+                            },
+                        );
+                    }
+                })
+            });
+    });
 }
 
 #[cfg(test)]
@@ -1803,5 +1979,167 @@ mod tests {
         assert_eq!(crate::canvas::issue_heading(&french), tl!("Possible spelling mistake"));
         let grammar = json!({"kind": "grammar", "message": "Repeated word"});
         assert_eq!(crate::canvas::issue_heading(&grammar), tl!("Repeated word"));
+    }
+
+    /// SE-5: a download a network stopped says what happened and what to try, in the interface
+    /// language: a certificate the network put in place of the server's, no connection, no answer,
+    /// a refusal. Other failures keep the store's words.
+    #[test]
+    fn network_failures_say_what_to_try() {
+        let cert = super::failure("downloading the Language pack index failed: github.com: io: invalid peer certificate: UnknownIssuer");
+        assert!(cert.contains("certificate") && cert.contains("Try another network"), "{cert}");
+        let clock = super::failure("downloading he.tar.zst failed: github.com: io: invalid peer certificate: NotValidYet");
+        assert!(clock.contains("date and time") && !clock.contains("Try another network"), "{clock}");
+        assert!(super::failure("downloading he.tar.zst failed: github.com: timed out").contains("didn't answer in time"));
+        let offline = super::failure("downloading the Language pack index failed: github.com: io: failed to lookup address information");
+        assert!(offline.contains("Couldn't reach the server"), "{offline}");
+        assert!(super::failure("downloading the Language pack index failed: github.com: HTTP 403").contains("(HTTP 403)"));
+        let other = "he.tar.zst was rejected: the file's sha256 doesn't match the index";
+        assert_eq!(super::failure(other), other);
+        let he = crate::i18n::fixture_lang(
+            "he",
+            "\tCouldn't reach the server. Check the internet connection and try again.\tלא ניתן להתחבר לשרת. יש לבדוק את החיבור לאינטרנט ולנסות שוב.\n",
+        );
+        crate::i18n::set_current(he);
+        let offline = super::failure("downloading he.tar.zst failed: github.com: io: Connection refused (os error 111)");
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        assert_eq!(offline, "לא ניתן להתחבר לשרת. יש לבדוק את החיבור לאינטרנט ולנסות שוב.");
+    }
+
+    /// SE-4: the bar names the pack's licence and links its source before anything is installed,
+    /// and once the person's Install has put the pack in place it says so, with the licence again.
+    #[test]
+    fn the_bar_names_the_licence_before_install_and_confirms_after() {
+        let _g = BACKEND_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        quiet();
+        let _reset = ResetBackend;
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx, crate::theme::Appearance::Light);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
+        ctx.enable_accesskit();
+        let backend = std::sync::Arc::new(FixedBackend::sample());
+        backend.network.store(true, Ordering::Relaxed);
+        packs::set_backend(Some(backend.clone() as std::sync::Arc<dyn Backend>));
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("document.setText", json!({"text": "Dzień dobry, jak się masz?"})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        a.run("review.language", json!({"lang": "pl-PL"})).unwrap();
+        let mut tree = merged_frames(&mut a, &ctx);
+        let licence = packs::available().into_iter().find(|p| p.locale == "pl").map(|p| p.licence).unwrap_or_default();
+        assert!(!licence.is_empty());
+        let shows = |tree: &egui::accesskit::TreeUpdate, text: &str| labels(tree).iter().any(|l| l == text);
+        assert!(shows(&tree, &format!("Licence: {licence}")), "the licence shows before install: {:?}", labels(&tree));
+        assert!(spot(&tree, "Source").is_some(), "and a link to the source");
+        let install = spot(&tree, "Install (").expect("the bar offers Polish");
+        user_click(&mut a, &ctx, install);
+        for _ in 0..500 {
+            if packs::is_installed("pl") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(packs::is_installed("pl"));
+        tree = merged_frames(&mut a, &ctx);
+        assert!(shows(&tree, "Polish proofing is installed."), "the bar confirms the install: {:?}", labels(&tree));
+        assert!(shows(&tree, &format!("Licence: {licence}")), "with its licence");
+        let close = spot(&tree, "Close this message").expect("the confirmation closes");
+        user_click(&mut a, &ctx, close);
+        tree = merged_frames(&mut a, &ctx);
+        assert!(!shows(&tree, "Polish proofing is installed."));
+    }
+
+    /// Wait for the fetches and installs earlier tests started on the engine's thread to end, so
+    /// none of them puts its list in place after this test has set its own backend.
+    fn quiet() {
+        for _ in 0..1000 {
+            if !packs::fetching() && packs::installing().is_empty() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// The widgets of a few frames, merged (an update carries only what changed).
+    fn merged_frames(a: &mut WordApp, ctx: &egui::Context) -> egui::accesskit::TreeUpdate {
+        let mut merged: std::collections::BTreeMap<u64, (egui::accesskit::NodeId, egui::accesskit::Node)> = Default::default();
+        let mut last = frame(a, ctx, Vec::new());
+        for i in 0..5 {
+            for (id, node) in last.nodes.drain(..) {
+                merged.insert(id.0, (id, node));
+            }
+            if i < 4 {
+                last = frame(a, ctx, Vec::new());
+            }
+        }
+        last.nodes = merged.into_values().collect();
+        last
+    }
+
+    /// SE-4: before the list of packs is known, the status bar marks a language the bar offers to
+    /// get as having no dictionary, as it does once the list says there is a pack for it.
+    #[test]
+    fn before_the_list_the_status_bar_says_an_offered_language_has_no_dictionary() {
+        let _g = BACKEND_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        quiet();
+        let _reset = ResetBackend;
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx, crate::theme::Appearance::Light);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
+        ctx.enable_accesskit();
+        let mut inner = FixedBackend::sample();
+        let kl = packs::Pack { locale: "kl".into(), name: "Kalaallisut".into(), ..inner.packs[0].clone() };
+        inner.packs.push(kl);
+        packs::set_backend(Some(std::sync::Arc::new(Uncached(inner)) as std::sync::Arc<dyn Backend>));
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("document.setText", json!({"text": "Aluu, qanoq ippit?"})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        a.run("review.language", json!({"lang": "kl-GL"})).unwrap();
+        let tree = merged_frames(&mut a, &ctx);
+        assert!(packs::available().is_empty(), "no list yet");
+        assert!(packs::missing_dictionary(Some("kl-GL")).is_none(), "the engine waits for the list");
+        assert!(labels(&tree).iter().any(|l| l.ends_with("(no dictionary)")), "{:?}", labels(&tree));
+    }
+
+    /// UWB-16: before the list of packs is known, Options › Language says a language the bar offers
+    /// is available to download, not "Not available yet", and its Install gets it as the bar's does.
+    #[test]
+    fn before_the_list_options_offers_what_the_bar_offers() {
+        let _g = BACKEND_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        quiet();
+        let _reset = ResetBackend;
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx, crate::theme::Appearance::Light);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
+        ctx.enable_accesskit();
+        let mut inner = FixedBackend::sample();
+        let kl = packs::Pack { locale: "kl".into(), name: "Kalaallisut".into(), ..inner.packs[0].clone() };
+        inner.packs.push(kl);
+        // A fresh profile: downloading is off, so the list is never fetched by itself.
+        let backend = std::sync::Arc::new(Uncached(inner));
+        packs::set_backend(Some(backend.clone() as std::sync::Arc<dyn Backend>));
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("document.setText", json!({"text": "Aluu, qanoq ippit?"})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        a.run("review.language", json!({"lang": "kl-GL"})).unwrap();
+        a.ui.backstage = true;
+        a.ui.backstage_page = "options".into();
+        a.ui.options_pane = "language".into();
+        let tree = settled(&mut a, &ctx);
+        assert!(packs::available().is_empty(), "no list yet");
+        assert!(has(&tree, "Available to download"), "{:?}", labels(&tree));
+        assert!(!has(&tree, "Not available yet"), "{:?}", labels(&tree));
+        let install = spot(&tree, "Install").expect("Options offers to get it");
+        user_click(&mut a, &ctx, install);
+        assert!(backend.0.network.load(Ordering::Relaxed), "the person's click turns downloading on");
+        for _ in 0..500 {
+            if packs::is_installed("kl") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(packs::is_installed("kl"), "the list was fetched and the pack installed");
     }
 }

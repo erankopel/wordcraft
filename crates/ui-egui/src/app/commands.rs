@@ -448,9 +448,9 @@ impl WordApp {
             self.ui.recent.truncate(MAX_RECENT);
         }
         if !self.session.status.is_empty() {
-            // Engine messages are English; the catalog translates the ones it knows.
+            // Engine messages are English; the status line shows the ones the catalog knows
+            // translated, by row or `@msg` template (`WordApp::status`).
             let s = std::mem::take(&mut self.session.status);
-            let s = tl!(&s).to_string();
             self.status(s);
         }
         if matches!(id, "table.deleteTable")
@@ -897,6 +897,19 @@ impl WordApp {
                 add_saved(&mut r, saved);
                 r
             }
+            "ui.fileDialogs" => {
+                // File › Options › Advanced › File dialogs: `auto`, `wordcraft` (WordCraft's own
+                // browser, in the interface language) or `system`; no value reads it. `own` is
+                // what that comes to in this build.
+                match p.get("value") {
+                    None => {}
+                    Some(v) => match v.as_str().and_then(crate::FileDialogs::from_code) {
+                        Some(d) => self.ui.file_dialogs = d,
+                        None => return Some(Err(format!("unknown file dialogs setting {v}; use auto, wordcraft or system"))),
+                    },
+                }
+                json!({"fileDialogs": self.ui.file_dialogs.code(), "own": self.uses_own_file_browser()})
+            }
             "ui.displayServer" => {
                 // File › Options › Advanced › Linux display server (#2184): `value` `auto`,
                 // `wayland` or `x11`; no value reads it. The desktop app reads it at the next launch.
@@ -1184,6 +1197,7 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.recentRemove"
             | "ui.recentClear"
             | "ui.displayServer"
+            | "ui.fileDialogs"
             | "ui.statusCount"
             | "ui.scrollSpeed"
             | "ui.touchpadScrollSpeed"

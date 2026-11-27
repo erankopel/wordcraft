@@ -396,7 +396,7 @@ pub(crate) fn recipient_list(
         );
     }
     if !message.is_empty() {
-        ui.label(egui::RichText::new(message.as_str()).color(Tokens::get(ui.ctx()).red));
+        ui.label(egui::RichText::new(crate::i18n::message(message)).color(Tokens::get(ui.ctx()).red));
     }
     let (ok, cancel) = buttons(ui, tl!("OK"));
     if !ok {

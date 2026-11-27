@@ -35,6 +35,8 @@
 //! - [`location`]: a ribbon location such as `Home › Font`, segment by segment.
 //! - [`fmt`]: fill `{name}` placeholders after a lookup; translators may reorder them.
 //! - [`fmt_plain`]: [`fmt`] without bidi isolate marks, for text that goes into the document.
+//! - [`message`]: a message from the engine or a library (a status line, an error, why a button is
+//!   off), by its row or an `@msg` template; what the catalog doesn't know stays English.
 
 use std::cell::Cell;
 use std::sync::{LazyLock, OnceLock};
@@ -705,6 +707,22 @@ pub fn prefixed(prefix: &str, rest: &str) -> String {
     fmt(t(&format!("{prefix} {{action}}")), &[("action", t(rest))])
 }
 
+/// The catalog texts `lang` is read from (shared, then WordCraft's), for what the lookups can't
+/// list: the `@msg` templates ([`messages`]). A test fixture's own text for a fixture.
+fn source_texts(lang: Lang) -> Vec<&'static str> {
+    #[cfg(test)]
+    if let Some(i18n) = lang.catalogs {
+        let key = std::ptr::from_ref(i18n) as usize;
+        let fixtures = FIXTURE_SOURCES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        return fixtures.iter().filter(|(k, _)| *k == key).map(|(_, text)| *text).collect();
+    }
+    lang.catalog_texts().collect()
+}
+
+/// Each fixture language's catalog text, by its catalogs' address ([`source_texts`]).
+#[cfg(test)]
+static FIXTURE_SOURCES: std::sync::Mutex<Vec<(usize, &'static str)>> = std::sync::Mutex::new(Vec::new());
+
 /// A test language whose WordCraft catalog is `source` (catalog format), so tests of lookup code
 /// don't depend on the embedded catalogs' wording. `code` selects code-specific rules such as
 /// Turkish casing.
@@ -713,6 +731,7 @@ pub(crate) fn fixture_lang(code: &'static str, source: &'static str) -> Lang {
     let embedded: &'static craft_i18n::Embedded = Box::leak(Box::new([(code, "", source)]));
     let (i18n, _) = I18n::new(embedded, &[code]);
     let i18n: &'static I18n = Box::leak(Box::new(i18n));
+    FIXTURE_SOURCES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((std::ptr::from_ref(i18n) as usize, source));
     let lang = i18n.from_code(code).unwrap_or(craft_i18n::Lang::EN);
     Lang { lang, catalogs: Some(i18n) }
 }
@@ -730,9 +749,15 @@ pub(crate) fn catalogs_embedded() -> bool {
 #[cfg(test)]
 mod audit;
 #[cfg(test)]
+mod merge;
+mod messages;
+#[cfg(test)]
 pub(crate) mod pseudo;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use messages::captures;
+pub use messages::message;
 
 /// `name` lowercased with the Latin accents that occur in language names folded away, so a
 /// byte-wise sort reads alphabetically. Other scripts are left as they are.

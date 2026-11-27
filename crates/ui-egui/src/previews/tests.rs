@@ -596,3 +596,17 @@ fn font_sample_shows_small_caps_and_the_script_mark() {
     assert_ne!(draw(&plain, None, false), draw(&plain, sup, false), "the mark is drawn");
     assert_ne!(draw(&plain, None, false), draw(&plain, None, true), "Switch Modes transforms the preview");
 }
+
+/// UW-16: a Design style set is named in the interface language (`Style set: Lines` in English),
+/// worded for a style set (Lines are קווים, not the rows of a table), never by its command name.
+#[test]
+fn a_style_set_is_named_in_the_interface_language() {
+    crate::i18n::set_current(crate::i18n::Lang::EN);
+    assert_eq!(style_set_tip("Lines"), "Style set: Lines");
+    let he = crate::i18n::fixture_lang("he", "\tStyle set: {name}\tערכת סגנונות: {name}\n\tLines\tשורות\nstyle set\tLines\tקווים\n");
+    crate::i18n::set_current(he);
+    let tip = style_set_tip("Lines");
+    crate::i18n::set_current(crate::i18n::Lang::EN);
+    let plain: String = tip.chars().filter(|c| !matches!(c, '\u{2066}'..='\u{2069}')).collect();
+    assert_eq!(plain, "ערכת סגנונות: קווים");
+}

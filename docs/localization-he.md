@@ -1,6 +1,6 @@
 # Hebrew interface and the Hebrew edition
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (mirrored interface details) · **Target:** WordCraft 0.19.1
+> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (engine messages, catalog corrections, file dialogs) · **Target:** WordCraft 0.19.1
 
 WordCraft has a Hebrew (`he`) interface language, mirrored right to left like the Arabic one, and a
 Hebrew edition: a build of the same program that starts in Hebrew, starts new documents right to
@@ -64,12 +64,44 @@ labels, dialog and pane text, command names and plurals; for example `Align Left
 `Add to Dictionary`, `Accept All Changes and Stop Tracking`). They show in English. The edition
 fills them from `packaging/hebrew/he-supplement.tsv`, 320 original rows (276 used by 0.19.1 and 44 for
 features of later releases), which `packaging/hebrew/build-appimage.sh` appends to a copy of the
-craft-i18n checkout; the checkout itself is not changed. After them three looked-up strings stay
-English on purpose (`pi`, `{n} KB`, `{n} MB`). Every placeholder, trailing ellipsis and `\n` matches the English, and craft-i18n's own
-`check_all` finds no problem in the result.
+craft-i18n checkout; the checkout itself is not changed. `{n} KB` and `{n} MB` keep their Latin
+units on purpose. Every placeholder, trailing ellipsis and `\n` matches the English: a test
+(`the_embedded_hebrew_catalog_keeps_the_catalog_rules`) runs craft-i18n's own `check_all` on the
+Hebrew catalog as the build embeds it, supplement and corrections included.
+
+- **Corrections:** craft-i18n keeps the first of two rows with the same context and English, so a
+  row appended to the catalog could only add a string. The build embeds the catalog with a later
+  row in place of an earlier one with its key (`crates/ui-egui/build.rs`, `src/i18n/merge.rs`), so a
+  supplement row that repeats a published key corrects it. The published catalogs never repeat a
+  key, so only the supplement changes anything. The edition corrects the published rows that were
+  English or wrong: the OpenDocument and Rich Text file types, the Font dialog's preview (Hebrew
+  letters beside `AaBbYyZz`), the About licence line and Options › Language's description of
+  Language packs (מיקוף, not היפוך מילים, for hyphenation). The corrections are the supplement's
+  last rows, after a `#` line.
+- **Messages from the engine and the libraries** (a command's status line, an error in a dialog, why
+  a button is off, a download that failed) are made in English, which scripts and agents read, and
+  translated where the window shows them (`i18n::message`): a row for the whole message, or an
+  `@msg` row whose English has placeholders for the parts that vary (`All done. We made {n}
+  replacements.`). A template matches only a whole message, with its other text exactly as written,
+  so engine wording that is new or changed shows in English rather than as the translation of
+  another message; a placeholder named `error` or `reason` is translated the same way. The `@msg`
+  context is craft-i18n's. The supplement has rows for the messages of Replace All, Fit One Page,
+  Missing Fonts, Column Selection, content controls, protection and Zotero, for the common
+  operating-system errors inside them, and for about 120 errors the ribbon and dialogs can show
+  (grouping objects, drawing tables, table formulas, lists, protection, recovery, printing). The
+  engine has some 700 messages; most are answers to scripts' parameters, and those stay English.
+- **Accessibility pane:** each finding is worded from the checker's rule id, with the numbers the
+  engine reports (heading levels, counts, contrast ratios), and what to do about it is a sentence
+  that names the place in the ribbon; the engine's fixes, which name commands for scripts
+  (`file.properties {title}`), are never shown.
+- **Names shown translated, kept in English underneath:** built-in style names in Manage Styles and
+  the Organizer (and in Manage Styles' "Based on"), Design › Document Formatting's style sets, Insert › Symbol's
+  Unicode subsets (context `unicode`), Insert › Icons' names and categories (context `icons`;
+  searching finds an icon by its Hebrew name or category as well as by the library's English) and
+  About › Language data's titles.
 
 - **Review:** no native Hebrew speaker has read the catalog or the supplement. The rows were
-  written from the plain meaning of the English, like the rest of the catalog. The 45 rows least
+  written from the plain meaning of the English, like the rest of the catalog. The 84 rows least
   likely to be right, each with the reason, are in `packaging/hebrew/he-uncertain.tsv`: start there.
   The proper home for the rows is craft-i18n (the 49 rows that name shared things, such as colours,
   belong in its `common.tsv`); this repository keeps them only so that the edition can be built.
@@ -138,6 +170,17 @@ turns downloading on, and the pack then works offline. It is built from Hspell a
 AGPL-3.0-or-later, so craft-i18n's ADR 0004 makes it Download-only: it is never bundled in a build,
 which is why the edition has no spell check on its first launch and needs one online click.
 
+Once the list of packs is known, the bar names the pack's licence and links its source next to
+Install; after the person's Install it says that Hebrew proofing is installed, with the licence and
+source, until it is closed. Before the list is known (a fresh profile) the bar's Install fetches the
+list and then the pack, and Options › Language says the language is available to download, with
+the same Install, instead of "not available yet". A download that a network stops is explained in
+Hebrew with what to try: a security certificate the network puts in place of the server's (a filter
+at work or school, or an antivirus program, whose certificate WordCraft's downloads don't trust),
+no connection, no answer in time, or a refusal; any other failure keeps the font store's words.
+Before the list is known the status bar also marks Hebrew as having no dictionary (`עברית (אין
+מילון)`) while the bar offers the pack, as it does once the list is known.
+
 Hebrew words are proofed in the language of complex-script text (`w:lang/@w:bidi`), as Word does:
 in a document whose text language is English and whose complex-script language is Hebrew (a Word
 file, or a new document of the edition) the Hebrew words are checked in Hebrew and the Latin words
@@ -160,10 +203,15 @@ Hebrew.
 ## Hebrew whatever the system language
 
 The edition's text is Hebrew on a computer whose language is English or anything else: the setting `auto`
-means the edition's language (see Choosing Hebrew), so nothing depends on the system locale. Two things
-are not WordCraft's text and do not follow it: the file dialogs of the desktop (on Linux they come from the
-desktop's portal, in the desktop's language) and the system's own menus. Page size and units are Israel's
-(A4, centimetres) unless `WORDCRAFT_REGION` is set. Starting with `WORDCRAFT_LANGUAGE=en` gives English.
+means the edition's language (see Choosing Hebrew), so nothing depends on the system locale. The desktop's
+file dialogs follow the desktop's language (on Linux they come from its portal), so the edition opens,
+saves, exports and inserts pictures through WordCraft's own file browser, which is in Hebrew and
+mirrored. **File › Options › Advanced › File dialogs** (`ui.fileDialogs`: `auto`, `wordcraft` or `system`)
+chooses the system's dialogs instead; Automatic is WordCraft's own browser in an edition and the
+system's in the stock build. The system's own menus do not follow WordCraft's language. Page size and
+units are Israel's (A4, centimetres) unless `WORDCRAFT_REGION` is set, and Mailings › Envelopes and
+Labels start on the region's paper (a DL envelope and A4 label sheets). Starting with
+`WORDCRAFT_LANGUAGE=en` gives English.
 
 ## In the document
 
@@ -212,6 +260,22 @@ offer the upstream release, which would replace the edition.
   and its shortcut), the Date and Time dialog and the previews of Table of Contents, Table of
   Figures, Index and Define New Multilevel List; most other drop-down lists still start their rows
   at the left.
+- Still English: the Find and Replace dialog's own results and errors (`Match 2 of 5`, the Replace
+  All count, `no matches`; the rows and `@msg` templates exist, the dialog's code does not pass its
+  message through `i18n::message` yet) and the other messages of the dialogs drawn in
+  `dialogs/dispatch.rs`, Date and Time and the References dialogs; the name and the automatic colour
+  in Modify Style and the style in New Style's "Based on" box (free text fields whose value goes to
+  the command as typed: they need a picker that shows the translated name and sends the English);
+  the alternative text an inserted icon gets (`insert.icon` takes none, so the English name is
+  written); and engine messages no row covers.
+- Installing a Language pack from a file downloaded in a browser (for a network whose filter breaks
+  the download): craft-font-store at the pinned craft-libs has no public way to install a local
+  archive against the pinned index's size and sha256 (its local path is the testing override, which
+  skips the pin), and the downloads trust only the certificates compiled into rustls, not the
+  system's, so an inspecting network's certificate is refused. Both need craft-libs changes. The
+  bar's source link is the pack's archive until the engine reads the index's `source`.
+- A Hebrew Markdown or text file opens left to right: these formats carry no direction, and only new
+  blank documents take the edition's right-to-left default.
 
 ## Revision history
 
@@ -219,3 +283,4 @@ offer the upstream release, which would replace the edition.
 |---|---|---|
 | 2026-11-26 | major | First version: Hebrew interface language and numbering, Hebrew edition (default language, catalog supplement, fonts, right-to-left new documents, Hebrew proofing through the complex-script language) |
 | 2026-11-27 | minor | Mirrored task panes, balloons, directional icons and lists; Hebrew letters on Bold, Italic, Underline and Spelling; mixed Hebrew and Latin text in order; lengths number first; Hebrew in monospace text |
+| 2026-11-27 | minor | Engine messages through the catalog (rows and `@msg` templates); supplement rows correct published ones; Accessibility pane from rule ids; translated style, style set, Unicode subset, icon and Language data names; Language pack licence, confirmation and network failures; WordCraft's own file browser by default in the edition; Mailings on the region's paper |

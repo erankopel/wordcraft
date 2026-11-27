@@ -129,7 +129,7 @@ pub fn customize_ribbon(app: &mut WordApp, ui: &mut Ui, f: &mut RibbonForm) -> b
         ui.label(egui::RichText::new(format!("{} · {}", crate::i18n::location(spec.location), spec.id)).small().weak());
     }
     if !f.message.is_empty() {
-        ui.colored_label(ui.visuals().warn_fg_color, f.message.as_str());
+        ui.colored_label(ui.visuals().warn_fg_color, crate::i18n::message(&f.message));
     }
     ui.add_space(6.0);
     if f.confirm_reset {

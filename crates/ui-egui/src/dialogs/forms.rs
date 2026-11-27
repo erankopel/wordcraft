@@ -547,7 +547,7 @@ pub(super) fn custom_properties(app: &mut WordApp, ui: &mut Ui, f: &mut CustomPr
         });
     });
     if !f.message.is_empty() {
-        ui.colored_label(ui.visuals().error_fg_color, f.message.as_str());
+        ui.colored_label(ui.visuals().error_fg_color, crate::i18n::message(&f.message));
     }
     ui.label(egui::RichText::new(tl!("Text properties only: Word's number, date and yes-no types aren't offered.")).small().weak());
     let (ok, cancel) = buttons(ui, tl!("OK"));

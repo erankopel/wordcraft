@@ -129,13 +129,26 @@ impl WordApp {
         false
     }
 
+    /// Does a file picker show WordCraft's own browser rather than the system's dialog
+    /// (File › Options › Advanced › File dialogs, [`crate::FileDialogs`])? Never on the web,
+    /// which has no browser of its own.
+    pub fn uses_own_file_browser(&self) -> bool {
+        !cfg!(target_arch = "wasm32") && self.ui.file_dialogs.own_browser(crate::i18n::EDITION_LANGUAGE)
+    }
+
     /// Ask the host for a file and do `after` with the answer: now for a blocking dialog, on a
-    /// later frame for an asynchronous one. Ignored while another dialog is open.
+    /// later frame for an asynchronous one. Ignored while another dialog is open. With WordCraft's
+    /// own browser chosen ([`WordApp::uses_own_file_browser`]) that browser asks instead.
     pub(crate) fn ask_file(&mut self, req: FileDialogRequest, after: AfterPick) -> Asked {
         if self.file_dialog_open() {
             log::debug!("file dialog already open; ignoring {req:?}");
             self.status(tl!("A file dialog is already open."));
             return Asked::Busy;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.uses_own_file_browser() {
+            self.show_file_browser(req, after, false);
+            return Asked::Pending;
         }
         if let Some(show) = &self.services.file_dialog {
             let rx = show(req.clone());

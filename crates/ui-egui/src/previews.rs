@@ -750,8 +750,22 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
     }
 }
 
-/// Style sets shown in the Design tab's gallery, in order.
-const STYLE_SETS: [&str; 7] = ["default", "basic", "lines", "shaded", "casual", "centered", "minimalist"];
+/// Style sets shown in the Design tab's gallery, in order: the `design.styleSet` name, and the name
+/// the gallery shows (in the catalog with the context `style set`).
+const STYLE_SETS: [(&str, &str); 7] = [
+    ("default", "Default"),
+    ("basic", "Basic"),
+    ("lines", "Lines"),
+    ("shaded", "Shaded"),
+    ("casual", "Casual"),
+    ("centered", "Centered"),
+    ("minimalist", "Minimalist"),
+];
+
+/// A style set's tooltip: `Style set: Lines`, in the interface language.
+pub(crate) fn style_set_tip(shown: &str) -> String {
+    crate::i18n::fmt(tl!("Style set: {name}"), &[("name", crate::i18n::tc("style set", shown))])
+}
 /// Width of one gallery thumbnail, points.
 pub const STYLE_SET_W: f32 = 56.0;
 /// Width the whole gallery takes with the ribbon's 1 pt item spacing.
@@ -765,7 +779,7 @@ pub fn style_set_gallery(app: &mut WordApp, ui: &mut Ui) {
     // to left, set from the right, and the thumbnail shows the page's right part, where the lines
     // start (the left part would cut the start of a line that runs past it).
     let rtl = crate::rtl::on();
-    for name in STYLE_SETS {
+    for (name, shown) in STYLE_SETS {
         let (r, resp) = ui.allocate_exact_size(vec2(STYLE_SET_W, crate::widgets::CONTENT_H), Sense::click());
         if resp.hovered() {
             ui.painter().rect_filled(r, 3.0, t.hover);
@@ -804,7 +818,9 @@ pub fn style_set_gallery(app: &mut WordApp, ui: &mut Ui) {
             let uv = if rtl { Rect::from_min_max(pos2(1.0 - u, 0.0), pos2(1.0, v)) } else { Rect::from_min_max(pos2(0.0, 0.0), pos2(u, v)) };
             ui.painter().image(h.id(), ir, uv, preview_tint(&t, false));
         }
-        if resp.on_hover_text(format!("Style set: {name}")).clicked() {
+        let tip = style_set_tip(shown);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &tip));
+        if resp.on_hover_text(tip).clicked() {
             let _ = app.run("design.styleSet", json!({"name": name}));
         }
     }

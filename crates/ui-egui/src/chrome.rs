@@ -907,7 +907,8 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     }
                     // The language at the caret; a click sets the proofing language (Review › Language).
                     let lang = crate::ribbon::caret_language(app);
-                    let missing = crate::ribbon::caret_missing_dictionary(app);
+                    // Before the list of packs is known, a language the pack bar offers has none either.
+                    let missing = crate::ribbon::caret_missing_dictionary(app).or_else(|| crate::language_packs::caret_dictionary_to_get(app));
                     let unreadable = crate::ribbon::caret_unreadable_dictionary(app);
                     let shown = if unreadable.is_some() {
                         crate::i18n::fmt(tl!("{language} (dictionary unreadable)"), &[("language", &lang)])

@@ -681,11 +681,14 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
         section(ui, "Linux display server");
         display_server_picker(app, ui);
     }
-    // The web app has no folders to name.
+    // The web app has no folders to name, and only the browser's own file picker.
     if !cfg!(target_arch = "wasm32") {
         ui.add_space(8.0);
         section(ui, "File locations");
         templates_folder(app, ui);
+        ui.add_space(8.0);
+        section(ui, "File dialogs");
+        file_dialogs_picker(app, ui);
     }
     ui.add_space(8.0);
     section(ui, "Scrolling");
@@ -835,6 +838,33 @@ fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
         };
         note(ui, reported);
     }
+}
+
+/// Which dialog Open, Save As, Export and the other file pickers show ([`crate::FileDialogs`]):
+/// Automatic names what it comes to in this build.
+fn file_dialogs_picker(app: &mut WordApp, ui: &mut Ui) {
+    use crate::FileDialogs;
+    let auto_is_own = FileDialogs::Auto.own_browser(crate::i18n::EDITION_LANGUAGE);
+    let name = |d: FileDialogs| {
+        if d == FileDialogs::Auto {
+            let now = if auto_is_own { FileDialogs::WordCraft } else { FileDialogs::System };
+            crate::i18n::fmt(tl!("Automatic ({choice})"), &[("choice", tl!(now.label()))])
+        } else {
+            tl!(d.label()).to_string()
+        }
+    };
+    ui.horizontal(|ui| {
+        let label = ui.label(tl!("Open and save with:"));
+        let combo = craft_ui::ComboBox::from_id_salt("file_dialogs").selected_text(name(app.ui.file_dialogs)).width(260.0).show_ui(ui, |ui| {
+            for d in FileDialogs::ALL {
+                if ui.selectable_label(app.ui.file_dialogs == d, name(d)).clicked() {
+                    let _ = app.run("ui.fileDialogs", json!({"value": d.code()}));
+                }
+            }
+        });
+        combo.response.labelled_by(label.id);
+    });
+    note(ui, "WordCraft's own file browser is in the interface language. The system's file dialogs follow the language of the desktop.");
 }
 
 /// Linux display server (#2184): Automatic, Wayland or X11 (XWayland). The desktop app reads it

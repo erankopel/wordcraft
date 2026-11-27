@@ -183,6 +183,71 @@ impl DisplayServer {
     }
 }
 
+/// File › Options › Advanced › File dialogs (`ui.fileDialogs`): which dialog Open, Save As, Export,
+/// Insert Picture and the other file pickers show. The system's follows the desktop's language
+/// (an English desktop shows English Open and Save dialogs); WordCraft's own browser
+/// ([`file_browser`]) is in the interface language and mirrored for a right-to-left one.
+/// Automatic is the system's, except in an edition built for one language
+/// ([`i18n::EDITION_LANGUAGE`], the Hebrew edition), whose interface is that language on any
+/// desktop. An unknown saved value reads as Automatic.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum FileDialogs {
+    #[default]
+    Auto,
+    WordCraft,
+    System,
+}
+
+impl FileDialogs {
+    /// In menu order.
+    pub const ALL: [FileDialogs; 3] = [FileDialogs::Auto, FileDialogs::WordCraft, FileDialogs::System];
+
+    /// The value used in `ui.json` and by the `ui.fileDialogs` command.
+    pub fn code(self) -> &'static str {
+        match self {
+            FileDialogs::Auto => "auto",
+            FileDialogs::WordCraft => "wordcraft",
+            FileDialogs::System => "system",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<FileDialogs> {
+        FileDialogs::ALL.into_iter().find(|d| d.code().eq_ignore_ascii_case(code.trim()))
+    }
+
+    /// The English label.
+    pub fn label(self) -> &'static str {
+        match self {
+            FileDialogs::Auto => "Automatic",
+            FileDialogs::WordCraft => "WordCraft's file browser",
+            FileDialogs::System => "The system's file dialogs",
+        }
+    }
+
+    /// Does this setting show WordCraft's own browser, in a build whose edition language is
+    /// `edition` ([`i18n::EDITION_LANGUAGE`])?
+    pub fn own_browser(self, edition: Option<&str>) -> bool {
+        match self {
+            FileDialogs::Auto => edition.is_some(),
+            FileDialogs::WordCraft => true,
+            FileDialogs::System => false,
+        }
+    }
+}
+
+impl From<String> for FileDialogs {
+    fn from(s: String) -> Self {
+        FileDialogs::from_code(&s).unwrap_or_default()
+    }
+}
+
+impl From<FileDialogs> for String {
+    fn from(d: FileDialogs) -> Self {
+        d.code().to_string()
+    }
+}
+
 /// What the status bar's live count shows (#2797): words (the default, as Word's status bar
 /// counts), characters with spaces, or characters without spaces — the same three the Word Count
 /// dialog reports, worded the same way. Right-click the count in the status bar, or File ›
@@ -446,6 +511,8 @@ pub struct UiState {
     /// How far a touchpad swipe the system reports in points (Wayland, macOS) scrolls (#6146).
     #[serde(default, alias = "touchpadScrollSpeed")]
     pub touchpad_scroll_speed: ScrollSpeed,
+    /// File › Options › Advanced › File dialogs: the system's, or WordCraft's own browser.
+    pub file_dialogs: FileDialogs,
 }
 
 /// The ribbon tab the app opens on, and the one it falls back to when the tab that was showing
@@ -548,6 +615,7 @@ impl Default for UiState {
             font_download_notice: true,
             scroll_speed: ScrollSpeed::default(),
             touchpad_scroll_speed: ScrollSpeed::default(),
+            file_dialogs: FileDialogs::default(),
         }
     }
 }

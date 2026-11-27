@@ -209,8 +209,43 @@ pub fn layout_equation(
     props: &MathProps,
     counter: &mut u32,
 ) -> MathLayout {
+    layout_equation_at(math, linear, rc, EquationPlace { display, avail, rtl: false }, props, counter)
+}
+
+/// Where an equation is laid out ([`layout_equation_at`]).
+#[derive(Clone, Copy, Debug)]
+pub struct EquationPlace {
+    /// On a line of its own.
+    pub display: bool,
+    /// The width of the line.
+    pub avail: f32,
+    /// In a paragraph that reads right to left.
+    pub rtl: bool,
+}
+
+/// The prompt an empty equation shows and the font family it is drawn in: in the language of the
+/// text around it, as WordCraft's other words in a document are ([`wordcraft_doc::words`]), so an
+/// equation in Hebrew text, or in a paragraph that reads right to left in a Hebrew document,
+/// prompts in Hebrew, in the complex-script font.
+fn prompt(rc: &ResolvedChar, rtl_para: bool) -> (&'static str, String) {
+    let complex = rc.rtl || rc.cs || rtl_para;
+    let lang = if complex { rc.lang_bidi.as_deref().or(rc.lang.as_deref()) } else { rc.lang.as_deref() };
+    let text = wordcraft_doc::words::word(lang, "Type an equation");
+    (text, if wordcraft_doc::bidi::has_rtl(text) { rc.font_cs.clone() } else { rc.font.clone() })
+}
+
+/// [`layout_equation`] at `place`, whose direction decides an empty equation's prompt ([`prompt`]).
+pub fn layout_equation_at(
+    math: &wordcraft_doc::math::Math,
+    linear: &str,
+    rc: &ResolvedChar,
+    place: EquationPlace,
+    props: &MathProps,
+    counter: &mut u32,
+) -> MathLayout {
     #[cfg(test)]
     crate::test_fonts();
+    let EquationPlace { display, avail, rtl } = place;
     let parsed;
     let nodes: &Arg = if math.nodes.is_empty() && !math.linear {
         parsed = parse_linear(linear);
@@ -231,6 +266,7 @@ pub fn layout_equation(
         base,
         color,
         text_font: rc.font.clone(),
+        prompt: prompt(rc, rtl),
         nodes: 0,
         path: Vec::new(),
         node_stack: Vec::new(),

@@ -1,4 +1,4 @@
-use super::{Sense, Tokens, Ui, semibold, vec2};
+use super::{Sense, Tokens, Ui, WordApp, semibold, vec2};
 
 pub(super) fn heading(ui: &mut Ui, s: &str) {
     ui.add_space(4.0);
@@ -66,8 +66,37 @@ pub(super) fn sample(ui: &mut Ui, lines: &[(usize, String, String)], right: bool
 // ---------------------------------------------------------------------------------------------
 // Caption
 
-/// Labels every document has.
+/// Labels every document has, in English.
 pub(super) const BUILT_IN_LABELS: [&str; 3] = ["Equation", "Figure", "Table"];
+
+/// The language of the text at the caret, which a caption and its label go into.
+pub(super) fn caret_lang(app: &WordApp) -> Option<String> {
+    wordcraft_engine::cmd::words::caret_lang(&app.session)
+}
+
+/// The built-in labels as captions of the text at the caret are labelled: in its language
+/// (`איור` in Hebrew text), as the label goes into the document.
+pub(super) fn built_in_labels(app: &WordApp) -> [&'static str; 3] {
+    wordcraft_engine::cmd::words::caption_labels(caret_lang(app).as_deref())
+}
+
+/// The built-in label `english` (`Figure`, `Table`) as captions of the text at the caret are
+/// labelled.
+pub(super) fn built_in_label(app: &WordApp, english: &'static str) -> &'static str {
+    wordcraft_engine::cmd::words::word(caret_lang(app).as_deref(), english)
+}
+
+/// Whether `label` is a built-in label in a language WordCraft labels captions in.
+pub(super) fn is_built_in_label(label: &str) -> bool {
+    BUILT_IN_LABELS.contains(&label) || wordcraft_engine::cmd::words::caption_labels(Some("he")).contains(&label)
+}
+
+/// A caption label as the dialogs show it: as it goes into the document, so what the Caption
+/// dialog shows is what it inserts. An English interface shows its English built-in labels
+/// through the catalog, which leaves them as they are.
+pub(super) fn shown_label(label: &str) -> String {
+    if BUILT_IN_LABELS.contains(&label) && crate::i18n::current().code() == "en" { tl!(label).to_string() } else { label.to_string() }
+}
 
 /// Caption number formats: (`\*` switch, example). The two Hebrew ones part ways after the tenth
 /// number: Hebrew numerals go on יא, יב (11, 12), the alphabet goes on כ, ל.

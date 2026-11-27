@@ -24,11 +24,37 @@ fn autoformat(s: &mut Session, text: &str) -> Option<String> {
             || (c == '"' && p == '\u{2018}')
             || (c == '\'' && p == '\u{201C}')
     });
+    // Right after a Hebrew letter the mark is a gershayim (צה״ל) or a geresh (צ׳יפס), the marks
+    // Hebrew writes there, unless a quote of its kind is open: then it closes the quote (“שלום”).
+    let after_hebrew = before.chars().rev().find(|c| !wordcraft_doc::bidi::is_hebrew_point(*c)).is_some_and(wordcraft_doc::bidi::is_hebrew_letter);
     match c {
-        '"' => Some(if opening { "\u{201C}" } else { "\u{201D}" }.into()),
-        '\'' => Some(if opening { "\u{2018}" } else { "\u{2019}" }.into()),
+        '"' if opening => Some("\u{201C}".into()),
+        '"' if after_hebrew && !quote_open(before, &['\u{201C}', '\u{201E}'], '\u{201D}') => Some("\u{05F4}".into()),
+        '"' => Some("\u{201D}".into()),
+        '\'' if opening => Some("\u{2018}".into()),
+        '\'' if after_hebrew && !quote_open(before, &['\u{2018}', '\u{201A}'], '\u{2019}') => Some("\u{05F3}".into()),
+        '\'' => Some("\u{2019}".into()),
         _ => None,
     }
+}
+
+/// Is a quote open at the end of `before` (the paragraph up to the caret): is the last of its
+/// `opening` and `closing` marks an opening one? A closing mark between two letters (`don’t`,
+/// `צה”ל`) is an apostrophe or a gershayim, which closes nothing.
+fn quote_open(before: &str, opening: &[char], closing: char) -> bool {
+    let mut next: Option<char> = None;
+    let mut chars = before.chars().rev().peekable();
+    while let Some(c) = chars.next() {
+        if opening.contains(&c) {
+            return true;
+        }
+        let in_word = next.is_some_and(char::is_alphabetic) && chars.peek().is_some_and(|p| p.is_alphabetic());
+        if c == closing && !in_word {
+            return false;
+        }
+        next = Some(c);
+    }
+    false
 }
 
 /// File › Options › Advanced before typed text goes in: with "Typing replaces selected text"

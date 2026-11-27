@@ -53,6 +53,7 @@ pub mod tools;
 pub mod user_templates;
 pub mod view;
 pub mod wordart;
+pub mod words;
 
 use serde_json::{Value, json};
 use wordcraft_doc::props::CharProps;
@@ -392,8 +393,10 @@ fn insert_text(s: &mut Session, text: &str, enter: bool, language: Option<&str>)
     if !enter {
         props = props.without_symbol();
     }
+    // In the attribute Word keeps the language in: a right-to-left one (Hebrew) is the language of
+    // complex-script text.
     if let Some(language) = language {
-        props.lang = Some(language.to_string());
+        tools::set_language(&mut props, language);
     }
     let deletion = delete_selection_effect(s)?;
     // Typed text is new: never deleted, and not a formatting change of the text around it.

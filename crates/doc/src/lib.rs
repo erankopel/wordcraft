@@ -50,6 +50,7 @@ pub mod styles;
 pub mod symbol_fonts;
 pub mod table;
 pub mod wordart;
+pub mod words;
 pub mod work;
 pub mod wrap;
 pub mod zip_guard;

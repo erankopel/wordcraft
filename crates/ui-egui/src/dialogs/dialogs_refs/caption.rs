@@ -1,4 +1,4 @@
-use super::common::{BUILT_IN_LABELS, NUMBER_FORMATS, SEPARATORS, choice};
+use super::common::{NUMBER_FORMATS, SEPARATORS, built_in_label, built_in_labels, choice, is_built_in_label, shown_label};
 use super::shell::{Next, go};
 use super::{Block, RefsDialog, Serialize, Ui, Value, WordApp, buttons, json, vec2};
 
@@ -7,8 +7,9 @@ use super::{Block, RefsDialog, Serialize, Ui, Value, WordApp, buttons, json, vec
 #[serde(rename_all = "camelCase")]
 pub struct CaptionForm {
     pub label: String,
-    /// Built-in labels and the user's own (kept with the interface settings, like Word's
-    /// Normal template keeps them).
+    /// Built-in labels, in the language of the text at the caret (the words the caption is
+    /// written with), and the user's own (kept with the interface settings, like Word's Normal
+    /// template keeps them).
     pub labels: Vec<String>,
     pub text: String,
     /// `below` or `above`.
@@ -26,7 +27,7 @@ pub struct CaptionForm {
 
 impl CaptionForm {
     pub fn read(app: &WordApp) -> CaptionForm {
-        let mut labels: Vec<String> = BUILT_IN_LABELS.iter().map(ToString::to_string).collect();
+        let mut labels: Vec<String> = built_in_labels(app).iter().map(ToString::to_string).collect();
         for l in &app.ui.caption_labels {
             if !labels.contains(l) {
                 labels.push(l.clone());
@@ -42,9 +43,9 @@ impl CaptionForm {
                 .get(app.session.sel.focus.path.0.first().copied().unwrap_or(0) as usize)
                 .is_some_and(|b| matches!(&**b, Block::Table(_)));
         let last = &app.ui.last_caption_label;
-        let label = if labels.contains(last) { last.as_str() } else { "Figure" };
+        let label = if labels.contains(last) { last.as_str() } else { built_in_label(app, "Figure") };
         CaptionForm {
-            label: if in_table { "Table" } else { label }.into(),
+            label: if in_table { built_in_label(app, "Table") } else { label }.into(),
             labels,
             text: String::new(),
             position: "below".into(),
@@ -112,9 +113,10 @@ pub(super) fn caption_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) ->
             let label_label = r.cell(|ui| ui.label(tl!("Label:")));
             r.cell(|ui| {
                 let labels: Vec<(String, &str)> = f.labels.iter().map(|l| (l.clone(), l.as_str())).collect();
-                let combo = craft_ui::ComboBox::from_id_salt("cap_label").selected_text(tl!(&f.label)).width(150.0).show_ui(ui, |ui| {
+                // Shown as they go into the document.
+                let combo = craft_ui::ComboBox::from_id_salt("cap_label").selected_text(shown_label(&f.label)).width(150.0).show_ui(ui, |ui| {
                     for (v, l) in &labels {
-                        ui.selectable_value(&mut f.label, v.clone(), tl!(l));
+                        ui.selectable_value(&mut f.label, v.clone(), shown_label(l));
                     }
                 });
                 combo.response.labelled_by(label_label.id);
@@ -141,11 +143,11 @@ pub(super) fn caption_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) ->
             n.new_label.clear();
             then = Some(RefsDialog::NewLabel(n));
         }
-        let custom = !BUILT_IN_LABELS.contains(&f.label.as_str());
+        let custom = !is_built_in_label(&f.label);
         if ui.add_enabled(custom, egui::Button::new(tl!("Delete Label"))).clicked() {
             app.ui.caption_labels.retain(|l| *l != f.label);
             f.labels.retain(|l| *l != f.label);
-            f.label = "Figure".into();
+            f.label = built_in_label(app, "Figure").into();
         }
         if ui.button(tl!("Numbering…")).clicked() {
             then = Some(RefsDialog::CaptionNumbering { was: Box::new(f.clone()), form: f.clone() });
@@ -224,7 +226,7 @@ pub(super) fn new_label_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) 
         if !f.labels.contains(&name) {
             f.labels.push(name.clone());
         }
-        if !BUILT_IN_LABELS.contains(&name.as_str()) && !app.ui.caption_labels.contains(&name) {
+        if !is_built_in_label(&name) && !app.ui.caption_labels.contains(&name) {
             app.ui.caption_labels.push(name.clone());
         }
         f.label = name;

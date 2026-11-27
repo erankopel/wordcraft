@@ -442,3 +442,35 @@ fn caption_dialog_numbers_in_hebrew() {
     assert!(instrs(&a).iter().any(|i| i.contains("\\* hebrew1")), "{:?}", instrs(&a));
     assert!(a.session.doc.plain_text(StoryRef::Body).contains("Figure \u{05D0}"));
 }
+
+/// HE-03: in Hebrew text the Caption dialog's built-in labels are the Hebrew words captions there
+/// are written with, and what it shows is what OK inserts; the Table of Figures dialog starts on
+/// the same label, so it lists those captions.
+#[test]
+fn caption_dialog_in_hebrew_text_shows_and_inserts_hebrew_labels() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::Queryable;
+    let hebrew = |t: &str| t.chars().any(|c| ('\u{05D0}'..='\u{05EA}').contains(&c));
+    let mut session = Session::new(wordcraft_doc::Document::new());
+    session.set_new_documents_rtl(true);
+    let mut a = WordApp::new(session, Services::default());
+    a.run("text.insert", json!({"text": "מפת הארץ"})).unwrap();
+    a.run("references.caption", json!({})).unwrap();
+    let RefsDialog::Caption(f) = form(&a) else { panic!() };
+    assert!(f.labels.iter().all(|l| hebrew(l)) && hebrew(&f.label), "{:?}", f.labels);
+    assert_eq!(super::toc::FiguresForm::read(&a).label, f.label, "the Table of Figures lists the same label");
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            app.ui(ui);
+        },
+        a,
+    );
+    h.run_steps(4);
+    h.get_by_value(&f.label);
+    h.get_by_role_and_label(Role::Button, "OK").click();
+    h.run_steps(3);
+    let text = h.state().session.doc.plain_text(StoryRef::Body);
+    assert!(text.lines().nth(1).is_some_and(|caption| caption.starts_with(&f.preview())), "the caption reads as the preview: {text:?}");
+}

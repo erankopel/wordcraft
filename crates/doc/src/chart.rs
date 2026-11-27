@@ -333,12 +333,25 @@ impl ChartSpec {
     /// A new chart of type `kind` with WordCraft's sample data: four quarters and three series
     /// (one for pie and doughnut charts, x values for scatter charts), legend at the bottom.
     pub fn sample(kind: ChartType) -> ChartSpec {
+        ChartSpec::sample_in(kind, None)
+    }
+
+    /// [`ChartSpec::sample`] with its names in the language `lang` of the text it goes into:
+    /// Hebrew text gets Hebrew category and series names ([`crate::words`]), any other English
+    /// ones. The numbers are the same.
+    pub fn sample_in(kind: ChartType, lang: Option<&str>) -> ChartSpec {
+        let he = crate::words::is_hebrew(lang);
+        let t = |en: &'static str, hebrew: &'static str| if he { hebrew } else { en };
+        let series_name = [t("Series 1", "סדרה 1"), t("Series 2", "סדרה 2"), t("Series 3", "סדרה 3")];
         let (categories, series): (Vec<&str>, Vec<(&str, [f64; 4])>) = match kind {
-            ChartType::Pie | ChartType::Doughnut => (vec!["North", "East", "South", "West"], vec![("Share", [38.0, 24.0, 21.0, 17.0])]),
-            ChartType::Scatter => (vec!["1", "2", "3", "4"], vec![("Series 1", [2.1, 3.4, 3.0, 4.6]), ("Series 2", [1.2, 1.9, 2.8, 3.1])]),
+            ChartType::Pie | ChartType::Doughnut => (
+                vec![t("North", "צפון"), t("East", "מזרח"), t("South", "דרום"), t("West", "מערב")],
+                vec![(t("Share", "נתח"), [38.0, 24.0, 21.0, 17.0])],
+            ),
+            ChartType::Scatter => (vec!["1", "2", "3", "4"], vec![(series_name[0], [2.1, 3.4, 3.0, 4.6]), (series_name[1], [1.2, 1.9, 2.8, 3.1])]),
             _ => (
-                vec!["Q1", "Q2", "Q3", "Q4"],
-                vec![("Series 1", [3.2, 4.1, 3.6, 5.0]), ("Series 2", [2.0, 2.7, 3.9, 3.3]), ("Series 3", [1.5, 2.2, 2.4, 3.8])],
+                vec![t("Q1", "רבעון 1"), t("Q2", "רבעון 2"), t("Q3", "רבעון 3"), t("Q4", "רבעון 4")],
+                vec![(series_name[0], [3.2, 4.1, 3.6, 5.0]), (series_name[1], [2.0, 2.7, 3.9, 3.3]), (series_name[2], [1.5, 2.2, 2.4, 3.8])],
             ),
         };
         ChartSpec {
@@ -461,6 +474,21 @@ mod tests {
         for kind in ChartType::ALL {
             let spec = ChartSpec::sample(kind);
             assert_eq!(serde_json::from_str::<ChartSpec>(&serde_json::to_string(&spec).unwrap()).unwrap(), spec, "{kind:?}");
+        }
+    }
+
+    /// A chart inserted into Hebrew text names its sample categories and series in Hebrew; its
+    /// numbers are the English sample's.
+    #[test]
+    fn hebrew_text_gets_hebrew_sample_names() {
+        for kind in ChartType::ALL {
+            let (en, he) = (ChartSpec::sample(kind), ChartSpec::sample_in(kind, Some("he-IL")));
+            assert_eq!(en.series.iter().map(|s| &s.values).collect::<Vec<_>>(), he.series.iter().map(|s| &s.values).collect::<Vec<_>>(), "{kind:?}");
+            assert!(he.series.iter().all(|s| crate::bidi::has_rtl(&s.name)), "{kind:?}");
+            if kind != ChartType::Scatter {
+                assert!(he.categories.iter().all(|c| crate::bidi::has_rtl(c)), "{kind:?}: {:?}", he.categories);
+            }
+            assert_eq!(ChartSpec::sample_in(kind, Some("en-US")), en);
         }
     }
 

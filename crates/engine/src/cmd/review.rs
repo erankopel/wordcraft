@@ -107,6 +107,22 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"word"?: string}"#)
         .pure(),
+        CommandSpec::new("review.ignoreOnce", "Ignore Once", "Review › Proofing", |s, _| {
+            // The issue at the selection (the one Spelling & Grammar selected): this occurrence
+            // only, until its paragraph changes, as Word's Ignore Once.
+            let at = s.sel.focus.clone();
+            let found = issue_at(s, &at).and_then(|(a, b, issue)| {
+                let p = s.doc.para_at(&a)?;
+                Some((p.rev, a.off, b.off, issue.kind == wordcraft_proof::IssueKind::Grammar, p.text.get(a.off..b.off)?.to_string()))
+            });
+            let Some((rev, start, end, grammar, text)) = found else {
+                return Err(CmdError::Params("there is no spelling or grammar issue at the selection to ignore".into()));
+            };
+            wordcraft_layout::para::ignore_once(rev, start, end, grammar);
+            s.relayout();
+            Ok(json!({"ignored": text}))
+        })
+        .pure(),
         CommandSpec::new("review.ignoreAll", "Ignore All", "Review › Proofing", |s, v| {
             let w = match p::str(v, "word") {
                 Some(w) => w.to_string(),
@@ -117,6 +133,12 @@ pub fn specs() -> Vec<CommandSpec> {
             // For this session only, as in Word: not added to (or saved with) the dictionary.
             if !w.trim().is_empty() {
                 wordcraft_proof::ignore_word(w.trim());
+                // A Hebrew word is looked up as the Hebrew dictionary spells it (no points, `"` and
+                // `'` for gershayim and geresh): ignored in that spelling too.
+                let form = wordcraft_layout::para::dictionary_form(w.trim());
+                if form != w.trim() {
+                    wordcraft_proof::ignore_word(&form);
+                }
             }
             s.relayout();
             Ok(json!({"ignored": w}))

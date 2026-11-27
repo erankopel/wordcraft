@@ -38,11 +38,29 @@ impl Ctx {
         b
     }
 
-    /// An empty equation: a grey prompt (screen only).
+    /// An empty equation: a grey prompt (screen only), in the language of the text around it
+    /// ([`Ctx::prompt`]). It is drawn in a face that has its letters (the family's, else a
+    /// fallback face; the English prompt in the text's font when no face has them), and a
+    /// right-to-left prompt in visual order (UAX #9 L2), its first letter at the right.
     pub(super) fn hint(&mut self, st: St) -> Bx {
         let size = self.size(st);
-        let rs = wordcraft_fonts::word::resolve(&self.text_font, false, false);
-        let mut g = self.glyphs(rs.face, "Type an equation", size, 0, Rgb(0x80, 0x80, 0x80), (rs.synth_bold, rs.synth_italic));
+        let (text, family) = self.prompt.clone();
+        let rs = wordcraft_fonts::word::resolve(&family, false, false);
+        let letters: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+        let (text, face, synth) = if letters.iter().all(|c| rs.face.get().covers(*c)) {
+            (text, rs.face, (rs.synth_bold, rs.synth_italic))
+        } else if let Some(f) = FontDb::global().fallback_for_run(&letters, rs.face.id(), false, false) {
+            (text, FaceRef::of(&f), (false, false))
+        } else {
+            let rs = wordcraft_fonts::word::resolve(&self.text_font, false, false);
+            ("Type an equation", rs.face, (rs.synth_bold, rs.synth_italic))
+        };
+        let shown = if wordcraft_doc::bidi::has_rtl(text) {
+            unicode_bidi::ParagraphBidiInfo::new(text, None).reorder_line(0..text.len()).into_owned()
+        } else {
+            text.to_string()
+        };
+        let mut g = self.glyphs(face, &shown, size, 0, Rgb(0x80, 0x80, 0x80), synth);
         g.items = std::mem::take(&mut g.items).into_iter().map(|i| MItem::ScreenOnly(Box::new(i))).collect();
         g.glyph = None;
         g.cuts.clear();

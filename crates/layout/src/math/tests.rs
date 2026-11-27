@@ -306,6 +306,47 @@ fn empty_slots_show_placeholders_on_screen_only() {
     assert!(empty.width > 10.0 && empty.items.iter().all(|i| matches!(i, MItem::ScreenOnly(_))));
 }
 
+/// UW-14: an empty equation prompts in the language of the text around it. In a right-to-left
+/// paragraph of a Hebrew document (Hebrew as its complex-script language), or in a right-to-left
+/// run, it prompts in Hebrew, in the complex-script font, drawn from the right; elsewhere in
+/// English, in the text's font.
+#[test]
+fn an_empty_equation_prompts_in_the_language_of_the_text_around_it() {
+    crate::test_fonts();
+    let english = wordcraft_doc::words::word(None, "Type an equation");
+    let hebrew_prompt = wordcraft_doc::words::word(Some("he"), "Type an equation");
+    let mut hebrew = rc();
+    hebrew.lang_bidi = Some("he-IL".into());
+    hebrew.font_cs = "Hebrew Body".into();
+    assert_eq!(prompt(&hebrew, true), (hebrew_prompt, "Hebrew Body".to_string()), "a right-to-left paragraph");
+    assert_eq!(prompt(&ResolvedChar { rtl: true, ..hebrew.clone() }, false).0, hebrew_prompt, "a right-to-left run");
+    assert_eq!(prompt(&hebrew, false), (english, hebrew.font.clone()), "Latin text of a Hebrew document");
+    assert_eq!(prompt(&rc(), true).0, english, "a right-to-left paragraph whose complex-script language isn't Hebrew");
+    // Drawn: the prompt's glyph runs, as the screen shows them.
+    let shown = |rc: &ResolvedChar, rtl: bool| -> String {
+        let place = EquationPlace { display: false, avail: 400.0, rtl };
+        let m = layout_equation_at(&Math::default(), "", rc, place, &MathProps::default(), &mut 0);
+        m.items
+            .iter()
+            .filter_map(|i| match i {
+                MItem::ScreenOnly(b) => match &**b {
+                    MItem::Glyphs { text, .. } => Some(text.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(shown(&rc(), false), english);
+    let letters: Vec<char> = hebrew_prompt.chars().filter(|c| !c.is_whitespace()).collect();
+    if FontDb::global().fallback_for_run(&letters, u32::MAX, false, false).is_some() {
+        // In visual order: the first letter at the right end.
+        assert_eq!(shown(&hebrew, true).chars().rev().collect::<String>(), hebrew_prompt);
+    } else {
+        assert_eq!(shown(&hebrew, true), english, "no face has Hebrew letters: the English prompt rather than boxes");
+    }
+}
+
 #[test]
 fn numbered_equations_fill_the_line_with_the_number_at_the_right() {
     crate::test_fonts();

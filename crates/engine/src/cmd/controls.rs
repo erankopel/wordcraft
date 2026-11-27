@@ -44,11 +44,11 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(LIST),
         CommandSpec::new("developer.datePicker", "Date Picker Content Control", LOC, |s, v| {
-            insert(
-                s,
-                v,
-                ControlKind::Date { full_date: String::new(), format: "M/d/yyyy".into(), lid: "en-US".into(), calendar: "gregorian".into(), store_as: "dateTime".into() },
-            )
+            // In Hebrew text the picker writes Hebrew dates, day first, as Insert › Date and Time
+            // does there; its language (`w:lid`) tells Word to write them so too.
+            let lid = if super::words::is_hebrew(super::words::caret_lang(s).as_deref()) { wordcraft_doc::styles::HEBREW_LANG } else { "en-US" };
+            let format = super::insert::default_date_picture(Some(lid)).into();
+            insert(s, v, ControlKind::Date { full_date: String::new(), format, lid: lid.into(), calendar: "gregorian".into(), store_as: "dateTime".into() })
         })
         .params(r#"{"title"?: string, "tag"?: string, "format"?: "M/d/yyyy", "date"?: "YYYY-MM-DD"}"#),
         CommandSpec::new("developer.repeatingSection", "Repeating Section Content Control", LOC, |s, v| {
@@ -473,10 +473,10 @@ fn insert(s: &mut Session, v: &Value, kind: ControlKind) -> CmdResult {
         ControlKind::CheckBox { checked, checked_char, unchecked_char, .. } => {
             ((if *checked { *checked_char } else { *unchecked_char }).to_string(), base.clone())
         }
-        ControlKind::Date { full_date, format, .. } if p::str(v, "date").is_some() => {
+        ControlKind::Date { full_date, format, lid, .. } if p::str(v, "date").is_some() => {
             let (y, m, d) = p::str(v, "date").and_then(parse_date).ok_or_else(|| CmdError::Params("date: YYYY-MM-DD".into()))?;
             *full_date = format!("{y:04}-{m:02}-{d:02}T00:00:00Z");
-            (format_date_value(format, y, m, d), base.clone())
+            (format_date_value_in(format, lid, y, m, d), base.clone())
         }
         _ => {
             ctl.showing_placeholder = true;
@@ -593,14 +593,14 @@ fn apply_kind_properties(c: &mut ContentControl, v: &Value) -> Option<String> {
                 *items = i;
             }
         }
-        ControlKind::Date { format, full_date, .. } => {
+        ControlKind::Date { format, full_date, lid, .. } => {
             if let Some(f) = short(v, "format").filter(|f| !f.trim().is_empty()) {
                 *format = f;
                 // The shown date follows the new format.
                 if let Some((y, m, d)) = parse_date(full_date)
                     && !c.showing_placeholder
                 {
-                    content = Some(format_date_value(format, y, m, d));
+                    content = Some(format_date_value_in(format, lid, y, m, d));
                 }
             }
         }
@@ -710,12 +710,14 @@ fn choose_item(s: &mut Session, v: &Value) -> CmdResult {
 
 fn set_date(s: &mut Session, v: &Value) -> CmdResult {
     let r = target(s, v)?;
-    let ControlKind::Date { format, .. } = &r.control.kind else { return Err(CmdError::Disabled("the selection isn't in a date picker".into())) };
+    let ControlKind::Date { format, lid, .. } = &r.control.kind else {
+        return Err(CmdError::Disabled("the selection isn't in a date picker".into()));
+    };
     if !r.control.lock.can_edit() {
         return Err(locked(s, CANT_EDIT));
     }
     let (y, m, d) = p::str(v, "date").and_then(parse_date).ok_or_else(|| CmdError::Params("date: YYYY-MM-DD".into()))?;
-    let text = format_date_value(format, y, m, d);
+    let text = format_date_value_in(format, lid, y, m, d);
     let props = content_base(s, &r);
     let end = set_content(s, &r, &text, &props)?;
     if let Some(c) = s.doc.control_mut(&r.start) {
@@ -750,9 +752,17 @@ fn remove_control(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// A date with a date picture (`M/d/yyyy`, `dddd, MMMM d, yyyy`…).
+/// A date with a date picture (`M/d/yyyy`, `dddd, MMMM d, yyyy`…), in English.
 pub fn format_date_value(fmt: &str, y: i64, m: u32, d: u32) -> String {
-    super::insert::format_date_parts(fmt, y, m as usize, d, (0, 0, 0), days_from_civil(y, m, d))
+    format_date_value_in(fmt, "", y, m, d)
+}
+
+/// [`format_date_value`] in the language `lid` (a date picker's `w:lid`, such as `he-IL`), as
+/// Word writes a picked date: with that language's month and weekday names where WordCraft has
+/// them, else the English ones.
+pub fn format_date_value_in(fmt: &str, lid: &str, y: i64, m: u32, d: u32) -> String {
+    let lang = Some(lid.trim()).filter(|l| !l.is_empty());
+    super::insert::format_date_parts_in(fmt, lang, y, m as usize, d, (0, 0, 0), days_from_civil(y, m, d))
 }
 
 #[cfg(test)]

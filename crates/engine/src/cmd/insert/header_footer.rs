@@ -70,9 +70,16 @@ pub(super) fn header_footer(s: &mut Session, v: &Value, header: bool) -> CmdResu
         s.doc.set_story(StoryRef::Part(id), blocks)?;
     } else if let Some(preset) = p::str(v, "preset") {
         let mut para = Paragraph::new().styled(style);
+        // A placeholder is in the language of the header or footer: Hebrew in a Hebrew document.
+        let lang = crate::cmd::words::style_lang(&s.doc, style);
+        let placeholder = |english| crate::cmd::words::word(lang.as_deref(), english);
         match preset {
             "title" => {
-                para.insert_text(0, if s.doc.core.title.is_empty() { "[Document title]" } else { &s.doc.core.title }, &CharProps::default())?;
+                para.insert_text(
+                    0,
+                    if s.doc.core.title.is_empty() { placeholder("[Document title]") } else { &s.doc.core.title },
+                    &CharProps::default(),
+                )?;
                 para.props.align = Some(Align::Center);
             }
             "pageNumber" => {
@@ -84,7 +91,7 @@ pub(super) fn header_footer(s: &mut Session, v: &Value, header: bool) -> CmdResu
                 )?;
             }
             _ => {
-                para.insert_text(0, "[Type here]", &CharProps::default())?;
+                para.insert_text(0, placeholder("[Type here]"), &CharProps::default())?;
             }
         }
         s.doc.set_story(StoryRef::Part(id), vec![para_block(para)])?;

@@ -35,14 +35,16 @@ fn story_has_page_field(doc: &wordcraft_doc::Document, story: StoryRef, except: 
     false
 }
 
-fn page_number_paragraph(style: &str, align: Align, x_of_y: bool) -> Result<Paragraph, CmdError> {
+/// A page-number paragraph: the page number alone, or with `x_of_y` the words of "Page X of Y"
+/// around the page number and the page count (before the number, and between the two).
+fn page_number_paragraph(style: &str, align: Align, x_of_y: Option<(&str, &str)>) -> Result<Paragraph, CmdError> {
     let field = InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() };
     let mut para = Paragraph::new().styled(style);
     para.props.align = Some(align);
     para.props.tabs = Some(vec![TabStop { pos: 0.0, align: TabAlign::Clear, leader: Default::default() }]);
-    if x_of_y {
-        para.insert_text(0, "Page  of ", &CharProps::default())?;
-        para.insert_object(5, field, &CharProps { bold: Some(true), ..Default::default() })?;
+    if let Some((before, between)) = x_of_y {
+        para.insert_text(0, &format!("{before}{between}"), &CharProps::default())?;
+        para.insert_object(before.len(), field, &CharProps { bold: Some(true), ..Default::default() })?;
         let end = para.len();
         para.insert_object(
             end,
@@ -92,7 +94,9 @@ pub(super) fn page_number(s: &mut Session, v: &Value) -> CmdResult {
     // right-to-left document "right" is its start edge.
     let rtl = s.doc.styles.resolve_para(&wordcraft_doc::props::ParaProps { style: Some(style.into()), ..Default::default() }).bidi;
     let align = align.visual(rtl);
-    let mut para = page_number_paragraph(style, align, x_of_y)?;
+    // "Page X of Y" in the language of the header or footer: "עמוד X מתוך Y" in a Hebrew document.
+    let words = x_of_y.then(|| crate::cmd::words::page_x_of_y(crate::cmd::words::style_lang(&s.doc, style).as_deref()));
+    let mut para = page_number_paragraph(style, align, words)?;
     // Replace only a top-level paragraph matching our generated structure. User text,
     // field switches/metadata and paragraph/run formatting must not be mistaken for a gallery number.
     // Cached field results and paragraph-mark formatting survive gallery changes and identical requests.
@@ -101,7 +105,8 @@ pub(super) fn page_number(s: &mut Session, v: &Value) -> CmdResult {
             blocks.iter().enumerate().find_map(|(i, block)| {
                 let Block::Para(existing) = &**block else { return None };
                 let Some(align @ (Align::Left | Align::Center | Align::Right)) = existing.props.align else { return None };
-                [false, true]
+                // The page number alone, or "Page X of Y" in either language WordCraft writes it in.
+                [None, Some(crate::cmd::words::page_x_of_y(None)), Some(crate::cmd::words::page_x_of_y(Some("he")))]
                     .into_iter()
                     .any(|x_of_y| {
                         page_number_paragraph(style, align, x_of_y).is_ok_and(|mut p| {
@@ -148,20 +153,27 @@ pub(super) fn page_number(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"story": id}))
 }
 
+/// The languages Insert › Date and Time writes dates in (`insert.dateTime`'s `language`).
+pub const DATE_LANGUAGES: [&str; 3] = ["en-US", "he-IL", "pt-BR"];
+
 /// Insert date and time at the caret or selection, formatted with a Word picture or default format.
+/// The date is in the language asked for, else in that of the text at the caret
+/// ([`crate::cmd::words::caret_lang`]): in Hebrew text, or an empty paragraph that reads right to
+/// left, the language of complex-script text, so a Hebrew document gets a Hebrew date, day first.
+/// A field in a language written right to left is complex-script text (`w:rtl`) in that language
+/// (`w:lang/@w:bidi`), so its updates, here and in Word, keep it in that language.
 pub(super) fn date_time(s: &mut Session, v: &Value) -> CmdResult {
     let language = p::str(v, "language");
-    if language.is_some_and(|l| !matches!(l, "en-US" | "pt-BR")) {
-        return Err(CmdError::Params("language must be en-US or pt-BR".into()));
+    if language.is_some_and(|l| !DATE_LANGUAGES.contains(&l)) {
+        return Err(CmdError::Params(format!("language must be one of {}", DATE_LANGUAGES.join(", "))));
     }
     let mut props = s.typing_props();
-    if let Some(lang) = language {
-        props.lang = Some(lang.to_string());
-    }
-    // Resolve the same run language used by refresh_date_fields on subsequent updates.
-    // Resolving language from the selection start ordered().0 is intentional for the fixed-text path
-    // so the typed text takes the character/paragraph styling where the insertion begins.
-    let effective_language = s.doc.para_at(&s.sel.ordered().0).and_then(|p| s.doc.styles.resolve_char(p.props.style.as_deref(), &props).lang);
+    // The language a field's updates read (refresh_date_fields): taken where the insertion begins,
+    // with the formatting typing gives the text there.
+    let effective_language = match language {
+        Some(lang) => Some(lang.to_string()),
+        None => crate::cmd::words::caret_lang(s),
+    };
     // A missing picture follows the selected or inherited language, just like a DATE field
     // without a \\@ switch; an explicitly supplied picture is never overridden.
     let fmt = p::str(v, "format").unwrap_or_else(|| default_date_picture(effective_language.as_deref()));
@@ -170,6 +182,12 @@ pub(super) fn date_time(s: &mut Session, v: &Value) -> CmdResult {
     }
     let text = format_date_in(fmt, effective_language.as_deref());
     if p::bool(v, "update").unwrap_or(false) {
+        if let Some(lang) = effective_language.as_deref().filter(|l| language.is_some() || wordcraft_doc::bidi::is_rtl_language(l)) {
+            crate::cmd::tools::set_language(&mut props, lang);
+            if wordcraft_doc::bidi::is_rtl_language(lang) {
+                props.rtl = Some(true);
+            }
+        }
         let at = delete_selection(s)?;
         let end = s.doc.insert_object(
             &at,
@@ -209,41 +227,100 @@ pub fn format_date_at_in(fmt: &str, lang: Option<&str>, unix: u64, offset_secs: 
     format_date_parts_in(fmt, lang, y, m as usize, d, hms, days)
 }
 
-/// Month and weekday names of a language, as Word writes them in date fields: full names, the
-/// three-letter forms (`MMM`, `ddd`) being their first three letters, without a full stop.
-/// Weekdays start on Thursday (1970-01-01).
+/// Month and weekday names of a language, as Word writes them in date fields: full names, and
+/// the short forms (`MMM`, `ddd`): the language's own abbreviations, or the first three letters
+/// without a full stop. Weekdays start on Thursday (1970-01-01).
 struct DateNames {
     /// Full month names (January through December).
     months: [&'static str; 12],
+    /// `MMM`; `None` takes each month's first three letters.
+    short_months: Option<[&'static str; 12]>,
     /// Weekday names starting on Thursday (1970-01-01).
     days: [&'static str; 7],
+    /// `ddd`; `None` takes each day's first three letters.
+    short_days: Option<[&'static str; 7]>,
+    /// `am/pm` (and `A`, `a`): before noon, after noon.
+    am_pm: [&'static str; 2],
     /// The picture of a `DATE` field without `\@`.
     default: &'static str,
+    /// The picture of a `TIME` field without `\@`.
+    default_time: &'static str,
 }
 
 const ENGLISH: DateNames = DateNames {
     months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    short_months: None,
     days: ["Thursday", "Friday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday"],
+    short_days: None,
+    am_pm: ["AM", "PM"],
     default: "M/d/yyyy",
+    default_time: "h:mm am/pm",
 };
 
 /// Portuguese (observed in Word for Mac with a pt-BR document): lower-case names, `MMM` = `out`,
 /// `ddd` = `qui`, and `dd/MM/yyyy` for a field without a picture.
 const PORTUGUESE: DateNames = DateNames {
     months: ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"],
+    short_months: None,
     days: ["quinta-feira", "sexta-feira", "sábado", "domingo", "segunda-feira", "terça-feira", "quarta-feira"],
+    short_days: None,
+    am_pm: ["AM", "PM"],
     default: "dd/MM/yyyy",
+    default_time: "h:mm am/pm",
 };
 
-/// Choose month and weekday names according to the primary language subtag.
+/// Hebrew, as dates are written in Israel: the Gregorian months by their Hebrew names, the
+/// weekdays as "יום ראשון" … with Saturday "שבת", the usual abbreviations with a geresh (ינו׳,
+/// א׳), the day before the month (`dd/MM/yyyy`) and a 24-hour clock.
+const HEBREW: DateNames = DateNames {
+    months: ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"],
+    short_months: Some(["ינו׳", "פבר׳", "מרץ", "אפר׳", "מאי", "יוני", "יולי", "אוג׳", "ספט׳", "אוק׳", "נוב׳", "דצמ׳"]),
+    days: ["יום חמישי", "יום שישי", "שבת", "יום ראשון", "יום שני", "יום שלישי", "יום רביעי"],
+    short_days: Some(["ה׳", "ו׳", "ש׳", "א׳", "ב׳", "ג׳", "ד׳"]),
+    am_pm: ["לפנה״צ", "אחה״צ"],
+    default: "dd/MM/yyyy",
+    default_time: "HH:mm",
+};
+
+/// A Hebrew date written out in full, as a letter or a cover page dates itself:
+/// `27 בנובמבר 2026` (the day, then the month with the prefix ב, "in").
+pub const HEBREW_LONG_DATE: &str = "d 'ב'MMMM yyyy";
+
+/// Choose month and weekday names according to the primary language subtag (`iw` is Hebrew's
+/// old tag).
 fn date_names(lang: Option<&str>) -> &'static DateNames {
-    let primary = lang.and_then(|l| l.trim().split(['-', '_']).next()).unwrap_or("");
-    if primary.eq_ignore_ascii_case("pt") { &PORTUGUESE } else { &ENGLISH }
+    match lang.map(wordcraft_doc::bidi::primary_subtag).as_deref() {
+        Some("pt") => &PORTUGUESE,
+        Some("he" | "iw") => &HEBREW,
+        _ => &ENGLISH,
+    }
 }
 
 /// The picture Word gives a `DATE` field that has no `\@` switch, in the field's language.
 pub fn default_date_picture(lang: Option<&str>) -> &'static str {
     date_names(lang).default
+}
+
+/// The picture of a `TIME` field that has no `\@` switch, in the field's language: a 24-hour
+/// clock in Hebrew.
+pub fn default_time_picture(lang: Option<&str>) -> &'static str {
+    date_names(lang).default_time
+}
+
+/// The picture a language writes a short date and time with, as the interface shows a moment
+/// (a recovery copy's time, a comment's): its default date and time pictures, `dd/MM/yyyy HH:mm`
+/// in Hebrew, `M/d/yyyy h:mm am/pm` in English.
+pub fn short_date_time_picture(lang: Option<&str>) -> String {
+    let names = date_names(lang);
+    format!("{} {}", names.default, names.default_time)
+}
+
+/// A moment WordCraft recorded as an RFC 3339 timestamp (`2026-11-27T06:25:33Z`, as
+/// [`crate::cmd::now_iso`] writes a recovery copy's time) in local time, written in the language
+/// `lang` ([`short_date_time_picture`]): `27/11/2026 08:25` in Hebrew. `None` for anything else.
+pub fn local_date_time(stamp: &str, lang: Option<&str>) -> Option<String> {
+    let unix = u64::try_from(chrono::DateTime::parse_from_rfc3339(stamp.trim()).ok()?.timestamp()).ok()?;
+    Some(format_date_at_in(&short_date_time_picture(lang), lang, unix, crate::cmd::local_offset_secs(unix)))
 }
 
 /// Format a date and time with a Word picture; `days_since` (days since 1970-01-01) gives the weekday.
@@ -256,9 +333,14 @@ pub fn format_date_parts(fmt: &str, y: i64, m: usize, d: u32, hms: (u32, u32, u3
 #[allow(clippy::too_many_arguments)]
 pub fn format_date_parts_in(fmt: &str, lang: Option<&str>, y: i64, m: usize, d: u32, (hh, mm, ss): (u32, u32, u32), days_since: i64) -> String {
     let names = date_names(lang);
-    let month = names.months.get(m.saturating_sub(1)).copied().unwrap_or(names.months[0]);
-    let day = names.days.get(days_since.rem_euclid(7) as usize).copied().unwrap_or(names.days[0]);
+    let mi = m.saturating_sub(1);
+    let di = days_since.rem_euclid(7) as usize;
+    let month = names.months.get(mi).copied().unwrap_or(names.months[0]);
+    let day = names.days.get(di).copied().unwrap_or(names.days[0]);
     let three = |s: &str| -> String { s.chars().take(3).collect() };
+    let short_month = names.short_months.and_then(|n| n.get(mi).copied()).map_or_else(|| three(month), str::to_string);
+    let short_day = names.short_days.and_then(|n| n.get(di).copied()).map_or_else(|| three(day), str::to_string);
+    let [am, pm] = names.am_pm;
     let mut out = String::new();
     let chars: Vec<char> = fmt.chars().collect();
     let mut i = 0;
@@ -286,9 +368,9 @@ pub fn format_date_parts_in(fmt: &str, lang: Option<&str>, y: i64, m: usize, d: 
             }
             continue;
         }
-        // `am/pm` (any case) is one token: AM or PM.
+        // `am/pm` (any case) is one token: AM or PM, in the language's words.
         if chars.get(i..i + 5).is_some_and(|w| w.iter().collect::<String>().eq_ignore_ascii_case("am/pm")) {
-            out.push_str(if hh < 12 { "AM" } else { "PM" });
+            out.push_str(if hh < 12 { am } else { pm });
             i += 5;
             continue;
         }
@@ -300,11 +382,11 @@ pub fn format_date_parts_in(fmt: &str, lang: Option<&str>, y: i64, m: usize, d: 
             ('y' | 'Y', 4..) => out.push_str(&format!("{y:04}")),
             ('y' | 'Y', _) => out.push_str(&format!("{:02}", y % 100)),
             ('M', 4..) => out.push_str(month),
-            ('M', 3) => out.push_str(&three(month)),
+            ('M', 3) => out.push_str(&short_month),
             ('M', 2) => out.push_str(&format!("{m:02}")),
             ('M', 1) => out.push_str(&m.to_string()),
             ('d' | 'D', 4..) => out.push_str(day),
-            ('d' | 'D', 3) => out.push_str(&three(day)),
+            ('d' | 'D', 3) => out.push_str(&short_day),
             ('d' | 'D', 2) => out.push_str(&format!("{d:02}")),
             ('d' | 'D', 1) => out.push_str(&d.to_string()),
             ('H', 2..) => out.push_str(&format!("{hh:02}")),
@@ -315,7 +397,7 @@ pub fn format_date_parts_in(fmt: &str, lang: Option<&str>, y: i64, m: usize, d: 
             ('m', _) => out.push_str(&mm.to_string()),
             ('s', 2..) => out.push_str(&format!("{ss:02}")),
             ('s', _) => out.push_str(&ss.to_string()),
-            ('a' | 'A', _) => out.push_str(if hh < 12 { "AM" } else { "PM" }),
+            ('a' | 'A', _) => out.push_str(if hh < 12 { am } else { pm }),
             _ => {
                 for _ in 0..n {
                     out.push(c);
@@ -376,7 +458,15 @@ pub(super) fn field(s: &mut Session, v: &Value) -> CmdResult {
         return Err(CmdError::Params("bad field code".into()));
     }
     let result = p::str(v, "result").unwrap_or("").to_string();
-    let props = s.typing_props();
+    let mut props = s.typing_props();
+    // A date or time field in Hebrew text is complex-script text in that text's language, as
+    // Insert › Date and Time makes one, so its result is a Hebrew date now and after updates.
+    if matches!(wordcraft_layout::fields::field_name(&instr).as_str(), "DATE" | "TIME" | "CREATEDATE" | "SAVEDATE" | "PRINTDATE")
+        && let Some(lang) = crate::cmd::words::caret_lang(s).filter(|l| wordcraft_doc::bidi::is_rtl_language(l))
+    {
+        crate::cmd::tools::set_language(&mut props, &lang);
+        props.rtl = Some(true);
+    }
     let at = delete_selection(s)?;
     let end =
         s.doc.insert_object(&at, InlineObject::Field { instr, result, locked: false, dirty: false, code: false, form: String::new() }, &props)?;
@@ -386,8 +476,11 @@ pub(super) fn field(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 pub(super) fn cover_page(s: &mut Session, v: &Value) -> CmdResult {
-    let title = p::str(v, "title").unwrap_or("Document Title").to_string();
-    let subtitle = p::str(v, "subtitle").unwrap_or("Document subtitle").to_string();
+    // Its placeholders and date in the language of the text it goes before.
+    let lang = crate::cmd::words::lang_at(s, &s.doc.start_of(StoryRef::Body));
+    let lang = lang.as_deref();
+    let title = p::str(v, "title").unwrap_or(crate::cmd::words::word(lang, "Document Title")).to_string();
+    let subtitle = p::str(v, "subtitle").unwrap_or(crate::cmd::words::word(lang, "Document subtitle")).to_string();
     let author = p::str(v, "author").unwrap_or(&s.author).to_string();
     let accent = Rgb(0x15, 0x60, 0x82);
     let mut blocks = Vec::new();
@@ -408,7 +501,7 @@ pub(super) fn cover_page(s: &mut Session, v: &Value) -> CmdResult {
     }
     blocks
         .push(Block::Para(Paragraph::with_text(&author, CharProps { bold: Some(true), color: Some(TextColor::Rgb(accent)), ..Default::default() })));
-    let mut date = Paragraph::with_text(&format_date("MMMM d, yyyy"), CharProps::default());
+    let mut date = Paragraph::with_text(&crate::cmd::words::long_date(lang), CharProps::default());
     date.insert_text(date.len(), "\u{000C}", &CharProps::default())?;
     blocks.push(Block::Para(date));
     let frag = wordcraft_doc::edit::Fragment { blocks, ..Default::default() };
@@ -577,6 +670,20 @@ mod date_time_locale_tests {
         assert_eq!(format("ddd", 20), "sáb");
         assert_eq!(format("MMM", 20), "out");
         assert_eq!(format("MMMM", 20), "outubro");
+    }
+
+    /// A moment the interface shows reads day first in Hebrew and month first in English, in the
+    /// same local time; anything but a timestamp is none.
+    #[test]
+    fn a_recorded_moment_is_shown_in_the_languages_order() {
+        let numbers = |t: &str| -> Vec<u32> { t.split(|c: char| !c.is_ascii_digit()).filter_map(|n| n.parse().ok()).collect() };
+        let he = local_date_time("2026-11-27T06:25:33Z", Some("he-IL")).expect("a timestamp");
+        let en = local_date_time("2026-11-27T06:25:33Z", Some("en-US")).expect("a timestamp");
+        let (h, e) = (numbers(&he), numbers(&en));
+        assert_eq!((h[0], h[1], h[2]), (e[1], e[0], e[2]), "day, month, year against month, day, year: {he} / {en}");
+        assert_eq!(h[4], e[4], "the same minute");
+        assert!(!he.chars().any(|c| c.is_ascii_alphabetic()), "a 24-hour clock: {he}");
+        assert_eq!(local_date_time("yesterday", Some("he-IL")), None);
     }
 
     /// A pt-BR dynamic field keeps its result after DOCX round-trip and refresh.

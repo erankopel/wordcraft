@@ -25,6 +25,15 @@ fn bold() -> CharProps {
 fn italic() -> CharProps {
     CharProps { italic: Some(true), ..Default::default() }
 }
+/// Bold Hebrew text: complex-script text takes its own bold (`w:bCs`), so both are set, as Bold
+/// sets them.
+fn bold_cs() -> CharProps {
+    CharProps { bold: Some(true), bold_cs: Some(true), ..Default::default() }
+}
+/// Italic Hebrew text (`w:iCs` beside `w:i`).
+fn italic_cs() -> CharProps {
+    CharProps { italic: Some(true), italic_cs: Some(true), ..Default::default() }
+}
 
 /// The showcase document: a short studio handbook with headings, lists, a table, a quote,
 /// a footer with page numbers.
@@ -208,6 +217,220 @@ pub fn report() -> Document {
     d
 }
 
+/// The built-in template `id` (`sample`, `letter`, `resume` or `report`), in Hebrew and right to
+/// left when `hebrew` (`file.new` with `direction: "rtl"`, as File › New asks for them in a Hebrew
+/// interface), else in English; `None` for any other id.
+pub fn template(id: &str, hebrew: bool) -> Option<Document> {
+    let english = match id {
+        "sample" => sample_document,
+        "letter" => letter,
+        "resume" => resume,
+        "report" => report,
+        _ => return None,
+    };
+    if !hebrew {
+        return Some(english());
+    }
+    let mut d = match id {
+        "sample" => hebrew_sample_document(),
+        "letter" => hebrew_letter(),
+        "resume" => hebrew_resume(),
+        _ => hebrew_report(),
+    };
+    crate::cmd::file::set_rtl_defaults(&mut d, true);
+    Some(d)
+}
+
+/// The showcase document in Hebrew: [`sample_document`]'s handbook, written for Hebrew readers.
+fn hebrew_sample_document() -> Document {
+    let mut d = Document::new();
+    d.core.title = "מדריך הסטודיו הפתוח".into();
+    d.core.creator = "WordCraft".into();
+    let mut b: Vec<Block> = Vec::new();
+    b.push(Block::Para(styled("מדריך הסטודיו הפתוח", "Title")));
+    b.push(Block::Para(styled("איך קהילה קטנה של יוצרים חולקת מקום, כלים וזמן", "Subtitle")));
+    let mut intro = para("בכל יום חמישי בערב מתמלא בית הדפוס הישן ברחוב האלון באנשים שיוצרים דברים. ");
+    add(&mut intro, "ציירים", bold_cs());
+    add(&mut intro, " מתמקמים ליד החלונות הצפוניים, אנשי ", CharProps::default());
+    add(&mut intro, "דפוס הבלט", italic_cs());
+    add(
+        &mut intro,
+        " תופסים את החדר האחורי, ומישהו תמיד מביא לחם. המדריך הזה מרכז את מה שלמדנו על ניהול סטודיו משותף: ההרגלים ששומרים על אווירה נעימה, הכלים שאנחנו חולקים, וההסכמות הקטנות שהופכות שלושים זרים לצוות אחד.",
+        CharProps::default(),
+    );
+    b.push(Block::Para(intro));
+    b.push(Block::Para(styled("למה לחלוק סטודיו?", "Heading1")));
+    b.push(Block::Para(para("שכר הדירה הוא הסיבה המובנת מאליה, אבל לא הסיבה הטובה ביותר. חדר משותף מציב את העבודה שלכם ליד עבודות שלא הייתם רואים אחרת. קדרית מסבירה לאמן קומיקס את הכימיה של הזיגוג; צלם שואל נול מאורגת כדי לצלם טבע דומם. השיחה בין התחומים היא העיקר.")));
+    let mut quote = styled("סטודיו הוא מקום שבו דברים לא גמורים מתקבלים בברכה.", "Quote");
+    quote.props.space_before = Some(12.0);
+    b.push(Block::Para(quote));
+    b.push(Block::Para(styled("על מה הסכמנו", "Heading2")));
+    let mut num = (*d.numbering).clone();
+    let bullets = num.add_list(ListKind::Bullet);
+    let steps = num.add_list(ListKind::Numbered);
+    d.numbering = Arc::new(num);
+    for (lead, rest) in [
+        ("מנקים תוך כדי עבודה. ", "השאירו את השולחן כפי שהייתם רוצים למצוא אותו."),
+        ("מסמנים את מה ששלכם. ", "חומרים בלי שם על המדף המשותף פתוחים לכולם."),
+        ("מבקשים לפני שלוקחים. ", "גם כשלוקחים מהמדף, פתק קצר עוזר לכולם לדעת מה איפה."),
+        ("שעות השקט ", "הן בין 9 ל-11 בבוקר בימי חול."),
+    ] {
+        let mut p = Paragraph::new().styled("ListParagraph");
+        add(&mut p, lead, bold_cs());
+        add(&mut p, rest, CharProps::default());
+        p.props.numbering = Some(NumRef { num: bullets, level: 0 });
+        b.push(Block::Para(p));
+    }
+    b.push(Block::Para(styled("ציוד משותף", "Heading2")));
+    b.push(Block::Para(para("הטבלה שלהלן מפרטת את הציוד שבבעלות משותפת של החברים, ומי דואג שכל פריט יישאר תקין.")));
+    let rows = [
+        ["ציוד", "מיקום", "אחראי", "הזמנה"],
+        ["מכבש תחריט", "החדר האחורי", "מאיה א.", "דף הרשמה"],
+        ["תנור שריפה (קון 10)", "המחסן בחצר", "תום פ.", "48 שעות מראש"],
+        ["מדפסת פורמט רחב", "המשרד", "ענבל ר.", "יומן"],
+        ["שולחן אור", "החלונות הצפוניים", "כולם", "כל הקודם זוכה"],
+    ];
+    let mut t = Table::new(rows.len(), 4, 468.0);
+    t.props.style = Some("GridTable4AccentBlue".into());
+    // A right-to-left table, as one inserted into Hebrew text is: its first column at the right.
+    t.props.bidi_visual = true;
+    for (r, row) in rows.iter().enumerate() {
+        for (c, txt) in row.iter().enumerate() {
+            if let Some(cell) = t.rows.get_mut(r).and_then(|x| x.cells.get_mut(c)) {
+                cell.blocks = vec![para_block(para(txt))];
+            }
+        }
+    }
+    if let Some(r) = t.rows.first_mut() {
+        r.props.header = true;
+    }
+    b.push(Block::Table(t));
+    b.push(Block::Para(styled("פתיחת הסטודיו", "Heading2")));
+    for s in [
+        "הדליקו את המפסק הראשי ליד הדלת.",
+        "פתחו את שני חלונות הגג, אלא אם יורד גשם.",
+        "הרתיחו מים בקומקום. על השלב הזה אין מוותרים.",
+        "בדקו בדף ההזמנות מי רשום לתנור ולמכבש.",
+    ] {
+        let mut p = para(s).styled("ListParagraph");
+        p.props.numbering = Some(NumRef { num: steps, level: 0 });
+        b.push(Block::Para(p));
+    }
+    b.push(Block::Para(styled("חברות בסטודיו", "Heading1")));
+    let mut m = para("דמי החברות הם ");
+    add(
+        &mut m,
+        "לפי היכולת",
+        CharProps { bold: Some(true), bold_cs: Some(true), color: Some(TextColor::Rgb(Rgb(0x15, 0x60, 0x82))), ..Default::default() },
+    );
+    add(
+        &mut m,
+        ", ונקבעים מחדש בכל עונה. חברים חדשים מצטרפים לאחד הוותיקים בשני הביקורים הראשונים שלהם, וכל אחד לוקח משמרת ניקיון אחת בחודש. אם מעולם לא יצרתם שום דבר, אתם בדיוק האנשים שקיווינו שיגיעו.",
+        CharProps::default(),
+    );
+    b.push(Block::Para(m));
+    let mut h = para("שאלות אפשר להפנות לדלפק בכניסה, או ללוח המודעות ליד הכיור. ");
+    add(
+        &mut h,
+        "בקרו בלוח הקהילה",
+        CharProps { style: Some("Hyperlink".into()), link: Some("https://getartcraft.com/".into()), ..Default::default() },
+    );
+    add(&mut h, " כדי לשמוע על אירועים.", CharProps::default());
+    b.push(Block::Para(h));
+    d.body = b.into_iter().map(std::sync::Arc::new).collect();
+    let mut f = Paragraph::new().styled("Footer");
+    f.props.align = Some(Align::Center);
+    let _ = f.insert_object(
+        0,
+        InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
+        &CharProps::default(),
+    );
+    let fid = d.add_part(PartKind::Footer, vec![para_block(f)]);
+    d.last_section.footers.default = Some(fid);
+    let mut hd = styled("מדריך הסטודיו הפתוח\t\tמהדורת אביב", "Header");
+    hd.props.borders = Some(Borders {
+        bottom: Some(Border { style: BorderStyle::Single, width: 0.5, color: Some(Rgb(0xBF, 0xBF, 0xBF)), space: 4.0 }),
+        ..Default::default()
+    });
+    let hid = d.add_part(PartKind::Header, vec![para_block(hd)]);
+    d.last_section.headers.default = Some(hid);
+    d
+}
+
+/// [`letter`] in Hebrew: the recipient after "לכבוד" and a subject line (הנדון), as Hebrew letters
+/// have them, dated in Hebrew.
+fn hebrew_letter() -> Document {
+    let mut d = Document::new();
+    let date = crate::cmd::words::long_date(Some("he-IL"));
+    let lines: Vec<Paragraph> = vec![
+        styled("השם שלכם", "Title"),
+        para("הכתובת שלכם · עיר, מיקוד · you@example.com"),
+        para(""),
+        para(&date),
+        para(""),
+        para("לכבוד"),
+        para("שם הנמען"),
+        para("תפקיד, חברה"),
+        para("כתובת"),
+        para(""),
+        para("הנדון: נושא המכתב"),
+        para(""),
+        para("שלום רב,"),
+        para("פתחו במשפט שמסביר מדוע אתם כותבים. כתבו פסקאות קצרות וענייניות, וסיימו במה שאתם מבקשים שיקרה בהמשך."),
+        para("תודה על תשומת לבכם."),
+        para("בברכה,"),
+        para(""),
+        para("השם שלכם"),
+    ];
+    d.body = lines.into_iter().map(para_block).collect();
+    d
+}
+
+/// [`resume`] in Hebrew.
+fn hebrew_resume() -> Document {
+    let mut d = Document::new();
+    // The dates at the far end of the line: an end-aligned tab at the text's width.
+    let width = d.last_section.text_width();
+    let mut b: Vec<Block> = vec![Block::Para(styled("נועה לוי", "Title")), Block::Para(para("מאיירת · noa@example.com · portfolio.example.com"))];
+    for (head, items) in [
+        ("ניסיון תעסוקתי", vec![("מאיירת ראשית, הוצאת ספרי הנמל", "2021 – היום"), ("מאיירת עצמאית", "2016 – 2021")]),
+        ("השכלה", vec![("תואר ראשון באיור, מכללת החוף לאמנות", "2016")]),
+        ("כישורים", vec![("דיו, גואש, ציור דיגיטלי, עימוד ספרים, עיצוב אותיות", "")]),
+    ] {
+        b.push(Block::Para(styled(head, "Heading1")));
+        for (what, when) in items {
+            let mut p = para(what);
+            p.props.tabs = Some(vec![TabStop { pos: width, align: TabAlign::Right, leader: TabLeader::None }]);
+            if !when.is_empty() {
+                add(&mut p, &format!("\t{when}"), italic_cs());
+            }
+            b.push(Block::Para(p));
+        }
+    }
+    d.body = b.into_iter().map(std::sync::Arc::new).collect();
+    d
+}
+
+/// [`report`] in Hebrew.
+fn hebrew_report() -> Document {
+    let mut d = Document::new();
+    let b: Vec<Block> = vec![
+        Block::Para(styled("כותרת הדוח", "Title")),
+        Block::Para(styled("כותרת משנה או תאריך", "Subtitle")),
+        Block::Para(styled("תקציר", "Heading1")),
+        Block::Para(para("סכמו את הממצאים בשניים או שלושה משפטים.")),
+        Block::Para(styled("רקע", "Heading1")),
+        Block::Para(para("תארו את ההקשר ואת השאלה שהדוח עונה עליה.")),
+        Block::Para(styled("ממצאים", "Heading1")),
+        Block::Para(styled("ממצא ראשון", "Heading2")),
+        Block::Para(para("הציגו את הנתונים שעליהם הממצא נשען.")),
+        Block::Para(styled("המלצות", "Heading1")),
+        Block::Para(para("פרטו מה צריך לקרות בהמשך.")),
+    ];
+    d.body = b.into_iter().map(std::sync::Arc::new).collect();
+    d
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +443,26 @@ mod tests {
             let l = wordcraft_layout::layout(&d, &mut wordcraft_layout::LayoutCache::new(), &Default::default());
             assert!(!l.pages.is_empty());
         }
+    }
+
+    /// Each template in Hebrew is a right-to-left Hebrew document with the English one's
+    /// structure: the same styles in the same order, and a right-to-left section.
+    #[test]
+    fn hebrew_templates_are_right_to_left_hebrew_documents_shaped_like_the_english_ones() {
+        let styles = |d: &Document| d.body.iter().map(|b| b.as_para().map(|p| p.props.style.clone())).collect::<Vec<_>>();
+        for id in ["sample", "letter", "resume", "report"] {
+            let (Some(en), Some(he)) = (template(id, false), template(id, true)) else { panic!("{id} is a template") };
+            assert!(he.styles.resolve_para(&Default::default()).bidi && he.last_section.rtl, "{id} reads right to left");
+            assert!(!en.styles.resolve_para(&Default::default()).bidi && !en.last_section.rtl, "{id} in English stays left to right");
+            let text = he.plain_text(wordcraft_doc::StoryRef::Body);
+            let latin_words = text.split_whitespace().filter(|w| w.chars().any(|c| c.is_ascii_alphabetic()) && !w.contains(['@', '.'])).count();
+            assert!(wordcraft_doc::bidi::has_rtl(&text) && latin_words == 0, "{id} is written in Hebrew: {text}");
+            if id != "letter" {
+                assert_eq!(styles(&he), styles(&en), "{id} has the English template's structure");
+            }
+            let l = wordcraft_layout::layout(&he, &mut wordcraft_layout::LayoutCache::new(), &Default::default());
+            assert!(!l.pages.is_empty());
+        }
+        assert!(template("blank", true).is_none() && template("nope", false).is_none());
     }
 }

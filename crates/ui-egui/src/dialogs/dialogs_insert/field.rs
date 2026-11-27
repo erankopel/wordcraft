@@ -80,6 +80,23 @@ pub const DATE_FORMATS: &[&str] = &[
     "HH:mm:ss",
 ];
 
+/// Date and time pictures for Hebrew text: the day before the month and a 24-hour clock, as dates
+/// are written in Israel, with the month by name after the prefix ב ("in").
+pub const HE_DATE_FORMATS: &[&str] = &[
+    "dd/MM/yyyy",
+    "dddd, d 'ב'MMMM yyyy",
+    "d 'ב'MMMM yyyy",
+    "dd/MM/yy",
+    "yyyy-MM-dd",
+    "dd.MM.yyyy",
+    "d MMMM yyyy",
+    "MMMM yyyy",
+    "dd/MM/yyyy HH:mm",
+    "dd/MM/yyyy HH:mm:ss",
+    "HH:mm",
+    "HH:mm:ss",
+];
+
 /// Number formats for the `\*` switch: (switch value, example).
 pub const NUMBER_FORMATS: &[(&str, &str)] = &[
     ("", "(none)"),
@@ -135,6 +152,11 @@ pub fn text_formats(code: &str) -> Vec<&'static str> {
     all
 }
 
+/// The date pictures offered for text in the language `lang`: Hebrew ones in Hebrew text.
+pub fn date_formats(lang: Option<&str>) -> &'static [&'static str] {
+    if wordcraft_engine::cmd::words::is_hebrew(lang) { HE_DATE_FORMATS } else { DATE_FORMATS }
+}
+
 pub fn field_kind(name: &str) -> FieldKind {
     match name {
         "DATE" | "TIME" | "CREATEDATE" | "SAVEDATE" | "PRINTDATE" => FieldKind::Date,
@@ -184,6 +206,10 @@ pub struct FieldForm {
     /// Paragraph and character style names, for STYLEREF.
     #[serde(skip)]
     styles: Vec<String>,
+    /// The language of the text at the caret, which the field's result is written in: Hebrew
+    /// text gets Hebrew date pictures and a Hebrew sequence name.
+    #[serde(skip)]
+    lang: Option<String>,
 }
 
 impl FieldForm {
@@ -191,10 +217,11 @@ impl FieldForm {
         let mut bookmarks: Vec<String> = app.session.doc.bookmarks().into_iter().map(|(n, _)| n).filter(|n| !n.starts_with('_')).collect();
         bookmarks.sort();
         bookmarks.dedup();
+        let lang = wordcraft_engine::cmd::words::caret_lang(&app.session);
         let mut f = FieldForm {
             category: FIELD_CATEGORIES.first().copied().unwrap_or("(All)").to_string(),
             name: "DATE".into(),
-            date_format: DATE_FORMATS.first().copied().unwrap_or("M/d/yyyy").to_string(),
+            date_format: date_formats(lang.as_deref()).first().copied().unwrap_or("M/d/yyyy").to_string(),
             number_format: String::new(),
             text_format: String::new(),
             typed_text_formats: Vec::new(),
@@ -219,9 +246,16 @@ impl FieldForm {
                 v.dedup();
                 v
             },
+            lang,
         };
         f.select("DATE");
         f
+    }
+
+    /// The sequence a SEQ field numbers by default: Figure, as the text at the caret labels its
+    /// captions (`איור` in Hebrew text), so the field counts along with them.
+    fn figure(&self) -> &'static str {
+        wordcraft_engine::cmd::words::word(self.lang.as_deref(), "Figure")
     }
 
     /// Choose a field: its options start from sensible defaults.
@@ -232,7 +266,7 @@ impl FieldForm {
         self.typed_text_formats.clear();
         self.target = match field_kind(name) {
             FieldKind::Bookmark => self.bookmarks.first().cloned().unwrap_or_default(),
-            FieldKind::Sequence => "Figure".into(),
+            FieldKind::Sequence => self.figure().into(),
             FieldKind::Merge => self.merge_fields.first().cloned().unwrap_or_default(),
             FieldKind::Style => self
                 .styles
@@ -245,7 +279,15 @@ impl FieldForm {
         };
         self.style_switches.clear();
         if field_kind(name) == FieldKind::Date {
-            self.date_format = if name == "TIME" { "h:mm am/pm" } else { "M/d/yyyy" }.into();
+            // Hebrew text starts from a Hebrew picture (day first, a 24-hour clock); any other
+            // from the US one, the first in the list.
+            let lang = self.lang.as_deref().filter(|l| wordcraft_engine::cmd::words::is_hebrew(Some(l)));
+            self.date_format = if name == "TIME" {
+                wordcraft_engine::cmd::insert::default_time_picture(lang)
+            } else {
+                wordcraft_engine::cmd::insert::default_date_picture(lang)
+            }
+            .into();
         }
         self.code = self.instruction();
     }
@@ -259,7 +301,7 @@ impl FieldForm {
             FieldKind::Bookmark if !target.is_empty() => s.push_str(&format!(" {} \\h", target.split_whitespace().collect::<Vec<_>>().join("_"))),
             FieldKind::Sequence => s.push_str(&format!(
                 " {}",
-                if target.is_empty() { "Figure".to_string() } else { target.split_whitespace().collect::<Vec<_>>().join("_") }
+                if target.is_empty() { self.figure().to_string() } else { target.split_whitespace().collect::<Vec<_>>().join("_") }
             )),
             FieldKind::Merge if !target.is_empty() => {
                 if target.contains(char::is_whitespace) {
@@ -434,8 +476,9 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
             ui.add(egui::TextEdit::singleline(&mut f.date_format).desired_width(f32::INFINITY));
             egui::Frame::new().stroke(Stroke::new(1.0, t.border)).inner_margin(2.0).show(ui, |ui| {
                 egui::ScrollArea::vertical().id_salt("field_dates").max_height(170.0).auto_shrink([false, false]).show(ui, |ui| {
-                    for pic in DATE_FORMATS {
-                        let sample = wordcraft_engine::cmd::insert::format_date(pic);
+                    // The pictures and samples of the language the result is written in.
+                    for pic in date_formats(f.lang.as_deref()) {
+                        let sample = wordcraft_engine::cmd::insert::format_date_in(pic, f.lang.as_deref());
                         if ui.selectable_label(f.date_format == *pic, sample).on_hover_text(*pic).clicked() {
                             f.date_format = (*pic).to_string();
                         }
@@ -520,5 +563,29 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In Hebrew text the Field dialog starts a date on a Hebrew picture (day first) and a time on
+    /// a 24-hour clock, and numbers a sequence by the Hebrew caption label, as captions there are
+    /// numbered; English text keeps the US pictures.
+    #[test]
+    fn the_field_dialog_writes_hebrew_text_in_hebrew() {
+        let mut session = wordcraft_engine::Session::new(wordcraft_doc::Document::new());
+        session.set_new_documents_rtl(true);
+        let mut f = FieldForm::new(&WordApp::new(session, Default::default()));
+        assert_eq!(f.date_format, HE_DATE_FORMATS[0]);
+        f.select("TIME");
+        let time = wordcraft_engine::cmd::insert::format_date_in(&f.date_format, Some("he-IL"));
+        assert!(!time.chars().any(|c| c.is_ascii_alphabetic()), "a 24-hour clock: {time}");
+        f.select("SEQ");
+        let seq = f.instruction();
+        assert_eq!(seq.split_whitespace().nth(1), Some(wordcraft_engine::cmd::words::word(Some("he"), "Figure")), "{seq}");
+        let english = FieldForm::new(&WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), Default::default()));
+        assert_eq!(english.date_format, DATE_FORMATS[0]);
     }
 }

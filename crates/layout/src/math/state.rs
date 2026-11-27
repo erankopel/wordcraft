@@ -8,6 +8,8 @@ pub(super) struct Ctx {
     pub(super) base: f32,
     pub(super) color: Rgb,
     pub(super) text_font: String,
+    /// What an empty equation shows, and the family it is drawn in.
+    pub(super) prompt: (&'static str, String),
     /// Nodes laid out so far (caps work on hostile input).
     pub(super) nodes: usize,
     /// The argument being laid out (for caret slots).

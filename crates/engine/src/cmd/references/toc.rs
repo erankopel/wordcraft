@@ -7,12 +7,18 @@ use super::{
 /// instead of laying out megabytes of text (#3720).
 pub(super) const MAX_TOC_TITLE: usize = 1024;
 
-fn checked_title(v: &Value) -> Result<Option<&str>, CmdError> {
+/// The title `v` gives the table. WordCraft's own titles, `Contents` and the gallery's `Table of
+/// Contents`, are written in the language of the text at the caret, as the default title is
+/// (`תוכן עניינים` in Hebrew text); any other title as it is given.
+fn checked_title(s: &Session, v: &Value) -> Result<Option<String>, CmdError> {
     let Some(title) = p::str(v, "title") else { return Ok(None) };
     if title.chars().count() > MAX_TOC_TITLE {
         return Err(CmdError::Params(format!("`title` is longer than {MAX_TOC_TITLE} characters")));
     }
-    Ok(Some(title))
+    Ok(Some(match title {
+        "Contents" | "Table of Contents" => crate::cmd::words::word(crate::cmd::words::caret_lang(s).as_deref(), title).to_string(),
+        _ => title.to_string(),
+    }))
 }
 
 /// A level range such as `1-3` (or one level, `2`), clamped to 1–9.
@@ -394,7 +400,11 @@ pub(super) fn cached_toc_tabs(s: &Session) -> Vec<(String, Vec<TabStop>)> {
 }
 
 pub(super) fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
-    let title = checked_title(v)?.unwrap_or("Contents").to_string();
+    // Without one of its own, the title is in the language of the text it goes into.
+    let title = match checked_title(s, v)? {
+        Some(t) => t,
+        None => crate::cmd::words::word(crate::cmd::words::caret_lang(s).as_deref(), "Contents").to_string(),
+    };
     let tabs = cached_toc_tabs(s);
     range_toc_to_field(s)?;
     let replace = v.as_object().is_some_and(|m| !m.is_empty());
@@ -452,7 +462,7 @@ pub(super) fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
 /// (`title_above_break`): the field takes `v`'s settings, the title `v`'s `title` if one is given
 /// (otherwise it is kept, as Word's Insert Table of Contents keeps it), and the entries are rebuilt.
 fn replace_toc_above_break(s: &mut Session, v: &Value, start: usize, tabs: &[(String, Vec<TabStop>)]) -> Result<(), CmdError> {
-    let new_title = checked_title(v)?;
+    let new_title = checked_title(s, v)?;
     let instr = toc_instr(v);
     let field = s.doc.para_mut(StoryRef::Body, &Path::top(start))?;
     for o in &mut field.objects {
@@ -468,7 +478,7 @@ fn replace_toc_above_break(s: &mut Session, v: &Value, start: usize, tabs: &[(St
     field.touch();
     if let (Some(title), Some(i)) = (new_title, start.checked_sub(1)) {
         let old = s.doc.para_mut(StoryRef::Body, &Path::top(i))?;
-        let mut head = Paragraph::with_text(title, old.props_of_char(0).clone());
+        let mut head = Paragraph::with_text(&title, old.props_of_char(0).clone());
         head.props = old.props.clone();
         head.mark = old.mark.clone();
         *old = head;

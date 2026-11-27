@@ -178,7 +178,8 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     }
     let kind = kind.unwrap_or_default();
-    let mut spec = ChartSpec::sample(kind);
+    // Sample names in the language of the text the chart goes into (Hebrew in Hebrew text).
+    let mut spec = ChartSpec::sample_in(kind, super::words::caret_lang(s).as_deref());
     if let Some(d) = v.get("data") {
         spec.categories = d.get("categories").map(categories).transpose()?.unwrap_or_default();
         spec.series = d

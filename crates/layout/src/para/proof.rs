@@ -1,5 +1,9 @@
 use super::{CharProps, Document, Paragraph, ResolvedChar};
 
+mod hebrew;
+
+pub use hebrew::{dictionary_form, spelling_suggestions};
+
 /// One run's proofing: its bytes in the paragraph, its language (`w:lang`, resolved through the
 /// styles: the document default, paragraph and character styles, direct formatting) and whether
 /// it is left unchecked ("Do not check spelling or grammar", hidden text, hyperlinks).
@@ -79,7 +83,10 @@ pub(super) fn lang_at(runs: &[ProofRun], off: usize) -> wordcraft_proof::ProofLa
 
 /// Spelling and grammar issues in a paragraph, in order: each word in its run's language
 /// ([`wordcraft_proof::check_text_with`]: what spelling skips, and grammar only with `grammar`),
-/// and none touching a run left unchecked.
+/// and none touching a run left unchecked. Hebrew text is checked as the Hebrew dictionary spells
+/// its words: without points, with the keyboard's marks in acronyms and borrowed words,
+/// a prefix before a hyphen and a Latin word apart, and the user dictionary's words after prefix
+/// letters.
 ///
 /// `list_item` (see [`is_list_item`]) turns off the capital-first-word grammar rule.
 pub fn paragraph_issues(
@@ -95,11 +102,47 @@ pub fn paragraph_issues(
     let text = proof_text(p);
     let spans = language_spans(&text, runs);
     let skipped = skipped_ranges(runs);
-    let issues = wordcraft_proof::check_text_with(&text, &spans, spelling, grammar, list_item);
+    let mut issues = match hebrew::View::of(&text, &spans) {
+        Some(view) => view.check(&text, &spans, spelling, grammar, list_item),
+        None => wordcraft_proof::check_text_with(&text, &spans, spelling, grammar, list_item),
+    };
+    ignored_once(p.rev, &mut issues);
     if skipped.is_empty() {
         return issues;
     }
     issues.into_iter().filter(|i| !overlaps(&skipped, i.start, i.end)).collect()
+}
+
+/// An issue Ignore Once left out: its paragraph's revision ([`Paragraph::rev`]), its byte range,
+/// and whether it is a grammar issue.
+type IgnoredOnce = (u64, usize, usize, bool);
+
+/// Most issues Ignore Once keeps; past that, those kept so far are all forgotten.
+const MAX_IGNORED_ONCE: usize = 10_000;
+
+/// The issues ignored once in this run of the program. A paragraph's revision changes whenever
+/// it is edited, and is new to every paragraph made (copies of it, as undo keeps, share it), so
+/// an issue comes back once its paragraph changes and never turns up in another one.
+static IGNORED_ONCE: std::sync::Mutex<Option<std::collections::HashSet<IgnoredOnce>>> = std::sync::Mutex::new(None);
+
+/// Ignore Once: leave the spelling or grammar (`grammar`) issue at bytes `start..end` of the
+/// paragraph at revision `rev` out of [`paragraph_issues`] and the squiggles, until that paragraph
+/// changes. The caller lays the document out again.
+pub fn ignore_once(rev: u64, start: usize, end: usize, grammar: bool) {
+    let mut ignored = IGNORED_ONCE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let set = ignored.get_or_insert_default();
+    if set.len() >= MAX_IGNORED_ONCE {
+        set.clear();
+    }
+    set.insert((rev, start, end, grammar));
+}
+
+/// `issues` (of the paragraph at revision `rev`) without those ignored once.
+fn ignored_once(rev: u64, issues: &mut Vec<wordcraft_proof::Issue>) {
+    let ignored = IGNORED_ONCE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(set) = ignored.as_ref().filter(|s| !s.is_empty()) {
+        issues.retain(|i| !set.contains(&(rev, i.start, i.end, i.kind == wordcraft_proof::IssueKind::Grammar)));
+    }
 }
 
 /// The byte ranges of the runs left unchecked, in order, those that overlap merged: their

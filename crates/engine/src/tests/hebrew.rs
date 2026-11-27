@@ -153,3 +153,110 @@ fn words_are_counted_the_same_with_or_without_points() {
     assert_eq!(count(&format!("{TSAHAL} {GIRAFFE}")), 2, "gershayim and geresh do not split a word");
     assert_eq!(count("\u{05BE}"), 0, "a lone maqaf is punctuation, not a word");
 }
+
+/// The Hebrew test dictionary (written for these tests): a few everyday words, and acronyms and
+/// borrowed words in the keyboard's marks (`עו"ד`, `צ'יפס`), as the Hebrew Language pack spells
+/// them. It is installed as `he_ZZ` ([`super::test_dictionaries_folder`]): only text whose
+/// language is he-ZZ reads it, so other tests' Hebrew keeps having no dictionary.
+pub(super) const HEBREW_TEST_AFF: &str = "SET UTF-8\nTRY יוהאלבמשכנתרעדפגזחטסצקםןףךץ'\"\n";
+pub(super) const HEBREW_TEST_DIC: &str =
+    "18\nשלום\nלך\nילד\nטוב\nעולם\nאמר\nכתבתי\nקוד\nוגם\nבשפת\nבית\nעו\"ד\nמנכ\"ל\nבע\"מ\nביה\"ס\nצה\"ל\nצ'יפס\nג'ירפה\n";
+
+/// A right-to-left paragraph holding `text` in he-ZZ, checked against [`HEBREW_TEST_DIC`]. The
+/// dictionaries folder is set once per run and stays set, as the dictionaries-folder test leaves it.
+fn proofed_in_hebrew(text: &str) -> Session {
+    {
+        static FOLDER: std::sync::Once = std::sync::Once::new();
+        let _turn = super::dictionaries_turn();
+        FOLDER.call_once(|| wordcraft_proof::set_dictionaries_folder(Some(super::test_dictionaries_folder())));
+    }
+    let mut s = session(text);
+    let end = s.doc.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).map_or(0, |p| p.text.len());
+    // The text's own language: a complex-script language would read every Hebrew tag as he-IL.
+    s.doc
+        .format_range(&Pos::body(0, 0), &Pos::body(0, end), &|c| {
+            c.lang = Some("he-ZZ".into());
+            c.lang_bidi = None;
+        })
+        .unwrap();
+    s
+}
+
+/// What `review.issues` marks as misspelled, with each word's suggestions.
+fn spelling_marks(s: &mut Session) -> Vec<(String, Vec<String>)> {
+    let issues = run(s, "review.issues", json!({}));
+    let text = |v: &serde_json::Value| v.as_str().unwrap_or_default().to_owned();
+    issues
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|i| i["kind"] == "spelling")
+        .map(|i| (text(&i["text"]), i["suggestions"].as_array().into_iter().flatten().map(text).collect()))
+        .collect()
+}
+
+fn marked(s: &mut Session) -> Vec<String> {
+    spelling_marks(s).into_iter().map(|(w, _)| w).collect()
+}
+
+/// SE-1: a pointed word is read without its points, and is never marked: pointed text is written
+/// in the defective spelling the dictionary lacks. A misspelling after pointed words is marked
+/// exactly where it is, and an unknown word without points still is.
+#[test]
+fn pointed_words_are_not_marked_and_a_misspelling_after_them_is() {
+    // שָׁלוֹם לְךָ, יֶלֶד טוֹב (known without their points) and בְּרֵאשִׁית֖ בָּרָא (not in the dictionary).
+    let pointed = "\u{05E9}\u{05C1}\u{05B8}\u{05DC}\u{05D5}\u{05B9}\u{05DD} \u{05DC}\u{05B0}\u{05DA}\u{05B8}, \u{05D9}\u{05B6}\u{05DC}\u{05B6}\u{05D3} \u{05D8}\u{05D5}\u{05B9}\u{05D1}. \u{05D1}\u{05BC}\u{05B0}\u{05E8}\u{05B5}\u{05D0}\u{05E9}\u{05C1}\u{05B4}\u{05D9}\u{05EA}\u{0596} \u{05D1}\u{05BC}\u{05B8}\u{05E8}\u{05B8}\u{05D0}";
+    let mut s = proofed_in_hebrew(&format!("{pointed} הילדדים טוב"));
+    assert_eq!(marked(&mut s), ["הילדדים"]);
+    let mut s = proofed_in_hebrew("שלום בראשית");
+    assert_eq!(marked(&mut s), ["בראשית"], "the dictionary is in use");
+}
+
+/// SE-2: acronyms and borrowed words are found however their marks were typed: the keyboard's, the
+/// typographic quotes, or the Hebrew gershayim and geresh. A misspelled one is marked whole, with
+/// suggestions written in its own marks.
+#[test]
+fn acronyms_and_geresh_words_are_checked_whole() {
+    for (gershayim, geresh) in [('"', '\''), ('\u{201D}', '\u{2019}'), ('\u{05F4}', '\u{05F3}')] {
+        let text = format!("עו{gershayim}ד מנכ{gershayim}ל בע{gershayim}מ ביה{gershayim}ס צה{gershayim}ל צ{geresh}יפס ג{geresh}ירפה");
+        let mut s = proofed_in_hebrew(&text);
+        assert_eq!(marked(&mut s), Vec::<String>::new(), "{text}");
+    }
+    let mut s = proofed_in_hebrew("שלום מנכ\u{201D}לל צ\u{05F3}יפסס");
+    let marks = spelling_marks(&mut s);
+    let words: Vec<&str> = marks.iter().map(|(w, _)| w.as_str()).collect();
+    assert_eq!(words, ["מנכ\u{201D}לל", "צ\u{05F3}יפסס"], "{marks:?}");
+    assert!(marks[0].1.iter().any(|x| x == "מנכ\u{201D}ל"), "{marks:?}");
+    assert!(marks[1].1.iter().any(|x| x == "צ\u{05F3}יפס"), "{marks:?}");
+}
+
+/// SE-7: a word added to the dictionary is taken after the prefix letters Hebrew writes in front
+/// of it (ו ה ב ל מ ש כ, in their order), a vav it starts with written twice after them; other
+/// letters in front are still a misspelling. Ignore All takes a word typed with the Hebrew geresh
+/// in the spelling the check reads.
+#[test]
+fn added_words_are_taken_after_hebrew_prefixes() {
+    let text = "וורדקראפט ובוורדקראפט שבוורדקראפט מהוורדקראפט וכשהוורדקראפט קקוורדקראפט בוויקיפדיה";
+    let mut s = proofed_in_hebrew(text);
+    assert_eq!(marked(&mut s).len(), 7, "nothing known yet");
+    run(&mut s, "review.addToDictionary", json!({"word": "וורדקראפט"}));
+    run(&mut s, "review.addToDictionary", json!({"word": "ויקיפדיה"}));
+    let left = marked(&mut s);
+    wordcraft_proof::remove_word("וורדקראפט");
+    wordcraft_proof::remove_word("ויקיפדיה");
+    assert_eq!(left, ["קקוורדקראפט"]);
+    let mut s = proofed_in_hebrew("ג\u{05F3}ונסונן אמר");
+    assert_eq!(marked(&mut s), ["ג\u{05F3}ונסונן"]);
+    run(&mut s, "review.ignoreAll", json!({"word": "ג\u{05F3}ונסונן"}));
+    assert_eq!(marked(&mut s), Vec::<String>::new());
+}
+
+/// SE-8: prefix letters joined by a hyphen to a word in Latin letters or digits are no
+/// misspelling; a Hebrew word before such a hyphen is still checked.
+#[test]
+fn a_prefix_hyphenated_to_a_latin_word_is_not_marked() {
+    let mut s = proofed_in_hebrew("כתבתי קוד ב-Python וגם וב-JavaScript ב-2020");
+    assert_eq!(marked(&mut s), Vec::<String>::new());
+    let mut s = proofed_in_hebrew("כתבתי קודד-Python");
+    assert_eq!(marked(&mut s), ["קודד"]);
+}

@@ -1,4 +1,4 @@
-use super::common::{BUILT_IN_LABELS, choice};
+use super::common::{choice, is_built_in_label};
 use super::shell::Next;
 use super::{Serialize, Ui, Value, WordApp, buttons, json, vec2};
 
@@ -11,12 +11,13 @@ const REF_TYPES: [(&str, &str); 5] =
 
 /// The Reference types to pick from: [`REF_TYPES`], then each caption label of the person's own
 /// (Insert Caption › New Label, or already in the document's captions) as `label:<Name>` (#2940).
+/// A built-in label in Hebrew (`איור`) is its built-in type, which finds its captions.
 pub(super) fn ref_types(app: &WordApp) -> Vec<(String, String)> {
     let mut types: Vec<(String, String)> = REF_TYPES.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
     let in_document = wordcraft_engine::cmd::citations::caption_labels(&app.session);
     for l in app.ui.caption_labels.iter().chain(&in_document) {
         let value = format!("label:{l}");
-        if !BUILT_IN_LABELS.contains(&l.as_str()) && !types.iter().any(|(v, _)| *v == value) {
+        if !is_built_in_label(l) && !types.iter().any(|(v, _)| *v == value) {
             types.push((value, l.clone()));
         }
     }

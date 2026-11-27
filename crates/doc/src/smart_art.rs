@@ -225,24 +225,41 @@ pub struct SmartArtSpec {
 impl SmartArtSpec {
     /// A new graphic of `layout` with WordCraft's sample items.
     pub fn sample(layout: SmartArtLayout) -> SmartArtSpec {
+        SmartArtSpec::sample_in(layout, None)
+    }
+
+    /// [`SmartArtSpec::sample`] with its items in the language `lang` of the text it goes into:
+    /// Hebrew text gets Hebrew items ([`crate::words`]), any other English ones.
+    pub fn sample_in(layout: SmartArtLayout, lang: Option<&str>) -> SmartArtSpec {
+        let he = crate::words::is_hebrew(lang);
+        let t = |en: &'static str, hebrew: &'static str| if he { hebrew } else { en };
+        let (plan, build, test, ship) = (t("Plan", "תכנון"), t("Build", "בנייה"), t("Test", "בדיקה"), t("Ship", "השקה"));
         let items: Vec<SmartArtItem> = match layout {
             SmartArtLayout::Hierarchy => vec![
-                SmartArtItem::new("Lead", 0),
-                SmartArtItem::new("Design", 1),
-                SmartArtItem::new("Sketches", 2),
-                SmartArtItem::new("Build", 1),
-                SmartArtItem::new("Code", 2),
-                SmartArtItem::new("Tests", 2),
+                SmartArtItem::new(t("Lead", "הובלה"), 0),
+                SmartArtItem::new(t("Design", "עיצוב"), 1),
+                SmartArtItem::new(t("Sketches", "סקיצות"), 2),
+                SmartArtItem::new(build, 1),
+                SmartArtItem::new(t("Code", "קוד"), 2),
+                SmartArtItem::new(t("Tests", "בדיקות"), 2),
             ],
             SmartArtLayout::Radial => {
-                let mut v = vec![SmartArtItem::new("Goal", 0)];
-                v.extend(["Plan", "Build", "Test", "Ship"].map(|t| SmartArtItem::new(t, 1)));
+                let mut v = vec![SmartArtItem::new(t("Goal", "מטרה"), 0)];
+                v.extend([plan, build, test, ship].map(|x| SmartArtItem::new(x, 1)));
                 v
             }
-            SmartArtLayout::Process | SmartArtLayout::Cycle => ["Plan", "Build", "Test", "Ship"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
-            SmartArtLayout::Pyramid | SmartArtLayout::Venn => ["People", "Process", "Tools"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
-            SmartArtLayout::Matrix => ["Strengths", "Weaknesses", "Chances", "Risks"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
-            SmartArtLayout::BasicList => ["Ideas", "Notes", "Drafts", "Edits", "Final"].map(|t| SmartArtItem::new(t, 0)).to_vec(),
+            SmartArtLayout::Process | SmartArtLayout::Cycle => [plan, build, test, ship].map(|x| SmartArtItem::new(x, 0)).to_vec(),
+            SmartArtLayout::Pyramid | SmartArtLayout::Venn => {
+                [t("People", "אנשים"), t("Process", "תהליכים"), t("Tools", "כלים")].map(|x| SmartArtItem::new(x, 0)).to_vec()
+            }
+            SmartArtLayout::Matrix => [t("Strengths", "חוזקות"), t("Weaknesses", "חולשות"), t("Chances", "הזדמנויות"), t("Risks", "סיכונים")]
+                .map(|x| SmartArtItem::new(x, 0))
+                .to_vec(),
+            SmartArtLayout::BasicList => {
+                [t("Ideas", "רעיונות"), t("Notes", "הערות"), t("Drafts", "טיוטות"), t("Edits", "עריכה"), t("Final", "גרסה סופית")]
+                    .map(|x| SmartArtItem::new(x, 0))
+                    .to_vec()
+            }
         };
         SmartArtSpec { layout, items, colors: SmartArtColors::default() }
     }
@@ -345,6 +362,19 @@ mod tests {
         assert!(s.items.iter().all(|it| it.level <= MAX_LEVEL));
         assert_eq!(s.items[0].text.chars().count(), MAX_TEXT);
         assert!(!s.items[0].text.contains('\n'));
+    }
+
+    /// A graphic inserted into Hebrew text has Hebrew sample items, in the same tree as the
+    /// English ones.
+    #[test]
+    fn hebrew_text_gets_hebrew_sample_items_of_the_same_shape() {
+        for layout in SmartArtLayout::ALL {
+            let en = SmartArtSpec::sample(layout);
+            let he = SmartArtSpec::sample_in(layout, Some("he-IL"));
+            assert_eq!(en.items.iter().map(|i| i.level).collect::<Vec<_>>(), he.items.iter().map(|i| i.level).collect::<Vec<_>>(), "{layout:?}");
+            assert!(he.items.iter().all(|i| crate::bidi::has_rtl(&i.text)), "{layout:?}: {:?}", he.items);
+            assert_eq!(SmartArtSpec::sample_in(layout, Some("en-GB")), en, "other text keeps the English items");
+        }
     }
 
     #[test]

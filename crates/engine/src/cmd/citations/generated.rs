@@ -14,9 +14,15 @@ use wordcraft_doc::section::NumFormat;
 /// captions that label's SEQ field numbers, `\a "<label>"` lists them without their label and
 /// number; `\n` leaves page numbers out and `\p " "` puts them right after the text.
 pub fn figures_instr(v: &Value) -> String {
-    let label: String = p::str(v, "label").unwrap_or("Figure").chars().filter(|c| !matches!(c, '"' | '\\') && !c.is_control()).take(40).collect();
+    figures_instr_for(v, "Figure")
+}
+
+/// [`figures_instr`] listing `figure`'s captions when `v` names no label: the Figure label in the
+/// language of the document's text (`איור` in Hebrew text, as its captions are labelled).
+fn figures_instr_for(v: &Value, figure: &str) -> String {
+    let label: String = p::str(v, "label").unwrap_or(figure).chars().filter(|c| !matches!(c, '"' | '\\') && !c.is_control()).take(40).collect();
     let ident = seq_ident(&label);
-    let ident = if ident.is_empty() { "Figure".to_string() } else { ident };
+    let ident = if ident.is_empty() { seq_ident(figure) } else { ident };
     let on = |k: &str| p::bool(v, k).unwrap_or(true);
     let mut s = format!("TOC \\{} \"{ident}\"", if on("includeLabel") { 'c' } else { 'a' });
     if !on("pageNumbers") {
@@ -33,7 +39,8 @@ fn seq_ident(label: &str) -> String {
 }
 
 pub(super) fn table_of_figures(s: &mut Session, v: &Value) -> CmdResult {
-    generated_list_with(s, &figures_instr(v), "", p::str(v, "tabLeader").map(crate::cmd::references::leader))?;
+    let figure = crate::cmd::words::word(crate::cmd::words::caret_lang(s).as_deref(), "Figure");
+    generated_list_with(s, &figures_instr_for(v, figure), "", p::str(v, "tabLeader").map(crate::cmd::references::leader))?;
     sel_result(s)
 }
 

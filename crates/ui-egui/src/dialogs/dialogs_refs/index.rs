@@ -200,8 +200,9 @@ pub(super) fn mark_ui(app: &mut WordApp, ui: &mut Ui, f: &mut MarkForm) -> Next 
             ui.checkbox(&mut f.italic, tl!("Italic"));
         });
     });
+    // A refusal from the engine is English, which scripts read; shown in the interface language.
     if !f.message.is_empty() {
-        ui.label(egui::RichText::new(&f.message).small());
+        ui.label(egui::RichText::new(crate::i18n::message(&f.message)).small());
     }
     let mut close = false;
     ui.add_space(8.0);

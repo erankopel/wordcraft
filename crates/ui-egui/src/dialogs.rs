@@ -266,8 +266,16 @@ pub enum Dialog {
         name: String,
         font: String,
         size: f32,
+        /// The style's complex-script font and size (Hebrew, Arabic… text, `w:cs` and `w:szCs`),
+        /// on rows of their own when `complex`: a right-to-left interface, or a style used for
+        /// right-to-left text. OK then sets each script's font and size as shown, so a new Latin
+        /// text font leaves the Hebrew one as it is.
+        font_cs: String,
+        size_cs: f32,
+        complex: bool,
         bold: bool,
         italic: bool,
+        /// `auto` (shown as Automatic) or a hex colour.
         color: String,
         before: f32,
         after: f32,
@@ -738,11 +746,13 @@ impl Dialog {
                     suffix: app.session.find.match_suffix,
                     ignore_punct: app.session.find.ignore_punct,
                     ignore_space: app.session.find.ignore_space,
+                    diacritics: app.session.find.match_diacritics,
                     more: app.session.find.wildcards
                         || app.session.find.match_prefix
                         || app.session.find.match_suffix
                         || app.session.find.ignore_punct
-                        || app.session.find.ignore_space,
+                        || app.session.find.ignore_space
+                        || app.session.find.match_diacritics,
                     to_replace: false,
                 },
                 tab: match name {
@@ -939,6 +949,9 @@ impl Dialog {
             },
         );
         let rp = app.session.doc.styles.resolve_para(&wordcraft_doc::ParaProps { style: Some(id.into()), ..Default::default() });
+        // Word's complex script font and size, beside the Latin text ones, wherever right-to-left
+        // text is written: in a right-to-left interface, or for a style such text uses.
+        let complex = crate::rtl::on() || wordcraft_engine::cmd::para::style_used_for_rtl(&app.session.doc, id);
         Some(Dialog::ModifyStyle {
             back: false,
             resume: None,
@@ -946,6 +959,9 @@ impl Dialog {
             name: st.name.clone(),
             font: rc.font,
             size: rc.size,
+            font_cs: rc.font_cs,
+            size_cs: rc.size_cs,
+            complex,
             bold: rc.bold,
             italic: rc.italic,
             color: match rc.color {

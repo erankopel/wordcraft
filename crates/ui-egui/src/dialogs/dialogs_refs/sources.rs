@@ -197,8 +197,9 @@ pub(super) fn source_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SourceForm) -> N
                             "tag" => tl!("Made from the author and year when empty"),
                             _ => "",
                         };
-                        ui.add_enabled(!(edit && key == "tag"), egui::TextEdit::singleline(v).desired_width(260.0).hint_text(hint))
-                            .labelled_by(field_label.id);
+                        // The hint and the text start from the side reading starts from, as in the other fields.
+                        let field = egui::TextEdit::singleline(v).desired_width(260.0).hint_text(hint).align(crate::rtl::field_align());
+                        ui.add_enabled(!(edit && key == "tag"), field).labelled_by(field_label.id);
                     }
                 });
             });

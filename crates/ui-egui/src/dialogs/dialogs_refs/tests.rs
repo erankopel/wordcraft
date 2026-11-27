@@ -474,3 +474,41 @@ fn caption_dialog_in_hebrew_text_shows_and_inserts_hebrew_labels() {
     let text = h.state().session.doc.plain_text(StoryRef::Body);
     assert!(text.lines().nth(1).is_some_and(|caption| caption.starts_with(&f.preview())), "the caption reads as the preview: {text:?}");
 }
+
+/// UWB-12: the samples of Table of Contents, Table of Figures and Index read from the side
+/// reading starts from: an entry at the right and its page number at the left margin in a
+/// right-to-left interface, the other way round in a left-to-right one.
+#[test]
+fn the_samples_read_from_the_side_reading_starts_from() {
+    // The language is thread-local: put English back even when an assertion fails.
+    struct English;
+    impl Drop for English {
+        fn drop(&mut self) {
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        }
+    }
+    let _english = English;
+    let lines = vec![(0, "Entry".to_string(), "7".to_string())];
+    let places = |lang: crate::i18n::Lang| -> (f32, f32) {
+        crate::i18n::set_current(lang);
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(400.0, 200.0))
+            .build_ui(|ui| crate::rtl::root(ui, |ui| super::common::sample(ui, &lines, true, Some('.'))));
+        h.run_steps(2);
+        let x = |text: &str| {
+            h.output()
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos.x),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{text} is drawn"))
+        };
+        (x("Entry"), x("7"))
+    };
+    let (entry, page) = places(crate::i18n::Lang::EN);
+    assert!(entry < page, "left to right: the entry at {entry}, its page at {page}");
+    let (entry, page) = places(crate::i18n::fixture_lang("he", "\tHome\t\u{05D1}\u{05D9}\u{05EA}\n"));
+    assert!(entry > page, "right to left: the entry at {entry}, its page at {page}");
+}

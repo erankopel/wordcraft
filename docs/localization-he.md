@@ -1,6 +1,6 @@
 # Hebrew interface and the Hebrew edition
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (the Discard question's name for an untitled copy; no Match diacritics in Find and Replace) · **Target:** WordCraft 0.19.1
+> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (Find and Replace's Match diacritics; dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored; Modify Style's complex script font; controls for the direction keys and gershayim) · **Target:** WordCraft 0.19.1
 
 WordCraft has a Hebrew (`he`) interface language, mirrored right to left like the Arabic one, and a
 Hebrew edition: a build of the same program that starts in Hebrew, starts new documents right to
@@ -50,6 +50,12 @@ right. In more detail:
   Print page's lists and the style gallery's and status bar's context menus are mirrored too.
 - The Home › Styles gallery shows each style's sample from the right in a right-to-left document,
   and Design › Document Formatting draws its samples right to left.
+- The mini toolbar over a selection starts its rows at the right (the font box first), and the
+  title bar's Search lists each command with its name at the right and its shortcut at the left
+  (a screen reader hears the name first). The samples in Table of Contents, Table of Figures and
+  Index read from the right with their page numbers at the left margin, and Define New Multilevel
+  List's preview sets each level's number from the right, as the list runs in right-to-left text.
+  The Find and Replace boxes and Create Source's fields, with their hints, start at the right.
 
 ## Catalog
 
@@ -85,7 +91,11 @@ Hebrew catalog as the build embeds it, supplement and corrections included.
   replacements.`). A template matches only a whole message, with its other text exactly as written,
   so engine wording that is new or changed shows in English rather than as the translation of
   another message; a placeholder named `error` or `reason` is translated the same way. The `@msg`
-  context is craft-i18n's. The supplement has rows for the messages of Replace All, Fit One Page,
+  context is craft-i18n's. The dialogs show their messages the same way: Find and Replace's results
+  (`Match 2 of 5` reads התאמה 2 מתוך 5, Replace All's count) and refusals (`no matches`), and the
+  errors of Rename, Page Setup, Save Changes, the password dialogs, Field, the mail-merge dialogs,
+  Mark Index Entry and Paste Special; the dialog's state keeps the English, which the control
+  channel reports. The supplement has rows for the messages of Replace All, Fit One Page,
   Missing Fonts, Column Selection, content controls, protection and Zotero, for the common
   operating-system errors inside them, and for about 120 errors the ribbon and dialogs can show
   (grouping objects, drawing tables, table formulas, lists, protection, recovery, printing). The
@@ -245,6 +255,26 @@ Labels start on the region's paper (a DL envelope and A4 label sheets). Starting
   geresh (U+05F3) and gershayim (U+05F4): a double-click on צה״ל picks the whole acronym, not צה.
   The vowel points were already part of the word. The maqaf (U+05BE) and sof pasuq (U+05C3) still
   end a word.
+- **Find and Replace:** Search Options has **Match diacritics** (התאמת ניקוד וטעמים), the searches'
+  `matchDiacritics`: off, as in Word, שלום finds שָׁלוֹם; ticked, points and cantillation marks must
+  match too. The dialog opens with it as the last search left it (a script's search can turn it on,
+  and then Search Options open by themselves on the ticked box), and its own searches send it.
+- **Typing options:** `"` and `'` typed right after a Hebrew letter are gershayim ״ and geresh ׳
+  while AutoCorrect Options › AutoFormat As You Type › **Type gershayim and geresh after Hebrew
+  letters** (הקלדת גרשיים וגרש אחרי אותיות עבריות, `tools.autocorrect` `hebrewMarks`) is on; until
+  someone sets it, it follows the interface, and the box shows it ticked in the Hebrew one. **File ›
+  Options › Advanced › Use Ctrl+Right Shift and Ctrl+Left Shift to set the paragraph direction**
+  (`file.options` `directionKeys`) turns those keys on and off, with a note to turn them off where
+  Ctrl+Shift switches the keyboard layout (they start off on Linux and the BSDs). Both are described
+  in [typing parity](typing-parity.md).
+- **Styles:** Modify Style shows a style's complex script font and size (David in a Hebrew
+  document) on rows of their own, beside the Latin text font and size, in the Hebrew interface or
+  for a style right-to-left text uses (`para::style_used_for_rtl`). OK sets each script's font and
+  size as shown, so a new Latin text font no longer reaches the Hebrew text, and the complex script
+  rows change the Hebrew text alone; with nothing changed no font is sent. Its colour is a swatch
+  with a palette, and the automatic colour reads אוטומטי (Automatic), not `auto`. New Style's
+  Style based on lists the paragraph styles by the names the interface shows (כותרת 1) and bases
+  the new style on the style picked, by its id.
 - **Checked and already right:** the caret steps over a letter with all its points as one stop;
   Ctrl+arrow crosses a pointed word in one step in reading order; the word count is the same with
   or without points; typed Hebrew is never underlined as misspelled English.
@@ -413,18 +443,18 @@ source and Cargo home folders are the same too: the binaries carry some of their
   way to `about_ui` before the AppImage is passed on.
 - The AppImage on a real Ubuntu 22.04 desktop: its glibc needs were checked as above, and its menu
   entry with `desktop-file-validate` and a throwaway HOME, not in GNOME's menu, dock and search.
-- Not mirrored yet: the mini toolbar, the results of the title bar's command search (each label
-  and its shortcut), the Date and Time dialog and the previews of Table of Contents, Table of
-  Figures, Index and Define New Multilevel List; most other drop-down lists still start their rows
-  at the left.
-- Still English: the Find and Replace dialog's own results and errors (`Match 2 of 5`, the Replace
-  All count, `no matches`; the rows and `@msg` templates exist, the dialog's code does not pass its
-  message through `i18n::message` yet) and the other messages of the dialogs drawn in
-  `dialogs/dispatch.rs`, Date and Time and the References dialogs; the name and the automatic colour
-  in Modify Style and the style in New Style's "Based on" box (free text fields whose value goes to
-  the command as typed: they need a picker that shows the translated name and sends the English);
-  the alternative text an inserted icon gets (`insert.icon` takes none, so the English name is
-  written); and engine messages no row covers.
+- Not mirrored yet: the Date and Time dialog; most drop-down lists still start their rows at the
+  left. Menu rows with a shortcut drawn by `rtl::menu_item` (the ribbon's menus, the page's context
+  menu) are mirrored but named for a screen reader shortcut first (`Ctrl+B Bold`); Search's results
+  set their own name, the command first.
+- Still English: the Date and Time dialog's messages; a built-in style's name in Modify Style's
+  Name box (a free text field that renames the style with what it holds: it needs to show the
+  translated name and send a name only when it was changed); the alternative text an inserted icon
+  gets (`insert.icon` takes none, so the English name is written); and engine messages no row
+  covers.
+- File › Options › Advanced has no control for the cursor movement setting (`file.options`
+  `cursorMovement`, visual or logical, see [typing parity](typing-parity.md)); the supplement has
+  its rows (תנועת הסמן: לוגית, חזותית).
 - Installing a Language pack from a file downloaded in a browser (for a network whose filter breaks
   the download): craft-font-store at the pinned craft-libs has no public way to install a local
   archive against the pinned index's size and sha256 (its local path is the testing override, which
@@ -443,14 +473,6 @@ source and Cargo home folders are the same too: the binaries carry some of their
   Hebrew word reads backwards (סודי comes out as ידוס). A Hebrew watermark typed into Custom
   Watermark shows the same. Once those draw Hebrew right, the gallery and the dialog can write the
   words in the language of the text at the caret, as the engine does for its own words.
-- Find and Replace has no Match diacritics check box. The searches take `matchDiacritics`
-  (`edit.find` and the others; off by default, so שלום finds שָׁלוֹם), but the dialog's searches
-  don't send it, so they keep whatever the last search that sent it set: after a script's
-  `"matchDiacritics": true`, the dialog's searches match points and cantillation marks too (שלום
-  no longer finds שָׁלוֹם), and nothing in the dialog shows that or turns it off; a search sent
-  with `"matchDiacritics": false` does. The check box, with the option in the dialog's searches and
-  Search Options opening for it, belongs in Search Options (`dialogs/dispatch.rs`) with its field
-  in `FindExtra` (`dialogs/find.rs`); the catalog row (התאמת ניקוד וטעמים) is in the supplement.
 
 ## Revision history
 
@@ -463,3 +485,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-27 | minor | `--install` and `--uninstall` leave an entry they didn't write and its icons; the extracted folder's `--install` ignores another program's `APPIMAGE`; `--version` names the edition, which `test-appimage.sh` and `build-appimage.sh --skip-build` check; no stock README in the AppImage; Add Font… takes several files in WordCraft's own browser; the edition's About page (`credits::about_ui`), not yet in the window |
 | 2026-11-27 | minor | The File view's templates open in Hebrew, right to left, where new documents do; New Style, New Table Style and Customize Ribbon name what they make in the interface language (New Style no longer offers a taken name); untitled recovery copies named in it; the pane's Ignore Once leaves the word until its paragraph changes; why watermarks stay English in Hebrew text; the Find dialog keeps Match diacritics |
 | 2026-11-27 | minor | File › Recover's Discard question names an untitled copy as the Recover page does; corrects the row above: Find and Replace has no Match diacritics, and its searches keep the setting the last search sent |
+| 2026-11-27 | minor | Find and Replace's Match diacritics box, sent with the dialog's searches; the dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored, the Find and Create Source fields from the right; Modify Style's complex script font and size and its Automatic colour, New Style's Based on by translated names; check boxes for the direction keys (Options › Advanced) and gershayim (AutoCorrect Options) |

@@ -35,7 +35,7 @@ const GAP: f32 = 3.0;
 /// allocations, so thirteen gaps; the two inside the split buttons are counted in `SPLIT_W`.
 const ROW2_W: f32 = 8.0 * BTN_W + 2.0 * SPLIT_W + 2.0 * SEP_W + 11.0 * SPACING;
 /// Row 1: font, size, grow, shrink. The font box takes what row 2 leaves, so both rows end
-/// together and the box starts at the bar's left edge.
+/// together and the box starts at the bar's leading edge (the right in a right-to-left interface).
 const COMBO_FONT_W: f32 = ROW2_W - (COMBO_SIZE_W + GAP + 2.0 * BTN_W + 3.0 * SPACING);
 
 /// The bar's size: fixed, so it never jitters as the selection changes, and wide enough for every
@@ -195,7 +195,8 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context, selection: Rect, viewport: R
         let inner = bar.shrink2(Vec2::new(PAD_X, PAD_Y));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(Layout::top_down(Align::Min)));
         child.spacing_mut().item_spacing = Vec2::new(SPACING, ROW_GAP);
-        content(app, &mut child, &t, true);
+        // Mirrored in a right-to-left interface, as the ribbon whose controls it reuses.
+        crate::rtl::root(&mut child, |ui| content(app, ui, &t, true));
         // The page was drawn before the bar this frame: another frame shows or clears the preview.
         if app.canvas.command_preview != app.canvas.command_previewed {
             ctx.request_repaint();
@@ -226,7 +227,7 @@ pub fn show_in_context_menu(app: &mut WordApp, ui: &mut egui::Ui) {
             ui.set_style(ui.ctx().global_style());
             ui.set_width(ROW2_W);
             ui.spacing_mut().item_spacing = Vec2::new(SPACING, ROW_GAP);
-            content(app, ui, &t, false);
+            crate::rtl::root(ui, |ui| content(app, ui, &t, false));
             if app.dialog.is_some() || app.colors.is_some() {
                 ui.close();
             }
@@ -250,7 +251,9 @@ fn content(app: &mut WordApp, ui: &mut egui::Ui, t: &Tokens, preview_on_hover: b
         })
         .unwrap_or_default();
     let row = |ui: &mut egui::Ui, app: &mut WordApp, add: &dyn Fn(&mut egui::Ui, &mut WordApp)| {
-        ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), ROW_H), Layout::left_to_right(Align::Center), |ui| {
+        // A row runs from the side reading starts from: the font box first, at the right edge in a
+        // right-to-left interface.
+        ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), ROW_H), crate::rtl::row_layout(ui, Align::Center), |ui| {
             ui.set_min_height(ROW_H);
             add(ui, app);
         });
@@ -454,7 +457,7 @@ pub(crate) fn highlight_menu(ui: &mut egui::Ui, app: &mut WordApp) {
 fn font_color_menu(ui: &mut egui::Ui, app: &mut WordApp) {
     egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
         let auto_in_effect = widgets::current_pick(ui.ctx()).is_some_and(|cur| cur == "auto");
-        let automatic = ui.selectable_label(auto_in_effect, "Automatic");
+        let automatic = ui.selectable_label(auto_in_effect, tl!("Automatic"));
         if automatic.hovered() {
             widgets::note_hover(ui.ctx(), "auto".to_string());
         }

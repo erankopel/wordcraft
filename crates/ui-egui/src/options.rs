@@ -596,6 +596,9 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     flag(app, ui, "Typing replaces selected text", "typingReplacesSelection", pr.typing_replaces_selection);
     flag(app, ui, "Use the Insert key to switch overtype on and off", "insertKeyOvertype", pr.insert_key_overtype);
     flag(app, ui, "Overtype (typing replaces the characters after the caret)", "overtype", pr.overtype);
+    // Word's keys for the paragraph direction; off by default where Ctrl+Shift switches layouts.
+    flag(app, ui, "Use Ctrl+Right Shift and Ctrl+Left Shift to set the paragraph direction", "directionKeys", pr.direction_keys);
+    note(ui, "Turn this off if Ctrl+Shift switches your keyboard layout.");
     let mut guides = app.ui.alignment_guides;
     if ui
         .checkbox(&mut guides, tl!("Show alignment guides when moving pictures and shapes"))

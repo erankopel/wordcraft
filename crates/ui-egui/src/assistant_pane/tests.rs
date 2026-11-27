@@ -853,6 +853,42 @@ fn work_stopped_by_a_limit_is_applied_and_said_to_be_partial() {
     assert!(app.assistant.said.contains("limit"), "{:?}", app.assistant.said);
 }
 
+/// A request that ends after the person closed the pane opens it again without taking the keyboard, even
+/// when Stop Waiting held it when the pane was closed.
+#[test]
+fn a_request_that_ends_with_the_pane_closed_takes_no_keyboard() {
+    let ctx = egui::Context::default();
+    let held = edit_script(
+        false,
+        vec![Ok(Step::tools(&[("select_text", json!({"text": "world"})), ("type_text", json!({"text": "there"}))])), Ok(Step::text("Done."))],
+    );
+    held.hold.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut app = edit_app("Hello world", held.clone());
+    app.session.view.assistant_pane = true;
+    ask(&mut app, &ctx, "Change world");
+    wait_for_requests(&held, 1);
+    app.assistant.stop_focused = true;
+    app.session.view.assistant_pane = false;
+    held.hold.store(false, std::sync::atomic::Ordering::SeqCst);
+    settle(&mut app, &ctx);
+    assert!(app.session.view.assistant_pane, "it opened again to say what happened");
+    assert_eq!(app.assistant.want_focus, super::Focus::None, "the keyboard stays where the person is");
+}
+
+/// With nothing to send, Undo These Changes hands the keyboard to the instruction box, not to a disabled Send.
+#[test]
+fn undoing_with_no_instruction_hands_the_keyboard_to_the_instruction_box() {
+    let ctx = egui::Context::default();
+    let turns = vec![Ok(Step::tools(&[("select_text", json!({"text": "world"})), ("type_text", json!({"text": "there"}))])), Ok(Step::text("Done."))];
+    let mut app = edit_app("Hello world", edit_script(false, turns));
+    ask(&mut app, &ctx, "Change world");
+    settle(&mut app, &ctx);
+    app.assistant.prompt.clear();
+    app.assistant_act(Act::UndoEdits, &ctx);
+    assert_eq!(body(&app), "Hello world");
+    assert_eq!(app.assistant.want_focus, super::Focus::Prompt);
+}
+
 /// Keeping the key on this computer: only when asked, only once the key has worked, in a file of its own that
 /// the next run reads, and gone when the person forgets it.
 #[cfg(not(target_arch = "wasm32"))]

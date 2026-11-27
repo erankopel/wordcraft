@@ -110,6 +110,8 @@ struct Edited {
     changed: bool,
     /// A limit of the request (tool calls, commands, changes) stopped the assistant: its work may be partial.
     limited: bool,
+    /// Replaying the steps did not give what the assistant worked on: they must not be applied.
+    unrepeatable: bool,
 }
 
 /// The document the assistant's changes were made on, which they may be applied to only while it is unchanged.
@@ -168,6 +170,8 @@ enum Focus {
     Agree,
     Stop,
     Key,
+    /// The instruction box.
+    Prompt,
 }
 
 /// How strongly a notice speaks, and so how it is drawn and announced.
@@ -477,8 +481,9 @@ impl WordApp {
             Act::UndoEdits => {
                 if self.assistant_changes_on_top() {
                     self.assistant.applied = None;
-                    // The button that was pressed is gone: the keyboard goes to Send.
-                    self.assistant.want(Focus::Send);
+                    // The button that was pressed is gone: the keyboard goes to Send, or to the instruction box
+                    // when there is no instruction to send.
+                    self.assistant.want(if self.assistant.prompt.trim().is_empty() { Focus::Prompt } else { Focus::Send });
                     match self.run("edit.undo", json!({})) {
                         Ok(_) => self.assistant_say(tl!("The assistant's changes were undone.").to_owned(), ctx),
                         Err(why) => self.assistant.apply_error = Some(why),
@@ -646,8 +651,12 @@ impl WordApp {
                             progress_repaint.request_repaint();
                         })
                     };
-                    let edited =
-                        result.map(|outcome| Edited { outcome, steps: tools.steps().to_vec(), changed: tools.changed(), limited: tools.hit_limit() });
+                    let edited = result.map(|outcome| {
+                        let changed = tools.changed();
+                        // What will be applied must be what the model saw and described.
+                        let unrepeatable = changed && outcome.stop == Stop::End && tools.verify().is_err();
+                        Edited { outcome, steps: tools.steps().to_vec(), changed, limited: tools.hit_limit(), unrepeatable }
+                    });
                     let _ = tx.send(Msg::Edited(edited));
                     repaint.request_repaint();
                 });
@@ -717,8 +726,10 @@ impl WordApp {
     fn assistant_end_wait(&mut self) -> Option<Waiting> {
         let waiting = self.assistant.waiting.take()?;
         // Stop Waiting is gone: the keyboard focus it held goes to Send. A person who has moved on, to the
-        // document for instance, is not pulled back.
-        if std::mem::take(&mut self.assistant.stop_focused) {
+        // document for instance, is not pulled back, and a pane that was closed (its last focus is stale)
+        // takes nothing when it opens again.
+        let held_stop = std::mem::take(&mut self.assistant.stop_focused) && self.session.view.assistant_pane;
+        if held_stop {
             self.assistant.want(Focus::Send);
         } else {
             self.assistant.want_focus = Focus::None;
@@ -793,7 +804,10 @@ impl WordApp {
                 let unchanged = self.session.document_id() == base.document
                     && self.session.doc.settings.track_changes == base.tracking
                     && workspace::unchanged_since(&self.session.doc, &base.doc);
-                if !unchanged {
+                if edited.unrepeatable {
+                    self.assistant.apply_error =
+                        Some(tl!("The assistant's changes could not be repeated exactly, so they were not applied. Ask again.").to_owned());
+                } else if !unchanged {
                     self.assistant.apply_error =
                         Some(tl!("The document changed while the assistant worked, so its changes were not applied. Ask again.").to_owned());
                 } else {
@@ -1063,6 +1077,11 @@ fn button(ui: &mut Ui, app: &mut WordApp, label: &str, focus: Focus, enabled: bo
     let response = stable(ui, &format!("button{}", focus as u8), |ui| ui.add_enabled(enabled, egui::Button::new(label))).inner;
     if enabled {
         focus_if_asked(ui, app, &response, focus);
+    } else if app.assistant.want_focus == focus {
+        // A disabled control cannot take the keyboard; the request must not fire later, when it is
+        // enabled while the person types elsewhere.
+        app.assistant.want_focus = Focus::None;
+        app.assistant.focus_frames = 0;
     }
     if focus == Focus::Stop {
         // egui's own focus, not the window's: a window that is not in front still holds its keyboard focus.
@@ -1132,16 +1151,20 @@ fn body(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     }
     ui.add_space(4.0);
     let label = ui.label(tl!("Instruction:"));
-    ui.add_enabled(
-        !busy,
-        TextEdit::multiline(&mut app.assistant.prompt)
-            .desired_rows(4)
-            .desired_width(f32::INFINITY)
-            .char_limit(MAX_INSTRUCTION_BYTES)
-            .hint_text(tl!("For example: make this paragraph shorter"))
-            .id_salt("assistant.prompt"),
-    )
-    .labelled_by(label.id);
+    let prompt = ui
+        .add_enabled(
+            !busy,
+            TextEdit::multiline(&mut app.assistant.prompt)
+                .desired_rows(4)
+                .desired_width(f32::INFINITY)
+                .char_limit(MAX_INSTRUCTION_BYTES)
+                .hint_text(tl!("For example: make this paragraph shorter"))
+                .id_salt("assistant.prompt"),
+        )
+        .labelled_by(label.id);
+    if !busy {
+        focus_if_asked(ui, app, &prompt, Focus::Prompt);
+    }
     let waiting = app.assistant.waiting.is_some();
     let can_send = !busy && !app.assistant.prompt.trim().is_empty();
     let (mut send, mut new_chat, mut stop) = (false, false, false);

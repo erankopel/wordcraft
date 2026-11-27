@@ -67,21 +67,27 @@ the keyboard) so what happened is shown and spoken, and the status bar says it t
   dialogs, turn Track Changes off, or accept or reject anyone's changes. The engine refuses these inside its
   command runner, so a command that runs other commands cannot reach them either (`crates/engine/src/agent.rs`).
 - **What it reads.** The document as it reads with every tracked change accepted: its tools leave out text
-  deleted with Track Changes on, and the commands that would show it (a paragraph's stored text, the list of
-  tracked changes) are closed to it. Its search commands still match the stored text, so it could learn that
-  a phrase it guesses is there.
+  deleted with Track Changes on (and fields or equations inside it), the commands that would show it (a
+  paragraph's stored text, the list of tracked changes, notes and headings as stored, a copy in markup) are
+  closed to it or answer in the same terms, and any result that would still carry a piece of deleted text is
+  withheld. Its search commands still match the stored text, so it could learn that a phrase it guesses is
+  there.
 - **How it applies.** Each command it runs is either recorded as a step, when it changed something, or leaves
-  no trace: a command that fails, only opens a dialog, or is refused is put back whole. The steps are replayed
-  on a fresh copy of your document by the command `assistant.runSteps`, from the selection and the view the
+  no trace: a command that fails, only opens a dialog, or is refused is put back whole. A command that only
+  moves the selection is recorded as the place it reached. When it finishes, the steps are replayed once on a
+  fresh copy and compared with what it worked on; if they differ, nothing is applied. Then the command
+  `assistant.runSteps` replays them on a fresh copy of your document, from the selection and the view the
   assistant started with, so its changes land where it made them even if you clicked elsewhere meanwhile; the
-  result replaces the document as one undo step. If the document's content changed while it worked, nothing is
-  applied and the pane says so: ask again. A click, a save, or an edit you undid meanwhile does not count.
+  result replaces the document as one undo step. If the document's content or properties changed while it
+  worked, nothing is applied and the pane says so: ask again. A click, a save, or an edit you undid meanwhile
+  does not count.
 - **Track Changes.** With Track Changes on, a change that Track Changes cannot record (a new table, removing a
-  header) is refused, and the assistant is told to do it another way or say it could not.
+  header, a field's code or result, an equation's content) is refused, and the assistant is told to do it
+  another way or say it could not. Comments and bookmarks go in: they are not tracked changes, in Word either.
 - **What it may not write.** Fields that make a word processor read a file or a web address, or start a
   program, when the document is opened or updated (INCLUDEPICTURE, INCLUDETEXT, LINK, DDE, DDEAUTO, IMPORT,
   DATABASE, RD, or any field but a hyperlink that names a web address or a network path), and HTML or RTF
-  pastes, which can carry such fields.
+  pastes, however they are passed, which can carry such fields.
 - **Undo These Changes** is offered while the assistant's last changes are the newest step of the document's
   undo history, and undoes those and nothing else. Repeat and macro recording leave its changes out.
 - **When a limit stops it** (its rounds, tool calls, commands or changes), it is told so and sums up: the
@@ -173,6 +179,7 @@ right-to-left interface).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-27 | minor | Second review: moves recorded as places, a final replay check, the whole selection kept when a call fails, the Web Layout width replayed, more readers kept from deleted text, comments allowed and field changes refused under Track Changes, properties count as changes, no keyboard taken by a reopened pane |
 | 2026-11-27 | minor | Review fixes: replay from where the assistant started, calls that fail leave no trace, untracked changes refused, per-document agreement, limits, fields and pastes that reach out refused, tracked deletions never read, Stop ends a retry wait |
 | 2026-11-27 | major | The assistant changes the document with WordCraft's commands (tools), one undo step; `assistant.runSteps` |
 | 2026-11-26 | major | First version: the AI pane, `assistant.context`, `assistant.apply`, `view.assistantPane` |

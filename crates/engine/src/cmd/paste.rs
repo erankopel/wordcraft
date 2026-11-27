@@ -49,11 +49,11 @@ fn clip_text(s: &Session, v: &Value) -> Option<String> {
     }
 }
 
-fn looks_like_rtf(t: &str) -> bool {
+pub(crate) fn looks_like_rtf(t: &str) -> bool {
     t.trim_start().starts_with("{\\rtf")
 }
 
-fn looks_like_html(t: &str) -> bool {
+pub(crate) fn looks_like_html(t: &str) -> bool {
     let t = t.trim_start();
     t.starts_with('<') && (t.contains("</") || t.contains("/>"))
 }

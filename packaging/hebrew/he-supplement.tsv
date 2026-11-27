@@ -448,3 +448,4 @@ spacing	Open	פתוח
 	No whole answer came within 10 minutes. The request reached the service, which may still process it. Try again, perhaps with less text.	לא התקבלה תשובה שלמה תוך 10 דקות. הבקשה הגיעה לשירות, שעשוי עדיין לטפל בה. יש לנסות שוב, אולי עם פחות טקסט.
 	The assistant reached a limit of this request before it finished. The changes it made so far were applied, and its reply says what is left. Undo reverts all of them in one step.	העוזר הגיע למגבלה של הבקשה הזו לפני שסיים. השינויים שביצע עד כה הוחלו, והתשובה שלו מפרטת מה נשאר. ביטול פעולה אחד מבטל את כולם.
 	The assistant reached a limit of this request before it finished: only part of the work may be done.	העוזר הגיע למגבלה של הבקשה הזו לפני שסיים: ייתכן שרק חלק מהעבודה בוצע.
+	The assistant's changes could not be repeated exactly, so they were not applied. Ask again.	לא היה אפשר לחזור במדויק על השינויים של העוזר, ולכן הם לא הוחלו. יש לבקש שוב.

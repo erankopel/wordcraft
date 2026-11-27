@@ -87,7 +87,6 @@ const FAMILIES: &[&str] = &[
 
 /// Single commands from other families that only read or edit the open document.
 const MEMBERS: &[&str] = &[
-    "link.targets",
     "object.altText",
     "edit.copy",
     "edit.copyFormat",
@@ -174,8 +173,10 @@ const NEVER: &[&str] = &[
     "insert.object",
     "insert.picture",
     "insert.textFromFile",
+    "link.targets",
     "para.dialog",
     "picture.change",
+    "references.notes",
     "references.researcher",
     "review.accept",
     "review.acceptAll",
@@ -243,7 +244,15 @@ pub fn refusal(id: &str, params: &Value) -> Option<&'static str> {
         "insert.field" if reaches_out(text("instr")) => Some(REACHING),
         "fields.setCode" if reaches_out(text("code")) => Some(REACHING),
         // HTML and RTF can carry fields and linked pictures; the assistant pastes text and formats it with commands.
-        "edit.paste" | "edit.pasteMerge" | "edit.pasteSpecial" if has("html") || has("rtf") => Some("an assistant pastes text, not HTML or RTF"),
+        "edit.paste" | "edit.pasteMerge" | "edit.pasteSpecial"
+            if has("html")
+                || has("rtf")
+                || matches!(text("as"), "rtf" | "html")
+                || crate::cmd::paste::looks_like_rtf(text("text"))
+                || crate::cmd::paste::looks_like_html(text("text")) =>
+        {
+            Some("an assistant pastes text, not HTML or RTF")
+        }
         _ => None,
     }
 }
@@ -293,6 +302,36 @@ fn is_reader(id: &str) -> bool {
             | "references.notes"
     )
 }
+
+/// Commands whose changes Track Changes does not record in WordCraft (the text of a field's result, an
+/// equation's content): with Track Changes on, an assistant may not run them.
+fn untrackable(id: &str) -> bool {
+    matches!(
+        id,
+        "fields.setCode"
+            | "fields.update"
+            | "references.updateFields"
+            | "references.updateToc"
+            | "references.updateIndex"
+            | "references.updateFigures"
+            | "references.updateAuthorities"
+            | "references.citationStyle"
+    ) || (id.starts_with("equation.") && !is_reader(id))
+}
+
+/// The readers that return the stored text, which holds text deleted with Track Changes on: the model
+/// reads through the tool that shows the text as it reads instead.
+fn wrapped_by(id: &str) -> Option<&'static str> {
+    match id {
+        "document.inspect" => Some("inspect_document"),
+        "document.selection" => Some("get_selection"),
+        "document.text" => Some("get_text"),
+        _ => None,
+    }
+}
+
+/// The fewest letters or digits a piece of deleted text has for results to be checked for it.
+const SECRET_MIN_CHARS: usize = 4;
 
 /// Run `f` with every file read and write refused on this thread.
 pub fn confined<T>(f: impl FnOnce() -> T) -> T {
@@ -358,9 +397,20 @@ impl Seed {
     /// commands that move by lines or pages follow. `assistant.runSteps` takes it as `start`, so the
     /// steps are replayed from where they were made, wherever the person has clicked since.
     pub fn start(&self) -> Value {
+        let v = &self.view;
         json!({
             "selection": {"anchor": pos_json(&self.sel.anchor), "focus": pos_json(&self.sel.focus)},
-            "view": serde_json::to_value(&self.view).unwrap_or(Value::Null),
+            "view": serde_json::to_value(v).unwrap_or(Value::Null),
+            // The geometry the view does not save (the window's width for Web Layout, the reading
+            // pages), which lines and pages follow.
+            "layout": {
+                "webWidth": v.web_width,
+                "readWidth": v.read_width,
+                "readHeight": v.read_height,
+                "readZoom": v.read_zoom,
+                "readColumnWidth": v.read_column_width,
+                "readLineSpacing": v.read_line_spacing,
+            },
         })
     }
 
@@ -372,7 +422,18 @@ impl Seed {
             self.sel = Selection { anchor, focus };
         }
         if let Some(view) = start.get("view").filter(|v| !v.is_null()) {
-            self.view = serde_json::from_value(view.clone()).map_err(|e| format!("the view is unreadable: {e}"))?;
+            let mut v: crate::view::ViewState = serde_json::from_value(view.clone()).map_err(|e| format!("the view is unreadable: {e}"))?;
+            // What serde leaves out stays as it is now, unless `start` says what it was.
+            let layout = start.get("layout").unwrap_or(&Value::Null);
+            let number = |k: &str| layout.get(k).and_then(Value::as_f64).map(|x| x as f32);
+            v.web_width = number("webWidth").unwrap_or(self.view.web_width);
+            v.read_width = number("readWidth").unwrap_or(self.view.read_width);
+            v.read_height = number("readHeight").unwrap_or(self.view.read_height);
+            v.read_zoom = number("readZoom").unwrap_or(self.view.read_zoom);
+            v.read_column_width = if layout.get("readColumnWidth").is_some() { number("readColumnWidth") } else { self.view.read_column_width };
+            v.read_line_spacing = if layout.get("readLineSpacing").is_some() { number("readLineSpacing") } else { self.view.read_line_spacing };
+            v.read_page_color = self.view.read_page_color;
+            self.view = v;
         }
         Ok(self)
     }
@@ -397,14 +458,33 @@ impl Seed {
     }
 }
 
-/// Does `now` have the content `then` had? Save stamps (the time, the author and the revision count of
-/// the last save, the zoom kept with the file) do not count: saving while the assistant works changes
-/// nothing it worked on. Content only: an Undo and a Redo give the same document back.
+/// Does `now` have the content `then` had? What a save writes does not count (the time, the name and
+/// the revision count of the last save, the creation time when there was none, the zoom kept with the
+/// file): saving while the assistant works changes nothing it worked on. Everything else does, the
+/// document's properties included. Content only: an Undo and a Redo give the same document back.
 pub fn unchanged_since(now: &Document, then: &Document) -> bool {
     let mut then = then.clone();
-    then.core = now.core.clone();
+    then.core.modified = now.core.modified.clone();
+    then.core.last_modified_by = now.core.last_modified_by.clone();
+    then.core.revision = now.core.revision;
+    if then.core.created.is_empty() {
+        then.core.created = now.core.created.clone();
+    }
     then.settings.zoom = now.settings.zoom;
     now.same_content(&then)
+}
+
+/// `doc` with the times of its tracked changes and comments set aside: two runs of the same steps
+/// differ only there.
+fn timeless(doc: &Document) -> Document {
+    let mut d = doc.clone();
+    for r in &mut d.revisions {
+        r.date.clear();
+    }
+    for c in d.comments.values_mut() {
+        c.date.clear();
+    }
+    d
 }
 
 /// Replay `steps` (each `{"command", "params"}`) on the workspace of `seed`, refused as a whole at
@@ -477,21 +557,28 @@ fn tracked_stories(doc: &Document) -> Vec<StoryRef> {
 /// A fingerprint of the document as it reads with every tracked change rejected: its text without
 /// tracked insertions, each object as one mark, and each paragraph mark that is not itself a tracked
 /// insertion. A change made with Track Changes on leaves it as it was (what it adds is marked inserted,
-/// what it removes stays, marked deleted); a change that is not tracked alters it.
+/// what it removes stays, marked deleted); a change that is not tracked alters it. Markers (where a
+/// comment or a bookmark starts and ends, field and content control bounds) are not text: comments and
+/// bookmarks are not tracked changes, in Word either.
 fn rejected_fingerprint(doc: &Document) -> u64 {
     let mut h = DefaultHasher::new();
     for story in tracked_stories(doc) {
         h.write(format!("\u{0}{story:?}\u{0}").as_bytes());
         for path in doc.para_paths(story) {
             let Some(p) = doc.para(story, &path) else { continue };
-            let mut next = 0;
-            for (range, props) in p.run_ranges() {
-                if props.ins.is_some() && range.start >= next && range.end <= p.text.len() {
-                    h.write(&p.text.as_bytes()[next..range.start]);
-                    next = range.end;
+            let inserted: Vec<std::ops::Range<usize>> = p.run_ranges().filter(|(_, c)| c.ins.is_some()).map(|(r, _)| r).collect();
+            let mut object = 0;
+            let mut buf = [0u8; 4];
+            for (i, c) in p.text.char_indices() {
+                let marker = c == OBJ && {
+                    object += 1;
+                    p.objects.get(object - 1).is_some_and(|o| o.is_marker())
+                };
+                if marker || inserted.iter().any(|r| r.contains(&i)) {
+                    continue;
                 }
+                h.write(c.encode_utf8(&mut buf).as_bytes());
             }
-            h.write(&p.text.as_bytes()[next.min(p.text.len())..]);
             if p.mark.ins.is_none() {
                 h.write(b"\n");
             }
@@ -500,11 +587,19 @@ fn rejected_fingerprint(doc: &Document) -> u64 {
     h.finish()
 }
 
-/// The bytes of text in every story of `doc`: what bounds how far one request may grow the document.
+/// What a paragraph costs besides its text, in the measure of [`text_bytes`]: so that empty paragraphs and
+/// table cells count too.
+const PARAGRAPH_COST: usize = 16;
+
+/// The size of `doc`: the bytes of text in every story, and [`PARAGRAPH_COST`] for each paragraph (a table
+/// cell has one at least). What bounds how far one request may grow the document.
 fn text_bytes(doc: &Document) -> usize {
     let mut stories = vec![StoryRef::Body];
     stories.extend(doc.parts.keys().map(|id| StoryRef::Part(*id)));
-    stories.iter().map(|story| doc.para_paths(*story).iter().filter_map(|path| doc.para(*story, path)).map(|p| p.len()).sum::<usize>()).sum()
+    stories
+        .iter()
+        .map(|story| doc.para_paths(*story).iter().filter_map(|path| doc.para(*story, path)).map(|p| p.len() + PARAGRAPH_COST).sum::<usize>())
+        .sum()
 }
 
 /// A paragraph's text as it reads with every tracked change accepted (as [`wordcraft_doc::Paragraph::final_text`]),
@@ -545,6 +640,14 @@ struct Before {
     originals: HashMap<String, String>,
     picture_looks: HashMap<String, PictureLook>,
     math: Option<crate::MathEdit>,
+    also_selected: Vec<Pos>,
+    member: Option<crate::cmd::canvas::CanvasMember>,
+    widened: Option<crate::doc_state::Widened>,
+    pending_move: Option<crate::cmd::moves::PendingMove>,
+    review_style: Option<crate::cmd::review::StyleTarget>,
+    bib_style: String,
+    goal_x: Option<f32>,
+    hf_return: Option<Selection>,
 }
 
 impl Before {
@@ -560,6 +663,14 @@ impl Before {
             originals: ws.originals.clone(),
             picture_looks: ws.picture_looks.clone(),
             math: ws.math.clone(),
+            also_selected: ws.also_selected.clone(),
+            member: ws.member.clone(),
+            widened: ws.widened.clone(),
+            pending_move: ws.pending_move.clone(),
+            review_style: ws.review_style.clone(),
+            bib_style: ws.bib_style.clone(),
+            goal_x: ws.goal_x,
+            hf_return: ws.hf_return.clone(),
         }
     }
 
@@ -570,12 +681,20 @@ impl Before {
 
     /// Did the call change anything a later step depends on?
     fn changed(&self, ws: &Session) -> bool {
-        self.document_changed(ws)
-            || ws.sel != self.sel
-            || ws.pending != self.pending
-            || ws.column != self.column
-            || ws.clipboard != self.clipboard.0
-            || ws.math != self.math
+        self.document_changed(ws) || ws.sel != self.sel || !self.same_besides_selection(ws)
+    }
+
+    /// Is everything but the selection's ends as it was? Then a call that moved the selection is recorded as
+    /// the place it went to, which the replay reaches whatever the layout or the word lists say then.
+    fn same_besides_selection(&self, ws: &Session) -> bool {
+        ws.pending == self.pending
+            && ws.column == self.column
+            && ws.clipboard == self.clipboard.0
+            && ws.math == self.math
+            && ws.also_selected == self.also_selected
+            && ws.member == self.member
+            && ws.widened == self.widened
+            && serde_json::to_value(&ws.find).ok() == serde_json::to_value(&self.find).ok()
     }
 
     fn restore(self, ws: &mut Session) {
@@ -587,6 +706,15 @@ impl Before {
         ws.originals = self.originals;
         ws.picture_looks = self.picture_looks;
         ws.math = self.math;
+        // Restoring the snapshot clears these; they are put back as they were.
+        ws.also_selected = self.also_selected;
+        ws.member = self.member;
+        ws.widened = self.widened;
+        ws.pending_move = self.pending_move;
+        ws.review_style = self.review_style;
+        ws.bib_style = self.bib_style;
+        ws.goal_x = self.goal_x;
+        ws.hf_return = self.hf_return;
         ws.ui_requests.clear();
     }
 }
@@ -611,6 +739,10 @@ pub struct Toolbox {
     cancel: Option<Arc<AtomicBool>>,
     /// A limit of the request (tool calls, commands, changes) refused a call.
     limited: bool,
+    /// What the workspace started from, to check the steps against ([`Toolbox::verify`]).
+    seed: Seed,
+    /// Text deleted with Track Changes on that the document reads nowhere else, worked out when needed.
+    secrets: Option<Vec<String>>,
 }
 
 impl Toolbox {
@@ -621,8 +753,21 @@ impl Toolbox {
         let size = text_bytes(&seed_doc);
         let size_limit = size.saturating_mul(GROWTH_FACTOR).max(size.saturating_add(GROWTH_ALLOWANCE));
         let tracked = seed_doc.settings.track_changes.then(|| rejected_fingerprint(&seed_doc));
-        let ws = seed.workspace();
-        Toolbox { ws, seed_doc, start, steps: Vec::new(), calls: 0, commands: 0, size_limit, tracked, cancel: None, limited: false }
+        let ws = seed.clone().workspace();
+        Toolbox {
+            ws,
+            seed_doc,
+            start,
+            steps: Vec::new(),
+            calls: 0,
+            commands: 0,
+            size_limit,
+            tracked,
+            cancel: None,
+            limited: false,
+            seed,
+            secrets: None,
+        }
     }
 
     /// Stop a batch between its commands once `flag` is set.
@@ -742,6 +887,7 @@ impl Toolbox {
             "insert_table" => self.run("insert.spreadsheet", pick(&["values", "header", "style"])),
             "list_commands" => Ok(self.list_commands(input)),
             "execute" => match input.get("command").and_then(Value::as_str) {
+                Some(id) if let Some(tool) = wrapped_by(id) => Err(format!("{id} is read through the {tool} tool")),
                 Some(id) => {
                     let params = input.get("params").cloned().filter(|p| !p.is_null()).unwrap_or_else(|| json!({}));
                     self.run(id, params)
@@ -752,7 +898,20 @@ impl Toolbox {
             other => Err(format!("there is no tool `{other}`")),
         };
         match result {
-            Ok(value) => ToolResult::ok(&value),
+            Ok(value) => {
+                let shown = ToolResult::ok(&value);
+                let content = shown.content.clone();
+                let leaks = self.secrets().iter().any(|secret| {
+                    let escaped = serde_json::to_string(secret).unwrap_or_default();
+                    content.contains(secret.as_str()) || content.contains(escaped.trim_matches('"'))
+                });
+                if leaks {
+                    return ToolResult::error(
+                        "this result would show text deleted with Track Changes on, which you may not read; read the document with get_text, inspect_document or get_selection",
+                    );
+                }
+                shown
+            }
             Err(why) => ToolResult::error(why),
         }
     }
@@ -774,6 +933,11 @@ impl Toolbox {
             self.limited = true;
             return Err(format!("this request has made the most changes one request may make ({MAX_STEPS}); stop and say what is left to do"));
         }
+        if self.tracked.is_some() && self.ws.doc.settings.track_changes && untrackable(id) {
+            return Err(format!(
+                "{id}: with Track Changes on, WordCraft does not track what this command changes (field results, equations), so it is not run. Leave it and say so."
+            ));
+        }
         let before = Before::of(&self.ws);
         let result = confined(|| self.ws.run(id, &params));
         let requests = std::mem::take(&mut self.ws.ui_requests);
@@ -792,6 +956,7 @@ impl Toolbox {
             let size = text_bytes(&self.ws.doc);
             if size > self.size_limit {
                 before.restore(&mut self.ws);
+                self.limited = true;
                 return Err(format!(
                     "{id} would make the document's text {size} bytes, more than this request may grow it to ({}), so it was not made",
                     self.size_limit
@@ -807,10 +972,84 @@ impl Toolbox {
                 ));
             }
         }
-        if !reader || before.changed(&self.ws) {
+        let document_changed = before.document_changed(&self.ws);
+        if !document_changed && self.ws.sel != before.sel && before.same_besides_selection(&self.ws) {
+            // It only moved the selection: the step is the place it went to, which the replay reaches
+            // whatever the layout or the word lists say then.
+            let (anchor, focus) = (pos_json(&self.ws.sel.anchor), pos_json(&self.ws.sel.focus));
+            self.steps.push(json!({"command": "select.range", "params": {"anchor": anchor, "focus": focus}}));
+        } else if !reader || before.changed(&self.ws) {
             self.steps.push(json!({"command": id, "params": params}));
         }
-        Ok(value)
+        if document_changed {
+            self.secrets = None;
+        }
+        Ok(self.shown(id, value))
+    }
+
+    /// What the model is shown of a command's result: never the copied text in markup (a copy can hold
+    /// text deleted with Track Changes on), comments as they read with every change accepted.
+    fn shown(&self, id: &str, mut value: Value) -> Value {
+        match id {
+            "edit.copy" | "edit.cut" => {
+                json!({"done": id, "copied": self.ws.clipboard.as_ref().map_or(0, |c| c.to_document().final_text(StoryRef::Body).chars().count())})
+            }
+            "review.comments" => {
+                if let Some(list) = value.as_array_mut() {
+                    for entry in list.iter_mut() {
+                        let part = entry
+                            .get("id")
+                            .and_then(Value::as_u64)
+                            .and_then(|id| u32::try_from(id).ok())
+                            .and_then(|id| self.ws.doc.comments.get(&id))
+                            .map(|c| c.part);
+                        entry["text"] = json!(part.map(|part| self.ws.doc.final_text(StoryRef::Part(part))).unwrap_or_default());
+                    }
+                }
+                value
+            }
+            _ => value,
+        }
+    }
+
+    /// The text deleted with Track Changes on that the document reads nowhere else: no result may carry
+    /// it to the model. Pieces shorter than [`SECRET_MIN_CHARS`] letters are left out, as words that short
+    /// would match too much.
+    fn secrets(&mut self) -> &[String] {
+        if self.secrets.is_none() {
+            let doc = &self.ws.doc;
+            let mut stories = vec![StoryRef::Body];
+            stories.extend(doc.parts.keys().map(|id| StoryRef::Part(*id)));
+            let readable: String = stories.iter().map(|st| doc.final_text(*st)).collect::<Vec<_>>().join("\n");
+            let mut found: Vec<String> = Vec::new();
+            for story in &stories {
+                for path in doc.para_paths(*story) {
+                    let Some(p) = doc.para(*story, &path) else { continue };
+                    for range in p.deleted_ranges() {
+                        let piece: String = p.text.get(range).unwrap_or_default().chars().filter(|c| *c != OBJ).collect();
+                        let piece = piece.trim();
+                        if piece.chars().filter(|c| c.is_alphanumeric()).count() >= SECRET_MIN_CHARS && !readable.contains(piece) {
+                            found.push(piece.to_string());
+                        }
+                    }
+                }
+            }
+            found.sort();
+            found.dedup();
+            self.secrets = Some(found);
+        }
+        self.secrets.as_deref().unwrap_or_default()
+    }
+
+    /// Replay the steps on a fresh workspace of the seed and compare with this workspace, the times of
+    /// tracked changes and comments set aside: what will be applied must be what the model saw and
+    /// described. Says why not when it is not.
+    pub fn verify(&self) -> Result<(), String> {
+        let replayed = replay(self.seed.clone(), &self.steps)?;
+        if replayed.sel != self.ws.sel || !timeless(&replayed.doc).same_content(&timeless(&self.ws.doc)) {
+            return Err("replaying the steps gives a different document than the assistant worked on".into());
+        }
+        Ok(())
     }
 
     /// The selection, its text read as with every tracked change accepted.
@@ -855,7 +1094,22 @@ impl Toolbox {
             for block in blocks.iter_mut() {
                 let Some(index) = block.get("index").and_then(Value::as_u64).map(|i| i as usize) else { continue };
                 match doc.body.get(index).map(|b| &**b) {
-                    Some(Block::Para(p)) => block["text"] = json!(p.final_text()),
+                    Some(Block::Para(p)) => {
+                        block["text"] = json!(p.final_text());
+                        // The objects in deleted text (a field's code and result, an equation) are deleted text too.
+                        if block.get("objects").is_some() {
+                            let deleted = p.deleted_ranges();
+                            let kept: Vec<Value> = p
+                                .text
+                                .char_indices()
+                                .filter(|(_, c)| *c == OBJ)
+                                .zip(p.objects.iter())
+                                .filter(|((at, _), _)| !deleted.iter().any(|r| r.contains(at)))
+                                .map(|(_, o)| serde_json::to_value(o).unwrap_or(Value::Null))
+                                .collect();
+                            block["objects"] = json!(kept);
+                        }
+                    }
                     Some(Block::Table(t)) => {
                         let cells: Vec<Vec<String>> = t
                             .rows
@@ -877,6 +1131,11 @@ impl Toolbox {
             for part in parts.iter_mut() {
                 if let Some(id) = part.get("id").and_then(Value::as_u64).and_then(|id| u32::try_from(id).ok()) {
                     part["text"] = json!(doc.final_text(StoryRef::Part(id)));
+                }
+                // A part's fields are listed with their codes and results as stored.
+                if let Some(map) = part.as_object_mut() {
+                    map.remove("fields");
+                    map.remove("fieldsTruncated");
                 }
             }
         }
@@ -946,7 +1205,11 @@ impl Toolbox {
                 break;
             };
             let params = c.get("params").cloned().filter(|p| !p.is_null()).unwrap_or_else(|| json!({}));
-            match self.run(id, params) {
+            let outcome = match wrapped_by(id) {
+                Some(tool) => Err(format!("{id} is read through the {tool} tool")),
+                None => self.run(id, params),
+            };
+            match outcome {
                 Ok(value) => results.push(json!({"command": id, "result": value})),
                 Err(why) => {
                     results.push(json!({"command": id, "error": why}));

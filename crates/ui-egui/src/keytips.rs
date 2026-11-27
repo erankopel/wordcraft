@@ -369,6 +369,7 @@ fn controls(tab: &str) -> Vec<Control> {
             c("Previous", "review.previousComment"),
             c("Next", "review.nextComment"),
             c("Show Comments", "view.commentsPane"),
+            c("AI Assistant", "view.assistantPane"),
             c("Track Changes", "review.trackChanges"),
             m("Display for Review", "review.markup"),
             c("Reviewing Pane", "review.changes"),

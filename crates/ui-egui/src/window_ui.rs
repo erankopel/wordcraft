@@ -180,6 +180,8 @@ impl WordApp {
             recovery_seen: _,
             no_document: _,
             windows: _,
+            // The AI pane's agreement and key are the run's, not a window's.
+            assistant_run: _,
             print_document: _,
             clipboard_published: _,
             // Per document: the shown document's, swapped with `parked` on a document switch.

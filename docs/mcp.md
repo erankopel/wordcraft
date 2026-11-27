@@ -182,6 +182,19 @@ sha256 of each archive only matches what that index says: it catches a broken do
 changed pack. `proof.packs` then returns `"index_override": "<url or path>"`, and the app shows the
 test source in File › Options › Language and on the bar's Install.
 
+## Text for a model, and a reply back
+
+An agent brings its own model, so nothing here sends text anywhere. Two commands serve the AI pane and an agent
+alike (see [the AI assistant](assistant.md)):
+
+| Command | Params | Returns |
+|---|---|---|
+| `assistant.context` | `{"scope"?: "selection" \| "document"}` (default selection) | `{"scope", "text", "chars", "bytes", "paragraphs", "hasSelection", "empty"}`: the text the pane would share for that scope. Track Changes is read as accepted in both scopes, so tracked deletions are not included; hidden text is. Changes nothing. |
+| `assistant.apply` | `{"text": string, "mode"?: "replaceSelection" \| "insertAfter"}` | the selection afterwards: puts the text into the document as written (no AutoCorrect or AutoFormat), as one undo step, tracked when Track Changes is on. At most 1,000,000 bytes. |
+
+Sending a request to a model is not a command. It needs the person's agreement, which only the button in the
+pane can give.
+
 ## Tools
 
 | Tool | What it does |

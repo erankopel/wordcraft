@@ -1,8 +1,9 @@
 //! The Claude provider: the Messages API over HTTPS with the person's own key.
 //!
-//! The key comes from [`KEY_ENV`] and lives only in this struct's memory: it is sent in one header,
-//! never printed (its `Debug` and every error leave it out), never saved, never put in a document.
-//! Redirects are not followed, so the key cannot be sent to a host the endpoint did not name.
+//! The key is the one the person typed in or set in [`KEY_ENV`] and lives only in this struct's
+//! memory: it is sent in one header, never printed (its `Debug` and every error leave it out), never
+//! saved, never put in a document. The endpoint is always HTTPS and redirects are not followed, so
+//! the key cannot be sent in the clear or to a host the endpoint did not name.
 
 use std::fmt;
 use std::time::Duration;
@@ -47,7 +48,7 @@ impl Claude {
     /// The provider for a key already read. A missing or blank key is [`Error::MissingKey`].
     pub fn from_key(key: Option<&str>) -> Result<Claude, Error> {
         let key = key.map(str::trim).filter(|k| !k.is_empty()).ok_or(Error::MissingKey)?;
-        Ok(Claude::with_endpoint(key, DEFAULT_MODEL, ENDPOINT))
+        Ok(Claude::build(key, DEFAULT_MODEL, ENDPOINT, true))
     }
 
     /// Whether [`KEY_ENV`] holds a key, for the pane to say so. The key itself is not read out.
@@ -55,17 +56,18 @@ impl Claude {
         std::env::var(KEY_ENV).is_ok_and(|k| !k.trim().is_empty())
     }
 
-    /// A provider that sends to `endpoint`. Private on purpose: the app only ever talks to
-    /// [`ENDPOINT`], and the tests point it at a server on this machine. A plain `http` endpoint
-    /// is allowed here, so it must never be reachable from outside the crate.
-    pub(crate) fn with_endpoint(key: &str, model: &str, endpoint: &str) -> Claude {
-        let config = ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .max_redirects(0)
-            .https_only(endpoint.starts_with("https://"))
-            .timeout_global(Some(TIMEOUT))
-            .build();
+    fn build(key: &str, model: &str, endpoint: &str, https_only: bool) -> Claude {
+        let config =
+            ureq::Agent::config_builder().http_status_as_error(false).max_redirects(0).https_only(https_only).timeout_global(Some(TIMEOUT)).build();
         Claude { key: Secret(key.to_owned()), model: model.to_owned(), endpoint: endpoint.to_owned(), agent: ureq::Agent::new_with_config(config) }
+    }
+
+    /// A provider that sends to `endpoint` over plain HTTP, for the tests, which point it at a server
+    /// on this machine. It does not exist outside them: the app only ever talks to [`ENDPOINT`], and
+    /// [`Claude::from_key`] refuses anything but HTTPS.
+    #[cfg(test)]
+    pub(crate) fn with_endpoint(key: &str, model: &str, endpoint: &str) -> Claude {
+        Claude::build(key, model, endpoint, false)
     }
 }
 
@@ -77,7 +79,7 @@ fn host_of(endpoint: &str) -> String {
 
 impl Provider for Claude {
     fn disclosure(&self) -> Disclosure {
-        Disclosure { recipient: host_of(&self.endpoint), model: self.model.clone(), leaves_machine: true }
+        Disclosure { recipient: host_of(&self.endpoint), model: self.model.clone(), leaves_machine: true, fallback_possible: true }
     }
 
     fn send(&mut self, request: &Request) -> Result<Reply, Error> {

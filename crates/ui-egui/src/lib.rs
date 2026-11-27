@@ -33,6 +33,7 @@ pub mod canvas;
 pub mod caret_glide;
 pub mod chrome;
 // PLAN: the `colors` module line stays because `more_colors` (ribbon-w11, rb.A4) names `colors::Target`; the sheet's removal list assumed the dialog went with it.
+mod assistant_pane;
 pub mod colors;
 pub mod content_controls;
 pub mod control;
@@ -66,7 +67,6 @@ pub mod printing;
 pub mod proofing_pane;
 pub mod read_aloud;
 mod restrict_pane;
-mod assistant_pane;
 pub mod ribbon;
 mod save_types;
 pub mod scroll;
@@ -423,6 +423,8 @@ pub struct WordApp {
     pub(crate) restrict: restrict_pane::RestrictPane,
     /// The AI pane's chat, one per window.
     pub(crate) assistant: assistant_pane::AssistantState,
+    /// What the person agreed to send and typed as the API key: for the run of the program, in every window.
+    pub(crate) assistant_run: assistant_pane::AssistantRun,
     /// The language-aware spelling and grammar task pane.
     pub spelling_review: Option<proofing_pane::SpellingForm>,
     /// The status bar's message, until its `until` passes.

@@ -33,6 +33,17 @@ pub(crate) fn after_shortcut(app: &mut WordApp, id: &str, ctx: &egui::Context) {
 pub(crate) fn say(app: &mut WordApp, text: String, ctx: &egui::Context) {
     let serial = app.announcement.as_ref().map_or(0, |a| a.serial.wrapping_add(1));
     app.announcement = Some(Announcement { text, serial, at: ctx.input(|i| i.time) * 1000.0 });
+    // The live region is built at the start of a frame: ask for the frame that carries it, so the
+    // announcement is made now and not at the next mouse move.
+    ctx.request_repaint();
+}
+
+#[cfg(test)]
+impl Announcement {
+    /// What is being announced.
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
 }
 
 /// The words for what command `id` did: the command's name and whether its formatting is now on,

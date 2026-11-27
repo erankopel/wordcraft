@@ -38,7 +38,7 @@ impl MockProvider {
 
 impl Provider for MockProvider {
     fn disclosure(&self) -> Disclosure {
-        Disclosure { recipient: "this computer".into(), model: "mock".into(), leaves_machine: false }
+        Disclosure { recipient: "this computer".into(), model: "mock".into(), leaves_machine: false, fallback_possible: false }
     }
 
     fn send(&mut self, request: &Request) -> Result<Reply, Error> {

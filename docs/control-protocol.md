@@ -119,6 +119,11 @@ start-/end-edge role when mirrored: start-default panes (e.g. Navigation) open o
 right in Arabic, end-default panes (e.g. Comments) on the physical left. Saved docks and explicit
 requests are never flipped.
 
+**The AI pane.** `view.assistantPane` (`{"value"?: bool}`) opens and closes it. It has no command that sends a
+request: the person's agreement to what is sent comes only from the button in the pane. See
+[the AI assistant](assistant.md); the commands `assistant.context` and `assistant.apply` are in
+[the MCP guide](mcp.md#text-for-a-model-and-a-reply-back).
+
 Language packs (see [MCP](mcp.md#language-packs)) are commands like any other: `proof.packs`,
 `proof.installPack {"locale": "nl"}` and `proof.removePack {"locale": "nl"}`. Through the control
 channel they act on the running app's packs, and install only while its downloading setting is on;

@@ -209,7 +209,8 @@ impl<'a> Shaped<'a> {
     /// Shape one run of the paragraph.
     fn run(&mut self, cx: &Cx, range: std::ops::Range<usize>, props: &CharProps) {
         let rc = cx.res.char(props);
-        self.runs.push(ProofRun::of(range.clone(), &rc));
+        let detect = self.b.env.proofing.is_none_or(|o| o.detect_language);
+        self.runs.push(ProofRun::of(range.clone(), &rc, detect));
         let Some(text) = cx.p.text.get(range.clone()) else { return };
         if left_out(cx.env.doc, &rc, self.b.env.show_hidden, self.b.env.hide_deleted) {
             self.left_out_run(cx, &rc, &range, text);

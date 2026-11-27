@@ -436,3 +436,7 @@ spacing	Open	פתוח
 	Visual	חזותית
 	The arrow keys move through the text in the order it was typed.	מקשי החצים נעים בטקסט לפי הסדר שבו הוקלד.
 	The arrow keys move the caret left or right on the screen.	מקשי החצים מזיזים את הסמן שמאלה או ימינה על המסך.
+	Latin text font	גופן לטקסט לטיני
+	Asian text font	גופן לטקסט אסייתי
+	Complex script font	גופן לטקסט בכתב מורכב
+	Hebrew letters are checked as Hebrew, whatever language they are marked with.	אותיות עבריות נבדקות כעברית, בלי קשר לשפה שבה הן מסומנות.

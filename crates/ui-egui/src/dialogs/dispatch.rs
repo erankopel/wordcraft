@@ -97,6 +97,21 @@ fn rename_document_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> boo
     false
 }
 
+/// The font box of one script's row of the Font dialog (Latin text, Asian text, complex script),
+/// named for a screen reader by the row's label, `name`, so the boxes side by side are told apart;
+/// [`font_box`] is the lone box of a dialog with one font row, named "Font" as its label is.
+fn script_font_box(
+    ui: &mut Ui,
+    name: &str,
+    (id, current): (&str, &str),
+    items: &[String],
+    preview: &dyn Fn(&mut Ui, &str) -> egui::Response,
+    shown_as: Option<&str>,
+) -> Option<String> {
+    let options = crate::widgets::FontComboOptions { id, width: 220.0, current, items, recent: &[], preview: Some(preview), tip: name, shown_as };
+    crate::widgets::font_combo_with_recent_hint(ui, options)
+}
+
 fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     let Dialog::Font {
         font,
@@ -145,7 +160,9 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         let stored = app.previews.font_stored(font_ea);
                         let latin = app.previews.font_stored(font);
                         let warning = app.east_asian_font_box_warning(&stored, &latin);
-                        if let Some(f) = font_box(ui, ("fontdlg_asian", font_ea.as_str()), &fams, &*prev, warning.as_deref()) {
+                        if let Some(f) =
+                            script_font_box(ui, tl!("Asian text font"), ("fontdlg_asian", font_ea.as_str()), &fams, &*prev, warning.as_deref())
+                        {
                             if f == crate::widgets::ADD_FONT {
                                 let _ = app.run("font.add", json!({}));
                             } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
@@ -163,7 +180,12 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     let fams = app.previews.families();
                     let stored = app.previews.font_stored(font);
                     let warning = app.font_dialog_warning(&stored);
-                    if let Some(f) = font_box(ui, ("fontdlg_font", font.as_str()), &fams, &*prev, warning.as_deref()) {
+                    let picked = if *asian || *complex {
+                        script_font_box(ui, tl!("Latin text font"), ("fontdlg_font", font.as_str()), &fams, &*prev, warning.as_deref())
+                    } else {
+                        font_box(ui, ("fontdlg_font", font.as_str()), &fams, &*prev, warning.as_deref())
+                    };
+                    if let Some(f) = picked {
                         if f == crate::widgets::ADD_FONT {
                             let _ = app.run("font.add", json!({}));
                         } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
@@ -187,7 +209,9 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         let fams = app.previews.families();
                         let stored = app.previews.font_stored(font_cs);
                         let warning = app.font_dialog_warning(&stored);
-                        if let Some(f) = font_box(ui, ("fontdlg_cs", font_cs.as_str()), &fams, &*prev, warning.as_deref()) {
+                        if let Some(f) =
+                            script_font_box(ui, tl!("Complex script font"), ("fontdlg_cs", font_cs.as_str()), &fams, &*prev, warning.as_deref())
+                        {
                             if f == crate::widgets::ADD_FONT {
                                 let _ = app.run("font.add", json!({}));
                             } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
@@ -1681,4 +1705,49 @@ fn check_errors_dialog(ui: &mut Ui, d: &mut Dialog) -> bool {
     ui.label(egui::RichText::new(crate::i18n::fmt(tl!("Recipients: {count}"), &[("count", &records.to_string())])).weak());
     let (ok, cancel) = buttons(ui, tl!("Close"));
     ok || cancel
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Dialog, WordApp, json, vec2};
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::Queryable;
+
+    /// The Font dialog drawn over `text`, selected, in a document that starts right to left
+    /// (`rtl`, as a Hebrew interface makes it) or not; then the number of text boxes named each
+    /// of `names`.
+    fn text_boxes_named(text: &str, rtl: bool, names: &[&str]) -> Vec<usize> {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.session.set_new_documents_rtl(rtl);
+        app.run("text.insert", json!({"text": text})).unwrap();
+        app.run("select.all", json!({})).unwrap();
+        let dialog = Dialog::open("font", &mut app);
+        assert!(dialog.is_some(), "the Font dialog opens");
+        app.dialog = dialog;
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                if fonts {
+                    crate::dialogs::show(app, &ctx);
+                } else {
+                    crate::theme::install_fonts_for(&ctx, false);
+                    fonts = true;
+                }
+            },
+            app,
+        );
+        h.run_steps(3);
+        names.iter().map(|name| h.query_all_by_role_and_label(Role::TextInput, name).count()).collect()
+    }
+
+    /// AGENTS.md rule 21: with a row for each script, a screen reader tells the font boxes
+    /// apart by their names, those of their rows' labels; the lone font box of Latin text is
+    /// "Font", as its label is.
+    #[test]
+    fn each_font_box_is_named_by_its_row() {
+        let names = ["Latin text font", "Complex script font", "Font"];
+        assert_eq!(text_boxes_named("\u{05E9}\u{05DC}\u{05D5}\u{05DD}", true, &names), [1, 1, 0], "Hebrew text");
+        assert_eq!(text_boxes_named("Hello", false, &names), [0, 0, 1], "Latin text");
+    }
 }

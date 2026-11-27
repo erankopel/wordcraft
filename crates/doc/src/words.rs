@@ -1,8 +1,9 @@
 //! Words WordCraft writes into a document on its own: a table of contents' title, caption labels,
-//! "Page X of Y", header and decorative-text placeholders, sample items. They are the document's
-//! text, so they are written in the language of the text that receives them, not the
-//! interface's: Hebrew text gets Hebrew words in an English interface too, and English text gets
-//! English ones in a Hebrew interface. A language without words here gets the English ones.
+//! "Page X of Y", header, content control and decorative-text placeholders, sample items. They
+//! are the document's text, so they are written in the language of the text that receives them,
+//! not the interface's: Hebrew text gets Hebrew words in an English interface too, and English
+//! text gets English ones in a Hebrew interface. A language without words here gets the English
+//! ones.
 
 /// Whether `lang` (a BCP 47 tag) is Hebrew: `he`, or its old tag `iw`.
 pub fn is_hebrew(lang: Option<&str>) -> bool {
@@ -20,11 +21,14 @@ const HEBREW: &[(&str, &str)] = &[
     ("Equation", "משוואה"),
     ("Figure", "איור"),
     ("Index", "אינדקס"),
+    ("Pick a date.", "בחרו תאריך."),
+    ("Pick an option.", "בחרו אפשרות."),
     ("References", "מקורות"),
     ("Table", "טבלה"),
     ("Table of Authorities", "רשימת אסמכתאות"),
     ("Table of Contents", "תוכן עניינים"),
     ("Type an equation", "הקלידו משוואה"),
+    ("Type here.", "הקלידו כאן."),
     ("Works Cited", "מקורות שצוטטו"),
     ("Your text here", "הטקסט שלכם כאן"),
     ("[Document title]", "[כותרת המסמך]"),

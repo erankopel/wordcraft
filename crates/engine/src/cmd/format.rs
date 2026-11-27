@@ -356,15 +356,13 @@ pub(crate) fn context_is_complex(s: &Session, at: &Pos, rc: &ResolvedChar) -> bo
 /// the selection (or the word around a caret, or a selected text box's text: what [`resolved`]
 /// reads), with `true` for its complex-script text (Hebrew or Arabic letters, any character of a
 /// right-to-left run), drawn with the complex-script font, size, bold and italic, and `false` for
-/// its other letters and digits. A run with both counts twice. Runs of spaces and punctuation
-/// alone read as the text around them does ([`context_is_complex`]), and so does a caret, with the
-/// formatting typing would use. Never empty.
+/// its other letters and digits. A run with both counts twice. A run of spaces, punctuation or
+/// objects alone counts too, read as the text around it is ([`context_is_complex`]), so the plain
+/// comma between two bold words leaves Bold off; so does a caret, with the formatting typing would
+/// use. Never empty.
 fn font_samples(s: &Session) -> Vec<(ResolvedChar, bool)> {
     let ranges = column_rows(s).or_else(|| selected_text_box(s).or_else(|| target(s)).map(|r| vec![r])).unwrap_or_default();
-    let at = ranges.first().map_or_else(|| s.sel.ordered().0, |(a, _)| a.clone());
     let mut out = Vec::new();
-    // Runs with neither kind of character in the selection: spaces, punctuation, objects.
-    let mut neutral = Vec::new();
     'walk: for (a, b) in &ranges {
         for path in s.doc.paths_between(a, b) {
             let Some(p) = s.doc.para(a.story, &path) else { continue };
@@ -375,13 +373,17 @@ fn font_samples(s: &Session) -> Vec<(ResolvedChar, bool)> {
                     continue;
                 }
                 let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), c);
-                let text = p.text.get(r.start.max(from)..r.end.min(to)).unwrap_or("");
+                let start = r.start.max(from);
+                let text = p.text.get(start..r.end.min(to)).unwrap_or("");
                 let (mut complex, mut other) = (false, false);
                 for ch in text.chars().filter(|ch| ch.is_alphanumeric()) {
                     if rc.uses_complex(ch) { complex = true } else { other = true }
                 }
                 match (other, complex) {
-                    (false, false) => neutral.push(rc),
+                    (false, false) => {
+                        let complex = context_is_complex(s, &Pos::new(a.story, path.clone(), start), &rc);
+                        out.push((rc, complex));
+                    }
                     (true, false) => out.push((rc, false)),
                     (false, true) => out.push((rc, true)),
                     (true, true) => {
@@ -390,17 +392,17 @@ fn font_samples(s: &Session) -> Vec<(ResolvedChar, bool)> {
                     }
                 }
                 // As `resolved` samples the runs: enough to tell.
-                if out.len() + neutral.len() > 10_000 {
+                if out.len() > 10_000 {
                     break 'walk;
                 }
             }
         }
     }
     if out.is_empty() {
-        // Nothing but spaces and punctuation, or a caret (the formatting typing would use, or an
-        // empty selected text box's or cell's paragraph mark).
-        let found = if neutral.is_empty() { resolved(s) } else { neutral };
-        out = found
+        // A caret: the formatting typing would use (or an empty selected text box's or cell's
+        // paragraph mark).
+        let at = ranges.first().map_or_else(|| s.sel.ordered().0, |(a, _)| a.clone());
+        out = resolved(s)
             .into_iter()
             .map(|rc| {
                 let complex = context_is_complex(s, &at, &rc);

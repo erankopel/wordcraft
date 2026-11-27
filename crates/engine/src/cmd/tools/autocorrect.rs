@@ -75,6 +75,12 @@ pub struct AutoCorrectPrefs {
     pub caps_lock: bool,
     /// AutoFormat As You Type: "straight quotes" with “smart quotes”.
     pub smart_quotes: bool,
+    /// With smart quotes, `"` and `'` typed right after a Hebrew letter, with no quote of their
+    /// kind open, are gershayim ״ (U+05F4) and geresh ׳ (U+05F3), the marks Hebrew writes in
+    /// acronyms and borrowed sounds, where Word writes ” and ’. `None` (the default) follows the
+    /// interface: on with the Hebrew one ([`hebrew_marks`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hebrew_marks: Option<bool>,
     /// Fractions (1/2) with fraction characters (½).
     pub fractions: bool,
     /// Ordinals (1st) with superscript.
@@ -131,6 +137,7 @@ impl Default for AutoCorrectPrefs {
             cap_days: true,
             caps_lock: true,
             smart_quotes: true,
+            hebrew_marks: None,
             fractions: true,
             ordinals: true,
             bold_italic: false,
@@ -314,9 +321,26 @@ pub fn lenient_autocorrect<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Aut
     Ok(serde_json::from_value::<AutoCorrectPrefs>(v).map(AutoCorrectPrefs::cleaned).unwrap_or_default())
 }
 
+/// Are `"` and `'` after a Hebrew letter typed as gershayim and geresh
+/// ([`AutoCorrectPrefs::hebrew_marks`])? Unless the user chose, with the Hebrew interface: the one
+/// that starts new documents right to left ([`Session::new_documents_rtl`]), as the Hebrew
+/// edition starts. Elsewhere smart quotes write ” and ’ there, as Word does.
+pub fn hebrew_marks(s: &Session) -> bool {
+    s.prefs.autocorrect.hebrew_marks.unwrap_or(s.new_documents_rtl)
+}
+
 /// `tools.autocorrect`: change AutoCorrect Options and report them.
 pub(super) fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
+    let hebrew = match v.get("hebrewMarks") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(Value::Bool(b)) => Some(Some(*b)),
+        Some(_) => return Err(CmdError::Params("`hebrewMarks` is true, false or null (follow the interface)".into())),
+    };
     let ac = &mut s.prefs.autocorrect;
+    if let Some(h) = hebrew {
+        ac.hebrew_marks = h;
+    }
     for (k, f) in [
         ("enabled", &mut ac.enabled as &mut bool),
         ("replaceText", &mut ac.replace_text),
@@ -393,6 +417,7 @@ pub(super) fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
         let w = w.trim();
         ac.initial_caps_exceptions.retain(|e| e != w);
     }
+    let hebrew = hebrew_marks(s);
     let ac = &s.prefs.autocorrect;
     Ok(json!({
         "enabled": ac.enabled,
@@ -403,6 +428,7 @@ pub(super) fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
         "capDays": ac.cap_days,
         "capsLock": ac.caps_lock,
         "smartQuotes": ac.smart_quotes,
+        "hebrewMarks": hebrew,
         "fractions": ac.fractions,
         "ordinals": ac.ordinals,
         "boldItalic": ac.bold_italic,

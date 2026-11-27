@@ -105,8 +105,10 @@ fn direction_chord_id() -> egui::Id {
 /// Ctrl+Right Shift makes the selected paragraphs right to left and Ctrl+Left Shift left to
 /// right, as in Word: a Shift pressed while Ctrl (and nothing else) is held, then released with
 /// nothing pressed in between. Another key, a click, a scroll or typed text in between is some
-/// other shortcut (Ctrl+Shift+End, a Ctrl+Shift click), and nothing happens. File › Options ›
-/// Advanced turns it off where Ctrl+Shift switches the keyboard layout (`directionKeys`).
+/// other shortcut (Ctrl+Shift+End, a Ctrl+Shift click), and nothing happens. A Ctrl+Shift that
+/// switches the keyboard layout reaches the app as the same keys, so the keys follow the
+/// `directionKeys` preference, off by default where Ctrl+Shift is a common layout switch
+/// ([`wordcraft_engine::Prefs::direction_keys`]).
 fn direction_keys(app: &mut WordApp, ctx: &egui::Context, e: &egui::Event) {
     let id = direction_chord_id();
     let armed = ctx.data(|d| d.get_temp::<bool>(id));
@@ -773,9 +775,11 @@ mod direction_key_tests {
         a.session.doc.para_at(&a.session.sel.focus).is_some_and(|p| a.session.doc.styles.resolve_para(&p.props).bidi)
     }
 
-    /// A left-to-right paragraph (its first letters are Latin) with Hebrew in it.
+    /// A left-to-right paragraph (its first letters are Latin) with Hebrew in it, and the direction
+    /// keys on (they are off by default on Linux and the BSDs).
     fn app() -> WordApp {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("file.options", json!({"directionKeys": true})).unwrap();
         a.run("text.insert", json!({"text": "abc שלום"})).unwrap();
         a
     }

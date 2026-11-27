@@ -422,6 +422,9 @@ pub fn restore_placeholder(s: &mut Session) -> Result<(), CmdError> {
 
 fn insert(s: &mut Session, v: &Value, kind: ControlKind) -> CmdResult {
     let mut ctl = ContentControl::new(kind);
+    // The placeholder is the document's text: in the language of the text around it (Hebrew in
+    // Hebrew text), as a date picker's dates are.
+    ctl.placeholder_text = super::words::word(super::words::caret_lang(s).as_deref(), ctl.kind.default_placeholder()).to_string();
     ctl.id = Some(new_id(s));
     if let Some(t) = short(v, "title") {
         ctl.title = t;

@@ -56,8 +56,8 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"value": "left|center|right|justify|distribute (as seen on the page) | start|end (reading direction)"}"#),
         // Ctrl and one Shift, pressed and released with nothing else: the canvas recognises the
-        // chord itself (a key list can't hold a modifier on its own), unless File › Options ›
-        // Advanced turns it off (`directionKeys`).
+        // chord itself (a key list can't hold a modifier on its own) while the `directionKeys`
+        // preference is on (off by default on Linux and the BSDs).
         CommandSpec::new("para.rtl", "Right-to-Left Text Direction", "Home › Paragraph", |s, v| direction(s, v, true))
             .key("Ctrl+Right Shift")
             .params(r#"{"value"?: bool (false = left to right)}"#),

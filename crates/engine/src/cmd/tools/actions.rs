@@ -27,8 +27,9 @@ pub(crate) fn set_language(c: &mut CharProps, tag: &str) {
 
 /// Set Proofing Language: the selection's language and "do not check spelling or grammar",
 /// or (`default`) the document's default and the saved language for future blank documents;
-/// `detect` is the per-user detection preference. A right-to-left language is set as the language
-/// of complex-script text ([`set_language`]).
+/// `detect` is the per-user detection preference (Hebrew letters are checked as Hebrew whatever
+/// language they are marked with, [`wordcraft_layout::ProofOptions::detect_language`]). A
+/// right-to-left language is set as the language of complex-script text ([`set_language`]).
 /// Nothing at all sets US English, as before. `scope: "document"` sets it for every story.
 pub(super) fn language(s: &mut Session, v: &Value) -> CmdResult {
     // Checked first, so a bad scope changes nothing (not even the detect preference).
@@ -51,8 +52,10 @@ pub(super) fn language(s: &mut Session, v: &Value) -> CmdResult {
     };
     let no_proof = p::bool(v, "noProof");
     let detect = p::bool(v, "detect");
-    if let Some(d) = detect {
+    if let Some(d) = detect.filter(|d| *d != s.prefs.detect_language) {
         s.prefs.detect_language = d;
+        // Hebrew letters marked with another language are checked in another language now.
+        s.relayout();
     }
     if p::bool(v, "default") == Some(true) {
         let l = lang.clone().ok_or_else(|| CmdError::Params("`default` needs `lang`".into()))?;

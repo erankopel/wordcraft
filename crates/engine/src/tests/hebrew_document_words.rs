@@ -264,6 +264,31 @@ fn a_date_picker_in_hebrew_text_writes_hebrew_dates() {
     assert_eq!(numbers(&s.doc.plain_text(StoryRef::Body)), [11, 27, 2026], "month first in English text");
 }
 
+/// A content control inserted in Hebrew text shows its placeholder in Hebrew, in the text and in
+/// the saved file: a date picker's, a plain text control's and a drop-down list's. In English
+/// text it is the English one.
+#[test]
+fn content_controls_in_hebrew_text_have_hebrew_placeholders() {
+    let placeholder = |s: &mut Session| {
+        let c = run(s, "developer.control", json!({"control": "c"}));
+        assert_eq!(c["showingPlaceholder"], true, "{c}");
+        c["placeholder"].as_str().unwrap_or_default().to_string()
+    };
+    for command in ["developer.datePicker", "developer.plainText", "developer.dropDown"] {
+        let mut s = hebrew_document();
+        run(&mut s, command, json!({"tag": "c"}));
+        let shown = placeholder(&mut s);
+        assert!(hebrew(&shown) && !latin(&shown), "{command}: {shown:?}");
+        assert!(body_text(&s, 0).contains(&shown), "{command}: in the text: {:?}", body_text(&s, 0));
+        let saved = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+        assert!(saved.plain_text(StoryRef::Body).contains(&shown), "{command}: in the saved file");
+        let mut s = Session::new(Document::new());
+        run(&mut s, command, json!({"tag": "c"}));
+        let english = placeholder(&mut s);
+        assert!(latin(&english) && !hebrew(&english), "{command}: {english:?}");
+    }
+}
+
 /// Decorative text inserted without text of its own holds a placeholder in the language of the
 /// text it goes into.
 #[test]

@@ -17,7 +17,8 @@ pub struct Prefs {
     /// balloons beside each page and tracked changes as marked up; HTML, Markdown and text
     /// copies end with the comments (`file.printMarkup`).
     pub print_markup: bool,
-    /// Language › Detect language automatically (per user, as in Word).
+    /// Language › Detect language automatically (per user, as in Word): Hebrew letters are checked
+    /// as Hebrew whatever language they are marked with ([`wordcraft_layout::ProofOptions`]).
     pub detect_language: bool,
     /// Set Proofing Language › Set As Default: overrides the interface language for future
     /// blank documents and plain text. Older preferences keep following the interface.
@@ -30,8 +31,9 @@ pub struct Prefs {
     /// Overtype: typed characters replace the ones after the caret.
     pub overtype: bool,
     /// Ctrl+Right Shift makes the selected paragraphs read right to left and Ctrl+Left Shift left
-    /// to right, as in Word (File › Options › Advanced). Off for keyboards whose layout switches
-    /// with Ctrl+Shift.
+    /// to right, as in Word (`file.options` `directionKeys`). Off for keyboards whose layout
+    /// switches with Ctrl+Shift: the app can't tell that switch from the keys. On by default,
+    /// except on Linux and the BSDs, where Ctrl+Shift is a common layout switch.
     pub direction_keys: bool,
     /// How Left and Right move the caret through text that mixes right-to-left and left-to-right
     /// writing (File › Options › Advanced › Cursor movement). A damaged saved value reads as the
@@ -83,7 +85,7 @@ impl Default for Prefs {
             typing_replaces_selection: true,
             insert_key_overtype: false,
             overtype: false,
-            direction_keys: true,
+            direction_keys: DIRECTION_KEYS_BY_DEFAULT,
             cursor_movement: CursorMovement::Visual,
             units: Default::default(),
             region: None,
@@ -102,6 +104,14 @@ impl Default for Prefs {
         }
     }
 }
+
+/// Whether Ctrl+Right Shift and Ctrl+Left Shift set the paragraph direction by default
+/// ([`Prefs::direction_keys`]): yes, as in Word, except on Linux and the BSDs. Their desktops
+/// switch keyboard layouts with XKB, where Ctrl+Shift is a common Hebrew and English toggle that
+/// reaches the app as the same keys, so every layout switch would also turn the paragraph around
+/// until the keys are turned off.
+const DIRECTION_KEYS_BY_DEFAULT: bool =
+    !cfg!(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"));
 
 /// How Left and Right move the caret in a line that mixes right-to-left and left-to-right text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -191,8 +201,8 @@ mod tests {
     fn cursor_movement_loads_from_old_and_damaged_prefs() {
         use super::CursorMovement;
         let old: Prefs = serde_json::from_str(r#"{"checkSpelling":false}"#).unwrap();
-        assert_eq!((old.cursor_movement, old.direction_keys), (CursorMovement::Visual, true));
-        let saved = Prefs { cursor_movement: CursorMovement::Logical, direction_keys: false, ..Prefs::default() };
+        assert_eq!((old.cursor_movement, old.direction_keys), (CursorMovement::Visual, Prefs::default().direction_keys));
+        let saved = Prefs { cursor_movement: CursorMovement::Logical, direction_keys: !Prefs::default().direction_keys, ..Prefs::default() };
         let back: Prefs = serde_json::from_value(serde_json::to_value(&saved).unwrap()).unwrap();
         assert_eq!(back, saved);
         for bad in [r#"{"cursorMovement":"sideways","checkSpelling":false}"#, r#"{"cursorMovement":7,"checkSpelling":false}"#] {

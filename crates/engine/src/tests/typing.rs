@@ -2981,11 +2981,8 @@ fn backspace_on_one_selected_cell_of_a_one_row_or_one_column_table_clears_it() {
 }
 
 /// #1670: smart quotes in Hebrew follow the characters around the quote in logical order, as
-/// Word does (Word for Mac 16.113.4): an opening “ after a space or at the start, and a closing ”
-/// after the letter that ends a quotation, whatever the display direction. Right after a Hebrew
-/// letter with no quote open, the Hebrew edition writes the mark Hebrew writes there (SE-2): a
-/// gershayim in an acronym (צה״ל) and a geresh in a borrowed sound (ג׳ירפה), where Word for Mac
-/// writes ” and ’.
+/// Word does (Word for Mac 16.113.4): an opening “ after a space or at the start, a closing ”
+/// after a letter, and ” inside an acronym (צה"ל), not gershayim; ' after a letter is ’.
 #[test]
 fn smart_quotes_in_hebrew_use_logical_order() {
     let bidi = |s: &Session| s.doc.body.iter().filter_map(|b| b.as_para()).next().and_then(|p| p.props.bidi);
@@ -2995,20 +2992,25 @@ fn smart_quotes_in_hebrew_use_logical_order() {
     let s = typed("\"שלום\"");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "“שלום”");
     let s = typed("צה\"ל ");
-    assert_eq!(s.doc.plain_text(StoryRef::Body), "צה\u{05F4}ל ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "צה”ל ");
     let s = typed("ג'ירפה 'כן'");
-    assert_eq!(s.doc.plain_text(StoryRef::Body), "ג\u{05F3}ירפה ‘כן’");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "ג’ירפה ‘כן’");
 }
 
-/// SE-2: `"` and `'` typed right after a Hebrew letter are gershayim (U+05F4) and geresh (U+05F3),
-/// also after a letter with points, so acronyms and borrowed sounds are written as Hebrew writes
-/// them and the Hebrew spelling check reads them as its `"` and `'`. A quote that is open is
-/// closed instead (so an acronym typed inside a quotation keeps ”), one closed earlier leaves the
-/// next acronym its gershayim, a ” or ’ between two letters (an acronym's, an apostrophe) closes
-/// no quote, and after a Latin letter nothing changes.
+/// SE-2: with the Hebrew interface (AutoCorrect's `hebrewMarks`), `"` and `'` typed right after a
+/// Hebrew letter are gershayim (U+05F4) and geresh (U+05F3), also after a letter with points, so
+/// acronyms and borrowed sounds are written as Hebrew writes them. A quote that is open is closed
+/// instead (so an acronym typed inside a quotation keeps ”), one closed earlier leaves the next
+/// acronym its gershayim, a ” or ’ between two letters (an acronym's, an apostrophe) closes no
+/// quote, and after a Latin letter nothing changes.
 #[test]
 fn gershayim_and_geresh_follow_a_hebrew_letter() {
-    let text = |keys: &str| typed(keys).doc.plain_text(StoryRef::Body);
+    let text = |keys: &str| {
+        let mut s = s();
+        s.set_new_documents_rtl(true);
+        typ(&mut s, keys);
+        s.doc.plain_text(StoryRef::Body)
+    };
     assert_eq!(text("עו\"ד ומנכ\"ל צ'יפס"), "עו\u{05F4}ד ומנכ\u{05F4}ל צ\u{05F3}יפס");
     // A letter with points: tsadi with qamats, then he with patah.
     assert_eq!(text("\u{05E6}\u{05B8}\u{05D4}\u{05B7}\"ל"), "\u{05E6}\u{05B8}\u{05D4}\u{05B7}\u{05F4}ל");
@@ -3019,9 +3021,33 @@ fn gershayim_and_geresh_follow_a_hebrew_letter() {
     assert_eq!(text("It's \"ok\""), "It’s “ok”", "Latin text as before");
     // AutoCorrect's smart quotes off: the keyboard's marks stay.
     let mut s = s();
+    s.set_new_documents_rtl(true);
     run(&mut s, "tools.autocorrect", json!({"smartQuotes": false}));
     typ(&mut s, "צה\"ל צ'יפס");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "צה\"ל צ'יפס");
+}
+
+/// SE-2: the gershayim and geresh are an AutoCorrect option. Other interfaces type Word's ” and ’
+/// after a Hebrew letter unless it is turned on; the Hebrew one can turn it off; null follows the
+/// interface again.
+#[test]
+fn gershayim_and_geresh_are_an_autocorrect_option() {
+    let keys = "צה\"ל ג'ירפה";
+    let typed_with = |hebrew_interface: bool, option: serde_json::Value| {
+        let mut s = s();
+        s.set_new_documents_rtl(hebrew_interface);
+        let on = s.run("tools.autocorrect", &json!({"hebrewMarks": option})).unwrap_or_else(|e| panic!("{e}"))["hebrewMarks"].clone();
+        typ(&mut s, keys);
+        (on, s.doc.plain_text(StoryRef::Body))
+    };
+    let word = "צה\u{201D}ל ג\u{2019}ירפה";
+    let hebrew = "צה\u{05F4}ל ג\u{05F3}ירפה";
+    assert_eq!(typed_with(false, json!(null)), (json!(false), word.to_string()), "another interface: Word's marks");
+    assert_eq!(typed_with(false, json!(true)), (json!(true), hebrew.to_string()), "turned on");
+    assert_eq!(typed_with(true, json!(null)), (json!(true), hebrew.to_string()), "the Hebrew interface");
+    assert_eq!(typed_with(true, json!(false)), (json!(false), word.to_string()), "turned off");
+    let mut s = s();
+    assert!(s.run("tools.autocorrect", &json!({"hebrewMarks": "yes"})).is_err());
 }
 
 /// #1923: Turkish and Azerbaijani case mapping (i↔İ, ı↔I) in AutoCorrect, checked against Word

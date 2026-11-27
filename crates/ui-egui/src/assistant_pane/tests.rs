@@ -734,6 +734,34 @@ mod saved_key {
         assert!(notice.max.y <= checkbox.min.y + 1.0, "{notice:?} then {checkbox:?}");
     }
 
+    /// Turning the option on or off changes the lines around the checkbox, and the keyboard stays on it: its
+    /// identity does not depend on how many lines come before it.
+    #[test]
+    fn ticking_remember_keeps_the_keyboard_on_the_checkbox() {
+        use egui_kittest::kittest::Queryable;
+        let folder = Folder::new();
+        let (mut app, _) = app("Some text", None);
+        app.use_saved_assistant_key(&folder.0);
+        let mut h = super::drawn::open(app);
+        // Control: a checkbox whose toggling changes no other line.
+        let scope = "Use the whole document instead of the selection";
+        h.get_by_label(scope).focus();
+        h.run_steps(2);
+        assert!(h.get_by_label(scope).is_focused(), "the scope checkbox has the keyboard");
+        h.key_press(egui::Key::Space);
+        h.run_steps(3);
+        assert!(h.get_by_label(scope).is_focused(), "control: still on the scope checkbox after it was toggled");
+        let label = "Remember this key on this computer";
+        h.get_by_label(label).focus();
+        h.run_steps(2);
+        assert!(h.get_by_label(label).is_focused(), "the checkbox has the keyboard");
+        for _ in 0..2 {
+            h.key_press(egui::Key::Space);
+            h.run_steps(3);
+            assert!(h.get_by_label(label).is_focused(), "still on the checkbox after it was toggled (now {})", h.state().assistant_run.remember);
+        }
+    }
+
     /// A file other users can read is not used, and the person is told why.
     #[cfg(unix)]
     #[test]

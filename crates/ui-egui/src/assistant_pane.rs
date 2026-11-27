@@ -689,9 +689,16 @@ fn live_region(ui: &Ui, id: egui::Id, text: &str, live: Live) {
     });
 }
 
+/// Runs `add` in a child ui whose identity is `name` and nothing else. In egui a widget's id follows from its
+/// place among the widgets drawn before it, so a line that appears or goes above a control would give it a new
+/// identity and the keyboard focus would be lost; a control that can hold the focus is drawn in one of these.
+fn stable<R>(ui: &mut Ui, name: &str, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
+    ui.scope_builder(egui::UiBuilder::new().scope_id(egui::Id::unique(("assistant", name))), add)
+}
+
 /// A button that takes the keyboard focus when the pane has asked for it.
 fn button(ui: &mut Ui, app: &mut WordApp, label: &str, focus: Focus, enabled: bool) -> bool {
-    let response = ui.add_enabled(enabled, egui::Button::new(label));
+    let response = stable(ui, &format!("button{}", focus as u8), |ui| ui.add_enabled(enabled, egui::Button::new(label))).inner;
     if enabled {
         focus_if_asked(ui, app, &response, focus);
     }
@@ -744,7 +751,9 @@ fn body(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
         }
     }
     ui.add_space(4.0);
-    ui.add_enabled(!busy, egui::Checkbox::new(&mut app.assistant.document_scope, tl!("Use the whole document instead of the selection")));
+    stable(ui, "scope", |ui| {
+        ui.add_enabled(!busy, egui::Checkbox::new(&mut app.assistant.document_scope, tl!("Use the whole document instead of the selection")))
+    });
     ui.add_space(4.0);
     let label = ui.label(tl!("Instruction:"));
     ui.add_enabled(
@@ -765,7 +774,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
         if waiting {
             stop = button(ui, app, tl!("Stop Waiting"), Focus::Stop, true);
         }
-        new_chat = ui.add_enabled(!busy, egui::Button::new(tl!("New Chat"))).clicked();
+        new_chat = stable(ui, "newChat", |ui| ui.add_enabled(!busy, egui::Button::new(tl!("New Chat")))).inner.clicked();
     });
     for (clicked, what) in [(send, Act::Send), (stop, Act::Stop), (new_chat, Act::NewChat)] {
         if clicked {
@@ -803,13 +812,17 @@ fn keep_controls(app: &mut WordApp, ui: &mut Ui, busy: bool, act: &mut Option<Ac
         // Said before the checkbox, so it is read before the person can turn it on.
         muted(ui, tl!("If you choose to remember the key, it is kept unencrypted in a file in WordCraft's settings folder."));
     }
-    ui.add_enabled(!busy, egui::Checkbox::new(&mut app.assistant_run.remember, tl!("Remember this key on this computer")));
+    stable(ui, "remember", |ui| {
+        ui.add_enabled(!busy, egui::Checkbox::new(&mut app.assistant_run.remember, tl!("Remember this key on this computer")))
+    });
     if before && !app.assistant_run.remember && app.assistant_run.on_disk.is_some() && !app.assistant_run.forget(false) {
         // Turning it off removes the saved copy, and the key stays for this run. If the copy could not be
         // removed it is still there, so the box stays ticked.
         app.assistant_run.remember = true;
     }
-    if app.assistant_run.on_disk.is_some() && ui.add_enabled(!busy, egui::Button::new(tl!("Forget Saved Key"))).clicked() {
+    if app.assistant_run.on_disk.is_some()
+        && stable(ui, "forget", |ui| ui.add_enabled(!busy, egui::Button::new(tl!("Forget Saved Key")))).inner.clicked()
+    {
         *act = Some(Act::ForgetKey);
     }
 }
@@ -864,7 +877,7 @@ fn consent(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     let (mut agree, mut cancel) = (false, false);
     ui.horizontal_wrapped(|ui| {
         agree = button(ui, app, tl!("Agree and Send"), Focus::Agree, true);
-        cancel = ui.button(tl!("Cancel")).clicked();
+        cancel = stable(ui, "cancel", |ui| ui.button(tl!("Cancel"))).inner.clicked();
     });
     if agree {
         *act = Some(Act::Agree);
@@ -902,13 +915,13 @@ fn reply(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     if !reply.text.is_empty() {
         ui.add(egui::Label::new(reply.text.clone()).selectable(true).wrap());
         ui.horizontal_wrapped(|ui| {
-            if ui.button(tl!("Replace Selection")).clicked() {
+            if stable(ui, "replace", |ui| ui.button(tl!("Replace Selection"))).inner.clicked() {
                 *act = Some(Act::Replace);
             }
-            if ui.button(tl!("Insert After")).clicked() {
+            if stable(ui, "insertAfter", |ui| ui.button(tl!("Insert After"))).inner.clicked() {
                 *act = Some(Act::InsertAfter);
             }
-            if ui.button(tl!("Copy")).clicked() {
+            if stable(ui, "copy", |ui| ui.button(tl!("Copy"))).inner.clicked() {
                 *act = Some(Act::Copy);
             }
         });

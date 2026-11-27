@@ -323,7 +323,6 @@ spacing	Open	פתוח
 	Define New Bullet…	הגדרת תבליט חדש…
 	Delete Blank Paragraphs in the Whole Document	מחיקת פסקאות ריקות בכל המסמך
 	Document fitted to 1 page (font: -1.0 pt, spacing: 90%).	המסמך הותאם לעמוד אחד (גופן: -1.0 נק׳, ריווח: 90%).
-	Flat OpenDocument Text (*.fodt)	Flat OpenDocument Text (*.fodt)
 	Ignore Once	התעלמות חד-פעמית
 	Indent Leading Spaces	המרת רווחים בתחילת שורה להזחה
 	Indents to Leading Spaces	המרת הזחות לרווחים בתחילת שורה
@@ -332,7 +331,6 @@ spacing	Open	פתוח
 	Linux display server	שרת התצוגה של Linux
 	Markdown	Markdown
 	Markdown Source Text	טקסט מקור של Markdown
-	OpenDocument Text Template (*.ott)	OpenDocument Text Template (*.ott)
 	Paragraph\nTools	כלי\nפסקה
 	Remove Extra Spaces in the Whole Document	הסרת רווחים מיותרים בכל המסמך
 	Remove Leading Spaces in the Whole Document	הסרת רווחים בתחילת שורה בכל המסמך

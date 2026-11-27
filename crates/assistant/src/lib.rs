@@ -14,6 +14,7 @@ use std::fmt;
 
 use serde_json::{Value, json};
 
+pub mod agent;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod claude;
 #[cfg(not(target_arch = "wasm32"))]
@@ -143,8 +144,20 @@ pub enum Stop {
 /// Tokens a request used, as the API counts them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
+    /// Every token of the prompt: the ones written to or read from the cache are included, although the
+    /// API counts them apart.
     pub input_tokens: u64,
     pub output_tokens: u64,
+}
+
+/// The tokens an answer's `usage` reports, the cached prompt tokens counted in.
+pub(crate) fn usage_of(value: &Value) -> Usage {
+    let usage = value.get("usage").unwrap_or(&Value::Null);
+    let count = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+    Usage {
+        input_tokens: count("input_tokens") + count("cache_creation_input_tokens") + count("cache_read_input_tokens"),
+        output_tokens: count("output_tokens"),
+    }
 }
 
 /// What came back.
@@ -182,6 +195,9 @@ pub enum Error {
     NotStarted,
     /// The worker ended without an answer.
     Interrupted,
+    /// The request went out, but no whole answer came within the time limit; the service may still
+    /// process it.
+    NoAnswerInTime,
 }
 
 impl fmt::Display for Error {
@@ -196,11 +212,22 @@ impl fmt::Display for Error {
             Error::Unavailable => write!(f, "this build cannot send requests"),
             Error::NotStarted => write!(f, "the request could not be started"),
             Error::Interrupted => write!(f, "the request ended without an answer"),
+            Error::NoAnswerInTime => write!(f, "no whole answer came within the time limit"),
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+/// A key as typed or pasted, without the blanks around it or the invisible marks a right-to-left field or a
+/// copied line can carry anywhere in it (direction marks, zero-width characters, a byte-order mark):
+/// `str::trim` keeps those, and the service would refuse the key without the person seeing why. Blanks inside
+/// stay, so text that is not a key is still not taken for one.
+pub fn clean_key(raw: &str) -> String {
+    let kept: String =
+        raw.chars().filter(|c| !matches!(*c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}')).collect();
+    kept.trim().to_string()
+}
 
 /// Who gets the text, for the consent step: said before the first request, never after.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -222,11 +249,19 @@ pub trait Provider: Send {
     fn disclosure(&self) -> Disclosure;
     /// Send `request` and wait for the whole reply.
     fn send(&mut self, request: &Request) -> Result<Reply, Error>;
+    /// Send one request of a tool conversation ([`agent`]) and wait for the model's whole turn. A
+    /// provider that cannot use tools says [`Error::Unavailable`].
+    fn send_tools(&mut self, _request: &agent::ToolRequest) -> Result<agent::Step, Error> {
+        Err(Error::Unavailable)
+    }
+    /// Give up, with [`Error::Interrupted`], instead of sending again once `flag` is set: the person let
+    /// the request go. A provider that never sends a request twice need not look at it.
+    fn set_cancel(&mut self, _flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {}
 }
 
 /// The chat turns to send: whole, alternating user and assistant from a user turn, ending with an
 /// assistant turn, at most [`MAX_HISTORY_TURNS`] and [`MAX_HISTORY_BYTES`], the oldest dropped first.
-fn usable_history(history: &[Turn]) -> Vec<&Turn> {
+pub(crate) fn usable_history(history: &[Turn]) -> Vec<&Turn> {
     let mut kept: Vec<&Turn> = Vec::new();
     for turn in history {
         let expected = if kept.len().is_multiple_of(2) { Role::User } else { Role::Assistant };
@@ -248,14 +283,14 @@ fn usable_history(history: &[Turn]) -> Vec<&Turn> {
 /// `text` with every `<document` and `<instruction` tag, opening or closing and in any letter
 /// case, made harmless by a backslash after its `<`. The text in the document then cannot end its
 /// block early or open an instruction block of its own and pose as what the person asked.
-fn defuse(text: &str) -> String {
+pub(crate) fn defuse(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some((before, after)) = rest.split_once('<') {
         out.push_str(before);
         out.push('<');
         let name = after.strip_prefix('/').unwrap_or(after);
-        let is_ours = ["document", "instruction"].iter().any(|tag| name.get(..tag.len()).is_some_and(|n| n.eq_ignore_ascii_case(tag)));
+        let is_ours = ["document", "instruction", "selection"].iter().any(|tag| name.get(..tag.len()).is_some_and(|n| n.eq_ignore_ascii_case(tag)));
         if is_ours {
             out.push('\\');
         }
@@ -276,8 +311,9 @@ fn user_message(request: &Request) -> String {
 }
 
 /// The JSON body of a Messages API request for `request` on `model`. It names no sampling
-/// parameters and no thinking setting (the current models take neither), and asks for the
-/// server-side fallback if the model declines.
+/// parameters (the current models refuse them), asks for adaptive thinking explicitly (the default
+/// of Claude Opus 5.5, and it keeps thinking on when a declined request falls back to an older model,
+/// which does not think when the field is left out), and asks for the server-side fallback.
 pub fn build_body(request: &Request, model: &str) -> Result<String, Error> {
     if request.instruction.trim().is_empty() {
         return Err(Error::EmptyInstruction);
@@ -295,17 +331,18 @@ pub fn build_body(request: &Request, model: &str) -> Result<String, Error> {
         "max_tokens": MAX_REPLY_TOKENS,
         "system": SYSTEM_PROMPT,
         "messages": messages,
+        "thinking": {"type": "adaptive"},
         "output_config": {"effort": "medium"},
         "fallbacks": "default",
     });
     serde_json::to_string(&body).map_err(|e| Error::BadReply(e.to_string()))
 }
 
-fn short(text: &str) -> String {
+pub(crate) fn short(text: &str) -> String {
     text.chars().take(MAX_ERROR_CHARS).collect()
 }
 
-fn text_of(value: &Value, key: &str) -> String {
+pub(crate) fn text_of(value: &Value, key: &str) -> String {
     value.get(key).and_then(Value::as_str).map(short).unwrap_or_default()
 }
 
@@ -330,7 +367,7 @@ fn reply_text(value: &Value) -> String {
 
 /// Did the fallback model write this reply? A fallback block in the content says so, as does a
 /// fallback iteration in the usage (a later turn of a chat has no block).
-fn used_fallback(value: &Value) -> bool {
+pub(crate) fn used_fallback(value: &Value) -> bool {
     let in_content =
         value.get("content").and_then(Value::as_array).is_some_and(|c| c.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("fallback")));
     let in_usage = value
@@ -348,15 +385,11 @@ pub fn parse_reply(status: u16, body: &str) -> Result<Reply, Error> {
         let error = value.get("error").unwrap_or(&Value::Null);
         return Err(Error::Http { status, kind: text_of(error, "type"), message: text_of(error, "message") });
     }
-    let usage = value.get("usage").unwrap_or(&Value::Null);
-    let count = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
-    let reply = Reply {
-        text: reply_text(&value),
-        stop: stop_of(&value),
-        usage: Usage { input_tokens: count("input_tokens"), output_tokens: count("output_tokens") },
-        model: text_of(&value, "model"),
-        fallback_used: used_fallback(&value),
-    };
+    let stop = stop_of(&value);
+    // The fallback model can decline too: a final refusal means the whole chain declined, and no
+    // fallback wrote a reply.
+    let fallback_used = used_fallback(&value) && !matches!(stop, Stop::Refusal { .. });
+    let reply = Reply { text: reply_text(&value), stop, usage: usage_of(&value), model: text_of(&value, "model"), fallback_used };
     if reply.text.is_empty() && reply.stop == Stop::End {
         return Err(Error::BadReply("the reply has no text".into()));
     }

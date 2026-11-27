@@ -94,6 +94,13 @@ impl Session {
         let ime_text_join = self.ime_text_join.take();
         let reg = self.registry.clone();
         let Some(spec) = reg.get(id) else { return Err(CmdError::Unknown(id.to_string())) };
+        // An assistant's workspace runs only what an assistant may run, also when a command runs
+        // another one (a macro, Repeat).
+        if self.agent_only
+            && let Some(why) = crate::agent::refusal(id, params)
+        {
+            return Err(CmdError::Disabled(format!("{id}: {why}")));
+        }
         self.forget_review_style(id, spec.mutates);
         let join = join
             || (equation_join && matches!(id, "equation.type" | "equation.backspace"))
@@ -108,9 +115,11 @@ impl Session {
         if spec.mutates && self.doc.settings.protection.as_deref() == Some("trackedChanges") {
             self.doc.settings.track_changes = true;
         }
-        // Macro recording and Repeat.
-        let record = !matches!(id, "tools.recordMacro" | "tools.macros" | "edit.undo" | "edit.redo" | "edit.repeat")
-            && (spec.mutates || id.starts_with("caret.") || id.starts_with("select."));
+        // Macro recording and Repeat. An assistant's changes are not the person's to repeat: they were
+        // made for one document as it was, and are applied only while it is unchanged.
+        let again = !matches!(id, "edit.undo" | "edit.redo" | "edit.repeat" | "assistant.runSteps");
+        let record =
+            again && !matches!(id, "tools.recordMacro" | "tools.macros") && (spec.mutates || id.starts_with("caret.") || id.starts_with("select."));
         // A password never lands in a recorded macro or Repeat.
         let kept = || {
             let mut p = params.clone();
@@ -122,7 +131,7 @@ impl Session {
         if record && let Some((_, steps)) = self.recording.as_mut() {
             steps.push((id.to_string(), kept()));
         }
-        if spec.mutates && !matches!(id, "edit.undo" | "edit.redo" | "edit.repeat") {
+        if spec.mutates && again {
             self.last_command = Some((id.to_string(), kept()));
         }
         // Typing, caret movement and selection outside the equation commands leave the equation.

@@ -144,10 +144,12 @@ pub(super) fn picture_format(app: &mut WordApp, ui: &mut Ui) {
             crate::widgets::row(ui, |ui| {
                 let cropping = crate::crop::active(app).is_some();
                 small(ui, app, "crop", Some("Crop"), "Crop", crate::widgets::ButtonAction::new("ui.crop", json!({}), cropping));
+                // A side's initial in English; a language whose initials say nothing words it in
+                // full (context `crop`). The field is named by it.
                 for (i, side) in ["L", "T", "R", "B"].iter().enumerate() {
-                    ui.label(egui::RichText::new(tl!(side)).small());
+                    let name = ui.label(egui::RichText::new(crate::i18n::tc("crop", side)).small());
                     let mut v = crop0[i] * 100.0;
-                    let r = ui.add(egui::DragValue::new(&mut v).speed(0.5).range(0.0..=95.0).suffix("%"));
+                    let r = ui.add(egui::DragValue::new(&mut v).speed(0.5).range(0.0..=95.0).suffix("%")).labelled_by(name.id);
                     if r.changed() {
                         if r.dragged() && !r.drag_started() {
                             app.session.join_next_undo();
@@ -166,7 +168,9 @@ pub(super) fn picture_format(app: &mut WordApp, ui: &mut Ui) {
             });
             ui.add_space(2.0);
             crate::widgets::row(ui, |ui| {
-                ui.label(egui::RichText::new(tl!("Alt:")).small());
+                // `picture`: a language that can't shorten "alternative text" to one word says it
+                // in full here.
+                ui.label(egui::RichText::new(crate::i18n::tc("picture", "Alt:")).small());
                 // Frame-local buffers lose keystrokes; keep the draft in egui temp memory keyed
                 // by picture (same pattern as the comment editor in panes.rs).
                 let key = egui::Id::unique(("picture_alt", media.clone(), off));

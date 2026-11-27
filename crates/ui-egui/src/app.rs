@@ -252,6 +252,8 @@ impl WordApp {
         ctx.add_plugin(super::a11y::FocusGuard);
         updates_ui::tick(self, ctx);
         crate::language_packs::tick(self);
+        // The AI pane's request ends, and its changes are applied, also while the pane is hidden.
+        self.assistant_poll(ctx);
         let lang = i18n::Lang::from_pref(&self.ui.language);
         i18n::set_current(lang);
         // PDFs and prints show a page reference or a REF to a missing bookmark in the

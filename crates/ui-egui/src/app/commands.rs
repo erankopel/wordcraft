@@ -448,9 +448,9 @@ impl WordApp {
             self.ui.recent.truncate(MAX_RECENT);
         }
         if !self.session.status.is_empty() {
-            // Engine messages are English; the catalog translates the ones it knows.
+            // Engine messages are English; the status line shows the ones the catalog knows
+            // translated, by row or `@msg` template (`WordApp::status`).
             let s = std::mem::take(&mut self.session.status);
-            let s = tl!(&s).to_string();
             self.status(s);
         }
         if matches!(id, "table.deleteTable")
@@ -552,7 +552,11 @@ impl WordApp {
         let s = |k: &str| p.get(k).and_then(Value::as_str);
         Some(Ok(match id {
             "ui.checkForUpdates" | "help.checkForUpdates" => {
-                crate::updates_ui::check(self);
+                // An edition has no such button; the command search or a script still asks.
+                if let Err(why) = crate::updates_ui::check(self) {
+                    self.status(why.clone());
+                    return Some(Err(why));
+                }
                 Value::Null
             }
             "ui.tab" => {
@@ -783,7 +787,8 @@ impl WordApp {
                     let Some(info) = self.session.recovery_documents().into_iter().find(|d| d.id == id) else {
                         return Some(Err("no such recovery copy".into()));
                     };
-                    self.dialog = Some(dialogs::Dialog::DiscardRecovery { id: info.id, name: info.name });
+                    let name = crate::backstage::recovery_name(&info.name);
+                    self.dialog = Some(dialogs::Dialog::DiscardRecovery { id: info.id, name, stored_name: info.name });
                     json!({"pending": "discardRecovery"})
                 }
             }
@@ -832,6 +837,9 @@ impl WordApp {
                 ));
             }
             "ui.discord" => {
+                if !crate::links_to_artcraft() {
+                    return Some(Err("this edition of WordCraft has no community link".into()));
+                }
                 self.canvas.open_url = Some("https://discord.gg/artcraft".into());
                 json!({})
             }
@@ -897,6 +905,19 @@ impl WordApp {
                 add_saved(&mut r, saved);
                 r
             }
+            "ui.fileDialogs" => {
+                // File › Options › Advanced › File dialogs: `auto`, `wordcraft` (WordCraft's own
+                // browser, in the interface language) or `system`; no value reads it. `own` is
+                // what that comes to in this build.
+                match p.get("value") {
+                    None => {}
+                    Some(v) => match v.as_str().and_then(crate::FileDialogs::from_code) {
+                        Some(d) => self.ui.file_dialogs = d,
+                        None => return Some(Err(format!("unknown file dialogs setting {v}; use auto, wordcraft or system"))),
+                    },
+                }
+                json!({"fileDialogs": self.ui.file_dialogs.code(), "own": self.uses_own_file_browser()})
+            }
             "ui.displayServer" => {
                 // File › Options › Advanced › Linux display server (#2184): `value` `auto`,
                 // `wayland` or `x11`; no value reads it. The desktop app reads it at the next launch.
@@ -952,7 +973,8 @@ impl WordApp {
             }
             Err(e) => {
                 log::warn!("make default app: {e}");
-                let msg = i18n::fmt(tl!("Couldn't make WordCraft the default: {error}"), &[("error", &e)]);
+                // The host's reason is English, for the log; the status bar says it in the interface language.
+                let msg = i18n::fmt(tl!("Couldn't make WordCraft the default: {error}"), &[("error", &i18n::message(&e))]);
                 self.status(msg.clone());
                 Err(msg)
             }
@@ -1184,6 +1206,7 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.recentRemove"
             | "ui.recentClear"
             | "ui.displayServer"
+            | "ui.fileDialogs"
             | "ui.statusCount"
             | "ui.scrollSpeed"
             | "ui.touchpadScrollSpeed"

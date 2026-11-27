@@ -323,7 +323,6 @@ spacing	Open	פתוח
 	Define New Bullet…	הגדרת תבליט חדש…
 	Delete Blank Paragraphs in the Whole Document	מחיקת פסקאות ריקות בכל המסמך
 	Document fitted to 1 page (font: -1.0 pt, spacing: 90%).	המסמך הותאם לעמוד אחד (גופן: -1.0 נק׳, ריווח: 90%).
-	Flat OpenDocument Text (*.fodt)	Flat OpenDocument Text (*.fodt)
 	Ignore Once	התעלמות חד-פעמית
 	Indent Leading Spaces	המרת רווחים בתחילת שורה להזחה
 	Indents to Leading Spaces	המרת הזחות לרווחים בתחילת שורה
@@ -332,7 +331,6 @@ spacing	Open	פתוח
 	Linux display server	שרת התצוגה של Linux
 	Markdown	Markdown
 	Markdown Source Text	טקסט מקור של Markdown
-	OpenDocument Text Template (*.ott)	OpenDocument Text Template (*.ott)
 	Paragraph\nTools	כלי\nפסקה
 	Remove Extra Spaces in the Whole Document	הסרת רווחים מיותרים בכל המסמך
 	Remove Leading Spaces in the Whole Document	הסרת רווחים בתחילת שורה בכל המסמך
@@ -426,8 +424,409 @@ spacing	Open	פתוח
 	Agreeing covers later requests in this run, whether they send a selection or the whole document.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו, בין אם הן שולחות טקסט נבחר ובין אם הן שולחות את המסמך כולו.
 	Your instruction (no document text goes with it: the document is empty) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree.	ההוראה שלכם (לא יישלח איתה טקסט מהמסמך: המסמך ריק) תישלח דרך האינטרנט אל {recipient}, כדי שהמודל {model} יקרא אותה. WordCraft לא שומר עותק. דבר לא יישלח עד שתאשרו.
 	The model sent no text, so there is no reply to place.	המודל לא שלח טקסט, ולכן אין תשובה להכניס.
+	You stopped the assistant. Nothing was changed.	עצרתם את העוזר. דבר לא שונה.
+	The assistant's changes were undone.	השינויים של העוזר בוטלו.
+	The assistant is working…	העוזר עובד…
+	The assistant is working: round {round}, {calls} steps so far…	העוזר עובד: סבב {round}, שלבים עד כה: {calls}…
+	The document changed while the assistant worked, so its changes were not applied. Ask again.	המסמך השתנה בזמן שהעוזר עבד, ולכן השינויים שלו לא הוחלו. יש לבקש שוב.
+	The assistant's changes were applied. Undo reverts all of them in one step.	השינויים של העוזר הוחלו. ביטול פעולה אחד מבטל את כולם.
+	The assistant's changes could not be applied: {why}	לא ניתן היה להחיל את השינויים של העוזר: {why}
+	The assistant answered without changing the document.	העוזר ענה בלי לשנות את המסמך.
+	The model declined this request, so nothing was changed.	המודל סירב לבקשה הזו, ולכן דבר לא שונה.
+	The assistant's answer reached its length limit before it finished, so nothing was changed.	התשובה של העוזר הגיעה למגבלת האורך לפני שסיים, ולכן דבר לא שונה.
+	The assistant used all the steps one request may take before it finished, so nothing was changed. Ask for less at a time.	העוזר ניצל את כל השלבים שבקשה אחת יכולה לכלול לפני שסיים, ולכן דבר לא שונה. כדאי לבקש פחות בכל פעם.
+	The assistant stopped before it finished, so nothing was changed.	העוזר הפסיק לפני שסיים, ולכן דבר לא שונה.
+	Ask for a change to your document, or a question about it. The assistant makes the changes itself, and Undo reverts them in one step.	אפשר לבקש שינוי במסמך שלכם, או לשאול עליו שאלה. העוזר מבצע את השינויים בעצמו, וביטול פעולה אחד מבטל את כולם.
+	Let the assistant make changes in the document	לאפשר לעוזר לבצע שינויים במסמך
+	Your instruction and the whole document ({chars} characters) will be sent over the internet to {recipient}, to be read by the model {model}. The assistant can also read the rest of the document (headers, footers, notes, comments with their authors' names, and the document's properties; not text deleted with Track Changes on) and change it with WordCraft's editing commands. Its changes apply together when it finishes, and Undo reverts all of them in one step; with Track Changes on, the text it adds or deletes is tracked (its formatting changes are not), and a change that cannot be tracked is not made. WordCraft keeps no copy. Nothing is sent until you agree.	ההוראה שלכם והמסמך כולו (תווים: {chars}) יישלחו דרך האינטרנט אל {recipient}, כדי שהמודל {model} יקרא אותם. העוזר יכול גם לקרוא את שאר המסמך (כותרות עליונות ותחתונות, הערות שוליים והערות סיום, הערות עם שמות הכותבים שלהן ומאפייני המסמך; אך לא טקסט שנמחק כשמעקב אחר שינויים פועל) ולשנות אותו בפקודות העריכה של WordCraft. השינויים שלו מוחלים יחד כשהוא מסיים, וביטול פעולה אחד מבטל את כולם; כשמעקב אחר שינויים פועל, הטקסט שהוא מוסיף או מוחק מסומן כשינוי (שינויי העיצוב שלו לא), ושינוי שאי אפשר לסמן כך לא יבוצע. WordCraft לא שומר עותק. דבר לא יישלח עד שתאשרו.
+	The document starts: {start}	המסמך מתחיל כך: {start}
+	Agreeing covers later requests about this document in this run, with or without changes to it. Another document asks again.	האישור חל על בקשות מאוחרות יותר לגבי המסמך הזה בהפעלה הזו, עם שינויים בו או בלעדיהם. במסמך אחר תתבקשו לאשר שוב.
+	Undo These Changes	ביטול השינויים האלה
+	Apply Assistant Changes	החלת שינויי העוזר
+	No whole answer came within 10 minutes. The request reached the service, which may still process it. Try again, perhaps with less text.	לא התקבלה תשובה שלמה תוך 10 דקות. הבקשה הגיעה לשירות, שעשוי עדיין לטפל בה. יש לנסות שוב, אולי עם פחות טקסט.
+	The assistant reached a limit of this request before it finished. The changes it made so far were applied, and its reply says what is left. Undo reverts all of them in one step.	העוזר הגיע למגבלה של הבקשה הזו לפני שסיים. השינויים שביצע עד כה הוחלו, והתשובה שלו מפרטת מה נשאר. ביטול פעולה אחד מבטל את כולם.
+	The assistant reached a limit of this request before it finished: only part of the work may be done.	העוזר הגיע למגבלה של הבקשה הזו לפני שסיים: ייתכן שרק חלק מהעבודה בוצע.
+	The assistant's changes could not be repeated exactly, so they were not applied. Ask again.	לא היה אפשר לחזור במדויק על השינויים של העוזר, ולכן הם לא הוחלו. יש לבקש שוב.
+icon	B	מ
+icon	I	נ
+icon	U	ק
+icon	abc	אבג
+crop	L	שמאל
+crop	T	למעלה
+crop	R	ימין
+crop	B	למטה
+picture	Alt:	טקסט חלופי:
+	no other WordCraft window is open	אין חלון WordCraft נוסף פתוח
+	changes to this document are tracked	השינויים במסמך הזה נמצאים במעקב
+	stop protection before changing a content control's properties	יש להפסיק את ההגנה לפני שינוי המאפיינים של פקד תוכן
+	stop protection before inserting a content control	יש להפסיק את ההגנה לפני הוספת פקד תוכן
+	stop protection before removing a content control	יש להפסיק את ההגנה לפני הסרת פקד תוכן
+	Column selection: the arrow keys extend the block, Esc ends it	בחירת עמודה: מקשי החיצים מרחיבים את הגוש, ו-Esc מסיים את הבחירה
+	The document already fits on one page.	המסמך כבר נכנס בעמוד אחד.
+	Unable to shrink document further without reducing text beyond readability limits.	אי אפשר לכווץ את המסמך עוד בלי להקטין את הטקסט מעבר לגבול הקריאות.
+	Unable to fit document to one page: explicit page or section breaks prevent page reduction.	אי אפשר להתאים את המסמך לעמוד אחד: מעברי עמוד או מקטע במסמך מונעים את צמצום העמודים.
+	Unable to fit document to one page: no permitted typography adjustment could remove a page.	אי אפשר להתאים את המסמך לעמוד אחד: אף שינוי מותר בגופן או במרווחים לא הוריד עמוד.
+	Unable to fit document to one page: content on the final page exceeds limits for aesthetic page reduction.	אי אפשר להתאים את המסמך לעמוד אחד: יש בעמוד האחרון יותר תוכן ממה שאפשר לצמצם בלי לפגוע במראה.
+	the document tracks formatting changes: Fit One Page cannot record its style changes as formatting revisions	המסמך עוקב אחר שינויי עיצוב: התאמה לעמוד אחד אינה יכולה לתעד את שינויי הסגנונות שלה כשינויי עיצוב במעקב
+	This content control can't be deleted.	אי אפשר למחוק את פקד התוכן הזה.
+	The contents of this content control can't be edited.	אי אפשר לערוך את התוכן של פקד התוכן הזה.
+	The table's text is already marked deleted; accept or reject the change first.	הטקסט של הטבלה כבר מסומן כמחוק; יש לקבל את השינוי או לדחות אותו קודם.
+	Every font the document shows is installed	כל הגופנים שהמסמך מציג מותקנים
+	Fonts that aren't installed are shown in fonts that measure the same: line breaks don't move	גופנים שאינם מותקנים מוצגים בגופנים באותן מידות: מעברי השורה אינם זזים
+	no matches	לא נמצאו התאמות
+	Match {index} of {count}	התאמה {index} מתוך {count}
+@msg	Match {index} of {count}	התאמה {index} מתוך {count}
+@msg	All done. We made {n} replacements.	הפעולה הושלמה. מספר ההחלפות שבוצעו: {n}.
+@msg	Not installed: {fonts}	גופנים שאינם מותקנים: {fonts}
+@msg	Not installed: {fonts} and {n} more	גופנים שאינם מותקנים: {fonts} ועוד {n}
+@msg	Document fitted to 1 page (font: -{size} pt, spacing: {percent}%).	המסמך הותאם לעמוד אחד (גופן: ‎-{size} נק', מרווחים: {percent}%).
+@msg	Document fitted to 1 page (spacing: {percent}%).	המסמך הותאם לעמוד אחד (מרווחים: {percent}%).
+@msg	Document fitted to {pages} pages (font: -{size} pt, spacing: {percent}%).	המסמך הותאם ל-{pages} עמודים (גופן: ‎-{size} נק', מרווחים: {percent}%).
+@msg	Document fitted to {pages} pages (spacing: {percent}%).	המסמך הותאם ל-{pages} עמודים (מרווחים: {percent}%).
+@msg	Added {families}	נוסף: {families}
+@msg	Added {families} ({warning})	נוסף: {families} ({warning})
+@msg	Removed {family}	הוסר: {family}
+@msg	not available: {reason}	לא זמין: {reason}
+@msg	Zotero isn't running (start Zotero and try again): {error}	Zotero אינו פועל (יש להפעיל את Zotero ולנסות שוב): {error}
+@msg	connection to Zotero failed: {error}	החיבור ל-Zotero נכשל: {error}
+@msg	unexpected data from Zotero: {error}	Zotero שלח נתונים לא צפויים: {error}
+@msg	WordCraft won't let this program edit the document: {reason}	WordCraft לא יאפשר לתוכנה הזו לערוך את המסמך: {reason}
+@msg	Zotero is still working on {name}; finish in Zotero's window first	Zotero עדיין עובד על {name}; יש לסיים בחלון של Zotero קודם
+@msg	could not start the Zotero connection: {error}	לא ניתן היה להתחיל את החיבור ל-Zotero: {error}
+	Zotero works with the WordCraft desktop app	Zotero עובד עם יישום WordCraft לשולחן העבודה
+	WordCraft closed the document	WordCraft סגר את המסמך
+	Zotero isn't asking anything	Zotero אינו שואל דבר
+@msg	Connection refused (os error {code})	החיבור נדחה (שגיאת מערכת {code})
+@msg	Connection reset by peer (os error {code})	הצד השני ניתק את החיבור (שגיאת מערכת {code})
+@msg	No such file or directory (os error {code})	הקובץ או התיקייה לא נמצאו (שגיאת מערכת {code})
+@msg	Permission denied (os error {code})	אין הרשאה (שגיאת מערכת {code})
+@msg	a style named `{name}` already exists	כבר קיים סגנון בשם "{name}"
+	Couldn't copy the picture: {error}	לא ניתן היה להעתיק את התמונה: {error}
+	Heading level skipped (Heading {to} after Heading {from})	דילוג על רמת כותרת (כותרת {to} אחרי כותרת {from})
+	Use the next heading level down, so the outline has no gaps	יש להשתמש ברמת הכותרת הבאה בתור, כדי שלא יהיו פערים במבנה המסמך
+	Link text "click here" isn't descriptive	טקסט הקישור "click here" אינו מתאר לאן הקישור מוביל
+	Use link text that says where the link goes	יש לכתוב טקסט קישור שמתאר לאן הקישור מוביל
+	Document has no title	למסמך אין כותרת
+	Give the document a title in File › Info	יש לתת למסמך כותרת בקובץ ‹ מידע
+	{n} empty paragraphs in a row	{n} פסקאות ריקות ברצף
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	במקום פסקאות ריקות יש להשתמש במרווח לפני או אחרי (פריסה ‹ פסקה) או במעבר עמוד
+	Chart or diagram has no alternative text	לתרשים או לדיאגרמה אין טקסט חלופי
+	Missing alternative text	חסר טקסט חלופי
+	Describe it in the Alt Text pane, or mark it decorative	יש לתאר אותו בחלונית הטקסט החלופי, או לסמן אותו כדקורטיבי
+	Object isn't in line with text, so its reading order is unclear	האובייקט אינו בשורה עם הטקסט, ולכן סדר הקריאה שלו אינו ברור
+	Place it in line with text (Layout › Wrap Text)	יש למקם אותו בשורה עם הטקסט (פריסה ‹ גלישת טקסט)
+	Text is hard to read: contrast {ratio}:1, {need}:1 needed	קשה לקרוא את הטקסט: ניגודיות של ‎{ratio}:1, ונדרשת ‎{need}:1
+	Use a darker or lighter text colour, or change the shading behind it	יש לבחור צבע טקסט כהה או בהיר יותר, או לשנות את ההצללה שמאחוריו
+	Table has no alternative text	לטבלה אין טקסט חלופי
+	Give it a title or description in the Alt Text pane	יש לתת לה כותרת או תיאור בחלונית הטקסט החלופי
+	Table has no header row	לטבלה אין שורת כותרת
+	Repeat the first row as a header row (Table Layout › Data › Repeat Header Rows)	יש לחזור על השורה הראשונה כשורת כותרת (פריסת טבלה ‹ נתונים ‹ חזרה על שורות כותרת)
+	Row {n} of a table is empty: it looks like spacing	שורה {n} בטבלה ריקה: נראה שהיא משמשת כמרווח
+	Delete the row and use cell margins or spacing instead	יש למחוק את השורה ולהשתמש בשולי תא או במרווחים במקומה
+	Column {n} of a table is empty: it looks like spacing	עמודה {n} בטבלה ריקה: נראה שהיא משמשת כמרווח
+	Delete the column and use cell margins instead	יש למחוק את העמודה ולהשתמש בשולי תא במקומה
+	Table has merged cells, which screen readers can lose track of	בטבלה יש תאים ממוזגים, שקוראי מסך עלולים לאבד בהם את הסדר
+	Split the merged cells (Table Layout › Merge)	יש לפצל את התאים הממוזגים (פריסת טבלה ‹ מיזוג)
+	Style set: {name}	ערכת סגנונות: {name}
+style set	Default	ברירת מחדל
+style set	Basic	בסיסית
+style set	Lines	קווים
+style set	Shaded	מוצללת
+style set	Casual	לא רשמית
+style set	Centered	ממורכזת
+style set	Minimalist	מינימליסטית
+unicode	Basic Latin	לטינית בסיסית
+unicode	Latin-1 Supplement	לטינית 1, תוספת
+unicode	Latin Extended-A	לטינית מורחבת A
+unicode	Latin Extended-B	לטינית מורחבת B
+unicode	IPA Extensions	הרחבות האלפבית הפונטי (IPA)
+unicode	Spacing Modifier Letters	אותיות משנות תופסות מקום
+unicode	Combining Diacritical Marks	סימנים דיאקריטיים מצטרפים
+unicode	Greek and Coptic	יוונית וקופטית
+unicode	Cyrillic	קירילית
+unicode	Armenian	ארמנית
+unicode	Hebrew	עברית
+unicode	Arabic	ערבית
+unicode	Devanagari	דוונאגרי
+unicode	Thai	תאית
+unicode	Georgian	גאורגית
+unicode	Hangul Jamo	ג'אמו של האנגול
+unicode	Phonetic Extensions	הרחבות פונטיות
+unicode	Latin Extended Additional	לטינית מורחבת, תוספת
+unicode	Greek Extended	יוונית מורחבת
+unicode	General Punctuation	סימני פיסוק כלליים
+unicode	Superscripts and Subscripts	כתב עילי וכתב תחתי
+unicode	Currency Symbols	סמלי מטבע
+unicode	Letterlike Symbols	סמלים דמויי אותיות
+unicode	Number Forms	צורות מספרים
+unicode	Arrows	חצים
+unicode	Mathematical Operators	אופרטורים מתמטיים
+unicode	Miscellaneous Technical	סמלים טכניים שונים
+unicode	Enclosed Alphanumerics	אותיות וספרות מוקפות
+unicode	Box Drawing	קווי מסגרת
+unicode	Block Elements	רכיבי גוש
+unicode	Geometric Shapes	צורות גאומטריות
+unicode	Miscellaneous Symbols	סמלים שונים
+unicode	Dingbats	סמלי עיטור
+unicode	Supplemental Arrows	חצים נוספים
+unicode	Braille Patterns	תבניות ברייל
+unicode	Supplemental Mathematical Operators	אופרטורים מתמטיים נוספים
+unicode	CJK Symbols and Punctuation	סמלים וסימני פיסוק של סינית, יפנית וקוריאנית
+unicode	Hiragana	היראגנה
+unicode	Katakana	קטקנה
+unicode	CJK Unified Ideographs	סימנים סיניים מאוחדים (CJK)
+unicode	Hangul Syllables	הברות האנגול
+unicode	Private Use Area	אזור לשימוש פרטי
+unicode	Alphabetic Presentation Forms	צורות תצוגה אלפביתיות
+unicode	Halfwidth and Fullwidth Forms	צורות בחצי רוחב וברוחב מלא
+unicode	Specials	תווים מיוחדים
+unicode	Mathematical Alphanumeric Symbols	סמלים אלפאנומריים מתמטיים
+unicode	Emoji and Pictographs	אמוג'י וסמלים ציוריים
+icons	Office	משרד
+icons	Arrow Right	חץ ימינה
+icons	Arrow Left	חץ שמאלה
+icons	Arrow Up	חץ למעלה
+icons	Arrow Down	חץ למטה
+icons	Refresh	רענון
+icons	Swap	החלפה
+icons	Mail	דואר
+icons	Chat	צ'אט
+icons	Megaphone	מגפון
+icons	Bell	פעמון
+icons	Inbox	תיבת דואר נכנס
+icons	Document	מסמך
+icons	Folder	תיקייה
+icons	Calendar	לוח שנה
+icons	Clipboard	לוח כתיבה
+icons	Pencil	עיפרון
+icons	Briefcase	תיק עבודה
+icons	Bar Chart	תרשים עמודות
+icons	Person	אדם
+icons	Group	קבוצה
+icons	Smiley	פרצוף מחייך
+icons	Add Person	הוספת אדם
+icons	Name Badge	תג שם
+icons	Leaf	עלה
+icons	Pine Tree	עץ אורן
+icons	Tulip	צבעוני
+icons	Mountain	הר
+icons	Paw Print	טביעת כפה
+icons	Sun	שמש
+icons	Cloud	ענן
+icons	Rain	גשם
+icons	Lightning	ברק
+icons	Moon	ירח
+icons	Snowflake	פתית שלג
+icons	Droplet	טיפה
+icons	Circle	עיגול
+icons	Square	ריבוע
+icons	Triangle	משולש
+icons	Star	כוכב
+icons	Hexagon	משושה
+icons	Heart	לב
+icons	Check Mark	סימן וי
+icons	Plus	פלוס
+icons	Information	מידע
+icons	Warning	אזהרה
+icons	Question	שאלה
+icons	Flag	דגל
+icons	Light Bulb	נורה
+icons	Laptop	מחשב נייד
+icons	Mobile Phone	טלפון נייד
+icons	Wireless	רשת אלחוטית
+icons	Monitor	צג
+icons	Battery	סוללה
+icons	Code	קוד
+icons	Power	לחצן הפעלה
+icons	Car	מכונית
+icons	Bicycle	אופניים
+icons	Airplane	מטוס
+icons	Bus	אוטובוס
+icons	Sailboat	סירת מפרש
+icons	Map Pin	סיכת מפה
+	The secure connection couldn't be checked: something on this network replaces the server's certificate (a filter at work or at school, or an antivirus program). Try another network.	לא ניתן היה לאמת את החיבור המאובטח: משהו ברשת הזו מחליף את אישור האבטחה של השרת (סינון ברשת של עבודה או של בית ספר, או תוכנת אנטי-וירוס). יש לנסות רשת אחרת.
+	The secure connection couldn't be checked: the server's certificate is out of date, or this computer's date and time are wrong. Check the date and time and try again.	לא ניתן היה לאמת את החיבור המאובטח: אישור האבטחה של השרת אינו בתוקף כעת, או שהתאריך והשעה במחשב הזה שגויים. יש לבדוק את התאריך והשעה ולנסות שוב.
+@msg	{file} was rejected: {error}	הקובץ {file} נדחה: {error}
+@msg	the file is {actual} bytes, not {expected}	גודל הקובץ {actual} בתים ולא {expected}
+	the file's sha256 doesn't match the index	ערך ה-sha256 של הקובץ אינו תואם לערך שברשימה
+@msg	there is no language pack for {locale}	אין חבילת שפה עבור {locale}
+	downloading fonts is turned off	הורדת גופנים כבויה
+	only the user can turn on downloading fonts	רק המשתמש יכול להפעיל הורדה של גופנים
+	downloading is turned off: turn it on in WordCraft (File › Options › Language, or an Install button there)	ההורדה כבויה: אפשר להפעיל אותה ב-WordCraft (קובץ ‹ אפשרויות ‹ שפה, או בלחצן התקנה שם)
+	there is no font store folder for language packs	אין תיקייה של מאגר הגופנים לחבילות שפה
+	cancelled	בוטל
+	The server didn't answer in time. Check the internet connection and try again.	השרת לא ענה בזמן. יש לבדוק את החיבור לאינטרנט ולנסות שוב.
+	Couldn't reach the server. Check the internet connection and try again.	לא ניתן להתחבר לשרת. יש לבדוק את החיבור לאינטרנט ולנסות שוב.
+	The server refused the download (HTTP {code}). Try again later.	השרת סירב להורדה (HTTP {code}). יש לנסות שוב מאוחר יותר.
+	Licence: {licence}	רישיון: {licence}
+	{language} proofing is installed.	הגהה ב{language} מותקנת.
+	Close this message	סגירת ההודעה
+	Available to download	זמין להורדה
+	English word list (Moby Hyphenator II)	רשימת מילים באנגלית (Moby Hyphenator II)
+	English word list and hyphenation (Moby Hyphenator II)	רשימת מילים ומיקוף באנגלית (Moby Hyphenator II)
+	English word supplement (en-extra.txt)	תוספת מילים באנגלית (en-extra.txt)
+	English spelling dictionaries (SCOWL)	מילוני איות באנגלית (SCOWL)
+	File dialogs	תיבות דו-שיח של קבצים
+	Open and save with:	פתיחה ושמירה באמצעות:
+	WordCraft's file browser	דפדפן הקבצים של WordCraft
+	The system's file dialogs	תיבות הדו-שיח של המערכת
+	Automatic ({choice})	אוטומטי ({choice})
+	WordCraft's own file browser is in the interface language. The system's file dialogs follow the language of the desktop.	דפדפן הקבצים של WordCraft מוצג בשפת הממשק. תיבות הדו-שיח של המערכת מוצגות בשפת שולחן העבודה.
+	Automatically as you type	באופן אוטומטי בזמן ההקלדה
+	Booklet (left binding)	חוברת (כריכה משמאל)
+	Booklet (right binding)	חוברת (כריכה מימין)
+	Comments from the document properties	ההערות ממאפייני המסמך
+	Keywords from the document properties	מילות המפתח ממאפייני המסמך
+	Who last saved the document	מי שמר את המסמך לאחרונה
+	How many characters the document holds	כמה תווים יש במסמך
+	How many times the document has been saved	כמה פעמים המסמך נשמר
+	Subject from the document properties	הנושא ממאפייני המסמך
+	First capital	אות ראשונה רישית
+	Title case	רישיות של כותרת
+	First, Second, Third, …	ראשון, שני, שלישי, …
+	One, Two, Three, …	אחת, שתיים, שלוש, …
+	pi	פיקה
+	{n} MB	{n} MB
+# Errors from the engine that the status bar and dialogs show (crates/ui-egui/src/i18n/messages.rs).
+	the drawing canvas is full	משטח הציור מלא
+	not a picture or shape	זו אינה תמונה או צורה
+	a shape can't leave its drawing canvas	צורה אינה יכולה לצאת ממשטח הציור שלה
+	no text on that page	אין טקסט בעמוד הזה
+	this chart can't be edited	אי אפשר לערוך את התרשים הזה
+	cross-reference target is gone	היעד של ההפניה הצולבת כבר אינו קיים
+	lists go in the main text	אפשר להוסיף רשימות רק בגוף המסמך
+	connectors glue to shapes and text boxes	מחברים נצמדים לצורות ולתיבות טקסט בלבד
+	the selection isn't in a content control	הבחירה אינה בתוך פקד תוכן
+	the selection isn't in a check box	הבחירה אינה בתוך תיבת סימון
+	the selection isn't in a combo box or drop-down list	הבחירה אינה בתוך תיבה משולבת או רשימה נפתחת
+	the selection isn't in a date picker	הבחירה אינה בתוך בורר תאריכים
+	nothing is selected with the lasso	לא נבחר דבר בלאסו
+	nothing selected can be moved	אין בבחירה דבר שאפשר להזיז
+	nothing selected to delete	לא נבחר דבר למחיקה
+	none of the selected strokes looks like a shape	אף אחת מהמשיכות שנבחרו אינה נראית כמו צורה
+	no edits to go back to yet	אין עדיין עריכות לחזור אליהן
+	the clipboard is empty	הלוח ריק
+	no formatting copied	לא הועתק עיצוב
+	no equation there	אין שם משוואה
+	nothing to delete	אין מה למחוק
+	there is no field in the selection	אין שדה בבחירה
+	the document has no fields	אין שדות במסמך
+	Enter a valid document name (up to 200 characters, without path separators).	יש להזין שם מסמך תקין (עד 200 תווים, בלי מפרידי נתיב).
+	select characters within one paragraph	יש לבחור תווים בתוך פסקה אחת
+	nothing to look for	אין מה לחפש
+	bookmark names start with a letter or underscore, contain only letters, numbers or underscores, and have at most 40 characters	שם של סימנייה מתחיל באות או בקו תחתון, כולל רק אותיות, ספרות וקווים תחתונים, ואורכו 40 תווים לכל היותר
+	image is larger than 200 MB	התמונה גדולה מ-200 MB
+	not a supported image (PNG, JPEG, GIF, WebP, BMP, WMF, EMF)	זו אינה תמונה בפורמט נתמך (PNG, JPEG, GIF, WebP, BMP, WMF, EMF)
+	couldn't draw the icon	לא ניתן היה לצייר את הסמל
+	not in a list	הסמן אינו ברשימה
+	not in a numbered list	הסמן אינו ברשימה ממוספרת
+	no matching recipient	אין נמען מתאים
+	the recipient list is empty	רשימת הנמענים ריקה
+	no picture or shape selected	לא נבחרו תמונה או צורה
+	only objects in the body text, headers and footers can be moved	אפשר להזיז רק אובייקטים שבגוף הטקסט, בכותרות העליונות ובכותרות התחתונות
+	select two or more pictures or shapes first	יש לבחור קודם שתיים או יותר מהתמונות או הצורות
+	nothing to group	אין מה לקבץ
+	objects in different stories (body, header, footer) can't be grouped	אי אפשר לקבץ אובייקטים מחלקים שונים של המסמך (גוף, כותרת עליונה, כותרת תחתונה)
+	only objects in the body text, headers and footers (not in tables) can be grouped	אפשר לקבץ רק אובייקטים שבגוף הטקסט, בכותרות העליונות ובכותרות התחתונות (לא בטבלאות)
+	a drawing canvas can't be grouped	אי אפשר לקבץ משטח ציור
+	objects in line with text can't be grouped: choose a text wrapping for them first	אי אפשר לקבץ אובייקטים שבשורה עם הטקסט: יש לבחור להם קודם גלישת טקסט
+	objects on different pages can't be grouped	אי אפשר לקבץ אובייקטים שבעמודים שונים
+	the group is empty	הקבוצה ריקה
+	picture is too large to edit	התמונה גדולה מכדי לערוך אותה
+	not a picture	זו אינה תמונה
+	the target isn't a text box	היעד אינו תיבת טקסט
+	a text box can't link to itself or to a box its text already runs through	תיבת טקסט אינה יכולה להיות מקושרת לעצמה או לתיבה שהטקסט שלה כבר עובר דרכה
+	another text box already links to that one	תיבת טקסט אחרת כבר מקושרת לתיבה הזו
+	this text box isn't linked to another	תיבת הטקסט הזו אינה מקושרת לתיבה אחרת
+	put the caret in the body text	יש להציב את הסמן בגוף הטקסט
+	select paragraphs to change their level	יש לבחור פסקאות כדי לשנות את הרמה שלהן
+	already at the top	כבר בראש
+	already at the bottom	כבר בתחתית
+	paragraphs don't move across a section break	אי אפשר להעביר פסקאות אל מעבר למעבר מקטע
+	margins leave no room for text	השוליים אינם משאירים מקום לטקסט
+	section breaks go in the main text	אפשר להוסיף מעברי מקטע רק בגוף המסמך
+	selected text in the main text, outside tables, is needed	נדרש טקסט נבחר בגוף המסמך, מחוץ לטבלאות
+	select paragraphs in one place (not across table cells) to move them	כדי להזיז פסקאות יש לבחור אותן במקום אחד (לא על פני כמה תאי טבלה)
+	a table is in the way	טבלה חוסמת את הדרך
+	select paragraphs in one place to sort	כדי למיין יש לבחור פסקאות במקום אחד
+	sorting tables isn't supported here; use Table › Sort	מיון טבלאות אינו נתמך כאן; יש להשתמש בטבלה ‹ מיון
+	no paragraphs selected	לא נבחרו פסקאות
+	no paragraph selected	לא נבחרה פסקה
+	stop protection before changing the exceptions	יש להפסיק את ההגנה לפני שינוי החריגים
+	stop protection before changing the formatting restrictions	יש להפסיק את ההגנה לפני שינוי הגבלות העיצוב
+	type the document's password to stop protection	יש להקליד את הסיסמה של המסמך כדי להפסיק את ההגנה
+	the password is incorrect	הסיסמה שגויה
+	select the text that stays editable	יש לבחור את הטקסט שיישאר פתוח לעריכה
+	endnotes can't start again on each page	אי אפשר להתחיל את מספור הערות הסיום מחדש בכל עמוד
+	a table of contents goes in the main text	אפשר להוסיף תוכן עניינים רק בגוף המסמך
+	no comment here	אין כאן הערה
+	no shape selected	לא נבחרה צורה
+	there's nothing to read	אין מה להקריא
+	select paragraphs to convert	יש לבחור פסקאות להמרה
+	select only paragraphs to convert	יש לבחור רק פסקאות להמרה
+	a table can have at most 63 columns	בטבלה יכולות להיות 63 עמודות לכל היותר
+	draw a rectangle (at least 12 pt each way) outside a table, or a straight horizontal or vertical line across table cells	יש לצייר מלבן (12 נק' לפחות בכל כיוון) מחוץ לטבלה, או קו ישר אופקי או אנכי לרוחב תאי טבלה
+	draw new tables outside a table; inside one, draw a line to split cells	יש לצייר טבלאות חדשות מחוץ לטבלה; בתוך טבלה, יש לצייר קו כדי לפצל תאים
+	the line doesn't cross a table cell	הקו אינו חוצה תא בטבלה
+	the line crosses only part of a merged cell; draw it across the whole cell	הקו חוצה רק חלק מתא ממוזג; יש לצייר אותו לרוחב התא כולו
+	there's already a border there	כבר יש שם גבול
+	draw the line within one row	יש לצייר את הקו בתוך שורה אחת
+	the table has too many rows	יש בטבלה יותר מדי שורות
+	splitting a vertically merged cell across rows isn't supported; erase its merge first	פיצול לרוחב שורות של תא שמוזג אנכית אינו נתמך; יש למחוק קודם את המיזוג שלו
+	there's no border between two cells there	אין שם גבול בין שני תאים
+	those cells are already merged	התאים האלה כבר ממוזגים
+	the result is not a number	התוצאה אינה מספר
+	Formula too complex	הנוסחה מורכבת מדי
+	division by zero	חלוקה באפס
+	IF takes three arguments: a condition, the value when it is true, and the value when it is false	IF מקבלת שלושה ארגומנטים: תנאי, הערך כשהתנאי מתקיים והערך כשאינו מתקיים
+	DEFINED takes one argument	DEFINED מקבלת ארגומנט אחד
+	ROUND takes two arguments	ROUND מקבלת שני ארגומנטים
+	MOD takes two arguments	MOD מקבלת שני ארגומנטים
+	syntax error: unexpected text after the formula	שגיאת תחביר: טקסט לא צפוי אחרי הנוסחה
+	the table can't take another row or column	אי אפשר להוסיף לטבלה עוד שורה או עמודה
+	only a table in the main text can be moved	אפשר להזיז רק טבלה שבגוף המסמך
+	a style can't be based on itself	סגנון אינו יכול להיות מבוסס על עצמו
+	the cursor isn't in a table with a style	הסמן אינו בטבלה שיש לה סגנון
+	select a character code (like 00E9) or one character	יש לבחור קוד תו (כמו 00E9) או תו אחד
+	no character or code before the caret	אין תו או קוד לפני הסמן
+	select the content to save	יש לבחור את התוכן לשמירה
+	edit a header or footer first	יש לערוך קודם כותרת עליונה או תחתונה
+	too many AutoCorrect entries	יותר מדי ערכים בתיקון האוטומטי
+	the document tracks changes: stop tracking before removing content	המסמך עוקב אחר שינויים: יש להפסיק את המעקב לפני הסרת תוכן
+	nothing to repeat	אין מה לחזור עליו
+	not in a table	הסמן אינו בטבלה
+	templates aren't listed from a network folder	תבניות שבתיקיית רשת אינן מוצגות ברשימה
+	the page range is too long	טווח העמודים ארוך מדי
+	the document has no pages	אין עמודים במסמך
+	type the pages to print, like 1-3, 5	יש להקליד את העמודים להדפסה, כמו 1-3, 5
+	Some recovery files could not be read. Earlier valid copies are listed when available.	לא ניתן היה לקרוא חלק מקובצי השחזור. עותקים תקינים קודמים מוצגים כשהם קיימים.
+	recovery is busy; try again when it finishes	השחזור עדיין פועל; יש לנסות שוב כשיסתיים
+	another restored copy is waiting for its document	עותק משוחזר אחר ממתין למסמך שלו
+	too many tabs	יותר מדי כרטיסיות
+	too many groups on this tab	יותר מדי קבוצות בכרטיסייה הזו
+	too many commands in this group	יותר מדי פקודות בקבוצה הזו
+	the Quick Access Toolbar is full	סרגל הכלים לגישה מהירה מלא
+	only the user can turn on downloading	רק המשתמש יכול להפעיל הורדה
+# Corrections: a row that repeats the published catalog's context and English replaces its row (crates/ui-egui/src/i18n/merge.rs).
+	OpenDocument Text (*.odt)	טקסט OpenDocument (*.odt)
+	OpenDocument Text Template (*.ott)	תבנית טקסט OpenDocument (*.ott)
+	Flat OpenDocument Text (*.fodt)	טקסט OpenDocument שטוח (*.fodt)
+	Rich Text Format (*.rtf)	טקסט עשיר (*.rtf)
+	Rich Text Format (RTF)	טקסט עשיר (RTF)
+	AaBbYyZz	אבגד AaBbYyZz
+	MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the WordCraft contributors.	MIT OR Apache-2.0. זכויות יוצרים (c) 2026 ArtCraft Team והתורמים ל-WordCraft.
+	English, the languages of this document and every installed Language pack. Language packs add spelling dictionaries and hyphenation.	אנגלית, השפות של המסמך הזה וכל חבילת שפה מותקנת. חבילות שפה מוסיפות מילוני איות ותבניות מיקוף.
+	This edition of WordCraft doesn't update itself: the updates it would find are the standard English releases, which would replace it. To update, install a newer build of this edition.	מהדורה זו של WordCraft אינה מתעדכנת מעצמה: העדכונים שהיא הייתה מוצאת הם הגרסאות הרגילות באנגלית, שהיו מחליפות אותה. כדי לעדכן, יש להתקין גרסה חדשה יותר של מהדורה זו.
+	WordCraft isn't in the applications menu yet. Start the AppImage once with --install to add it, then try again.	WordCraft עדיין אינו בתפריט היישומים. כדי להוסיף אותו, יש להפעיל את קובץ ה-AppImage פעם אחת עם ‎--install, ואז לנסות שוב.
+@msg	{id} isn't installed (an AppImage needs desktop integration first)	{id} אינו מותקן (יש לשלב קודם את קובץ ה-AppImage בשולחן העבודה)
+	xdg-mime isn't installed (it comes with xdg-utils)	xdg-mime אינו מותקן (הוא חלק מהחבילה xdg-utils)
+@msg	couldn't run xdg-mime: {error}	לא ניתן היה להפעיל את xdg-mime: {error}
+@msg	xdg-mime failed: {message}	xdg-mime נכשל: {message}
+	this edition of WordCraft has no community link	במהדורה זו של WordCraft אין קישור לקהילה
 	Complex script font:	גופן לטקסט בכתב מורכב:
 	Complex script size:	גודל לטקסט בכתב מורכב:
+	A free, open-source word processor written from scratch in Rust.\nBased on WordCraft by the ArtCraft team.	מעבד תמלילים חינמי בקוד פתוח, שנכתב מאפס ב-Rust.\nמבוסס על WordCraft של צוות ArtCraft.
+@plural	{n} file selected|{n} files selected	{n} קובץ נבחר|{n} קבצים נבחרו|{n} קבצים נבחרו
 	Hebrew (Israel)	עברית (ישראל)
 	Use Ctrl+Right Shift and Ctrl+Left Shift to set the paragraph direction	שימוש ב-Ctrl+Shift ימני וב-Ctrl+Shift שמאלי לקביעת כיוון הפסקה
 	Turn this off if Ctrl+Shift switches your keyboard layout.	כבו אפשרות זו אם Ctrl+Shift מחליף אצלכם את פריסת המקלדת.
@@ -440,3 +839,7 @@ spacing	Open	פתוח
 	Asian text font	גופן לטקסט אסייתי
 	Complex script font	גופן לטקסט בכתב מורכב
 	Hebrew letters are checked as Hebrew, whatever language they are marked with.	אותיות עבריות נבדקות כעברית, בלי קשר לשפה שבה הן מסומנות.
+	Style{n}	סגנון {n}
+	Table Style {n}	סגנון טבלה {n}
+	Untitled draft	טיוטה ללא שם
+	Match diacritics	התאמת ניקוד וטעמים

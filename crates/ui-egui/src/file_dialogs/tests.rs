@@ -863,3 +863,36 @@ fn many_failed_fonts_end_with_a_count() {
     let msg = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
     assert_eq!(msg, "Added 0 fonts; 5 couldn't be read: f0.ttf, f1.ttf, f2.ttf and 2 more");
 }
+
+/// In an edition built for one language (the Hebrew edition) the file pickers show WordCraft's
+/// own browser by default, which is in the interface language, rather than the system's dialog,
+/// which follows the desktop's (English on an English desktop). File › Options › Advanced can
+/// choose the system's; the stock build keeps the system's unless WordCraft's own is chosen.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn an_edition_opens_and_saves_in_wordcrafts_own_browser_unless_the_systems_is_chosen() {
+    use crate::FileDialogs;
+    assert!(FileDialogs::Auto.own_browser(Some("he")), "an edition's Automatic is WordCraft's own browser");
+    assert!(!FileDialogs::Auto.own_browser(None), "the stock build's is the system's dialog");
+    assert!(!FileDialogs::System.own_browser(Some("he")) && FileDialogs::WordCraft.own_browser(None));
+    let (mut a, shown) = async_app();
+    a.run("ui.fileDialogs", json!({"value": "wordcraft"})).unwrap();
+    assert_eq!(a.run("ui.fileDialogs", json!({})).unwrap()["own"], true);
+    a.open_dialog();
+    assert!(a.file_browser.open.is_some(), "WordCraft's own browser asks which file");
+    assert!(shown.borrow().is_empty(), "the system's dialog is never asked for");
+    a.close_file_browser(None);
+    a.save_as_dialog();
+    assert!(a.file_browser.open.is_some(), "Save As too");
+    a.close_file_browser(None);
+    a.run("ui.fileDialogs", json!({"value": "system"})).unwrap();
+    a.open_dialog();
+    assert!(a.file_browser.open.is_none());
+    assert_eq!(shown.borrow().len(), 1, "the system's dialog asks");
+    answer(&shown, None);
+    let _ = a.poll_file_dialog();
+    // Kept between runs; a value it doesn't know is refused.
+    let saved = serde_json::to_vec(&a.prefs()).unwrap();
+    assert_eq!(crate::UiState::from_json(&saved).map(|u| u.file_dialogs), Some(FileDialogs::System));
+    assert!(a.run("ui.fileDialogs", json!({"value": "portal"})).is_err());
+}

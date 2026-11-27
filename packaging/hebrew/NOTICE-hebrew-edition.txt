@@ -1,0 +1,58 @@
+WordCraft Hebrew edition
+
+This is a modified version of WordCraft, based on WordCraft by the ArtCraft team: WordCraft built
+with Hebrew as its interface language, open Hebrew fonts, its own desktop id and no self-update.
+It is made outside the ArtCraft team, which neither makes nor supports it. WordCraft and the
+edition's own changes are licensed under the MIT License or the Apache License, Version 2.0, at
+your option (LICENSE-MIT, LICENSE-APACHE, NOTICE). BUILD-INFO.txt names the revisions it was
+built from.
+
+Fonts in this AppImage and their licences (each a file in this folder)
+
+Bundled, in usr/share/wordcraft/fonts: open Hebrew fonts from google/fonts at commit
+5026800714d07231937d92eb4cceabf06e05d74e (ofl/<folder>), all under the SIL Open Font License 1.1.
+open-hebrew-fonts.sha256 has the SHA-256 of every font file and licence.
+  David Libre         OFL-davidlibre.txt
+  Frank Ruhl Libre    OFL-frankruhllibre.txt
+  Miriam Libre        OFL-miriamlibre.txt
+  Heebo               OFL-heebo.txt
+  Assistant           OFL-assistant.txt
+  Alef                OFL-alef.txt (Reserved Font Name "Alef")
+  Noto Serif Hebrew   OFL-notoserifhebrew.txt
+  Rubik               OFL-rubik.txt
+  Secular One         OFL-secularone.txt
+  Suez One            OFL-suezone.txt
+  Varela Round        OFL-varelaround.txt
+
+Embedded in the programs:
+  Noto Sans Hebrew, the interface's Hebrew letters, and the other faces of storytold/craft-fonts
+    the build embeds: SIL Open Font License 1.1, OFL-<family>.txt (OFL-noto-sans-hebrew.txt).
+  Inter, Source Sans 3, Source Serif 4 and JetBrains Mono: SIL Open Font License 1.1,
+    OFL-Inter.txt, OFL-SourceSans3.txt, OFL-SourceSerif4.txt and OFL-JetBrainsMono.txt.
+  egui's default fonts (the epaint_default_fonts crate): Ubuntu Light, Ubuntu Font Licence 1.0,
+    epaint_default_fonts-UFL.txt; Hack, MIT License and the Bitstream Vera licence,
+    epaint_default_fonts-Hack-Regular.txt; Noto Emoji, SIL Open Font License 1.1,
+    epaint_default_fonts-OFL.txt; the emoji icon font, MIT License,
+    epaint_default_fonts-emoji-icon-font-mit-license.txt; egui's icons,
+    epaint_default_fonts-egui-icons.txt.
+
+Not in this AppImage
+
+  Word's Hebrew fonts (David, Miriam, Frank Ruehl, Narkisim and others) are proprietary. A
+  document that asks for one is drawn in the open look-alikes above; the font name in the file
+  stays as it is. A copy the person has, put in ~/.config/wordcraft/fonts, is used as is.
+  The Hebrew spelling dictionary (from Hspell, AGPL-3.0-or-later) is downloaded only when the
+  person asks for it (Install, in the bar above a Hebrew document), with its licence.
+
+Interface text
+
+  The Hebrew interface is storytold/craft-i18n's Hebrew catalog (MIT OR Apache-2.0) with the
+  edition's rows from packaging/hebrew/he-supplement.tsv, written for the edition from the plain
+  meaning of the English, without another product's translations.
+
+Marks
+
+  The ArtCraft name and logos are trademarks of the ArtCraft Team, under the terms in
+  docs/brand/LICENSE-brand.txt of the source, which lets a modified version say in plain text that
+  it is based on WordCraft by the ArtCraft team. The edition's icon is WordCraft's, the WordCraft
+  contributors' work under WordCraft's licence (ATTRIBUTION.md).

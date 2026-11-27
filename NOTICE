@@ -20,6 +20,13 @@ list (author, source, license) is in ATTRIBUTION.md.
   https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md (BIZ UDPGothic, BIZ UDMincho,
   Shippori Mincho), under the SIL Open Font License 1.1. Their licence texts ship with the
   packages as OFL-<family>.txt. Builds without CRAFT_FONTS_DIR do not include them.
+- Hebrew edition fonts (packaging/hebrew): the Hebrew edition's AppImage bundles eleven open Hebrew
+  font families from google/fonts at commit 5026800714d07231937d92eb4cceabf06e05d74e (David Libre,
+  Frank Ruhl Libre, Miriam Libre, Heebo, Assistant, Alef, Noto Serif Hebrew, Rubik, Secular One,
+  Suez One and Varela Round), each under the SIL Open Font License 1.1, with their licence texts
+  and the SHA-256 of every file (packaging/hebrew/open-hebrew-fonts.sha256); the AppImage's
+  NOTICE-hebrew-edition.txt lists them. The interface's Hebrew letters are drawn in Noto Sans
+  Hebrew from craft-fonts, under the SIL Open Font License 1.1. Other builds include none of them.
 - Language data (craft-i18n): the word lists, dictionaries and hyphenation patterns below are embedded at build
   time from https://github.com/storytold/craft-i18n (language-data/, CRAFT_I18N_DIR at the commit
   in craft-i18n.rev; all official releases) by craft-proof (storytold/craft-libs). Builds without

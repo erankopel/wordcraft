@@ -220,6 +220,9 @@ pub struct Session {
     /// end sets it from the interface language with [`Session::set_new_documents_rtl`]. Opened
     /// files, templates and documents already begun are never changed by it.
     pub new_documents_rtl: bool,
+    /// An AI assistant's workspace ([`crate::agent`]): `run` refuses every command an assistant may
+    /// not run, nested ones included. `false` for every other session.
+    pub agent_only: bool,
     /// Editing inside an equation: which one and the caret in it.
     pub math: Option<MathEdit>,
     /// Equations are typed in LaTeX rather than the linear format.

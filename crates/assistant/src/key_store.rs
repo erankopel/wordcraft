@@ -86,14 +86,15 @@ impl KeyFile {
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(&mut std::io::Read::take(file, MAX_KEY_BYTES as u64 + 1), &mut bytes).map_err(|e| io(&e))?;
         let text = String::from_utf8(bytes).map_err(|_| KeyFileError::NotAKey)?;
-        let key = text.trim();
-        if is_key(key) { Ok(Some(key.to_owned())) } else { Err(KeyFileError::NotAKey) }
+        let key = crate::clean_key(&text);
+        if is_key(&key) { Ok(Some(key)) } else { Err(KeyFileError::NotAKey) }
     }
 
     /// Keep `key` (without surrounding blanks), replacing what was saved. A blank or odd key is refused and
     /// the old file stays.
     pub fn save(&self, key: &str) -> Result<(), KeyFileError> {
-        let key = key.trim();
+        let key = crate::clean_key(key);
+        let key = key.as_str();
         if !is_key(key) {
             return Err(KeyFileError::NotAKey);
         }

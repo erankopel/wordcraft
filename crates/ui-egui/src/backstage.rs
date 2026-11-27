@@ -57,10 +57,10 @@ fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left
 
 /// The bottom of the backstage menu: About, and the community link unless the user turned the
 /// community button off — the title bar pill honors the same setting, so the menu hides the
-/// link with it.
+/// link with it — or this is an edition ([`crate::links_to_artcraft`]).
 fn bottom_links(app: &WordApp) -> Vec<(&'static str, &'static str)> {
     let mut links = vec![("About", "about")];
-    if app.ui.show_discord {
+    if app.ui.show_discord && crate::links_to_artcraft() {
         links.push(("Discord community", "discord"));
     }
     links
@@ -232,6 +232,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// The name the engine stores for the recovery copy of a document that has no file
+/// (`crates/engine/src/recovery/desktop.rs`).
+const UNTITLED_DRAFT: &str = "Untitled draft";
+
+/// A recovery copy's name as File › Recover and its Discard question show it: its file's name,
+/// set apart from right-to-left text around it, or for a document never saved, the interface's
+/// name for an untitled draft (the copy keeps the English one).
+pub(crate) fn recovery_name(name: &str) -> String {
+    if name == UNTITLED_DRAFT { tl!("Untitled draft").to_string() } else { crate::i18n::isolate(name) }
+}
+
 /// Recovery is a separate copy. Leaving this page never discards it.
 fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "Recover documents");
@@ -251,26 +262,36 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
         ui.label(tl!("No recovery copies."));
     }
     let busy = app.session.recovery_busy();
-    crate::rtl::grid(ui, egui::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)), |ui| {
+    // Mirrored in a right-to-left interface: the document at the right, its buttons at the left.
+    let table = crate::rtl::Table::new("recovery_documents").columns(3).spacing(vec2(24.0, 16.0));
+    table.show(ui, |rows| {
+        let column = |ui: &mut Ui, text: egui::WidgetText| {
+            ui.set_min_width(180.0);
+            ui.label(text)
+        };
         if !documents.is_empty() {
-            ui.strong(tl!("Document"));
-            ui.strong(tl!("Recovery copy"));
-            ui.end_row();
+            rows.row(|r| {
+                r.cell(|ui| column(ui, egui::RichText::new(tl!("Document")).strong().into()));
+                r.cell(|ui| column(ui, egui::RichText::new(tl!("Recovery copy")).strong().into()));
+            });
         }
         for doc in documents {
-            ui.label(&doc.name);
-            ui.label(&doc.saved_at);
-            ui.add_enabled_ui(!busy, |ui| {
-                ui.horizontal(|ui| {
-                    if ui.button(tl!("Restore")).clicked() {
-                        let _ = app.run("file.recover", json!({"restore": doc.id}));
-                    }
-                    if ui.button(tl!("Discard…")).clicked() {
-                        let _ = app.run("ui.recoveryDiscard", json!({"id": doc.id}));
-                    }
+            rows.row(|r| {
+                r.cell(|ui| column(ui, recovery_name(&doc.name).into()));
+                r.cell(|ui| column(ui, doc.saved_at.as_str().into()));
+                r.cell(|ui| {
+                    ui.add_enabled_ui(!busy, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.button(tl!("Restore")).clicked() {
+                                let _ = app.run("file.recover", json!({"restore": doc.id}));
+                            }
+                            if ui.button(tl!("Discard…")).clicked() {
+                                let _ = app.run("ui.recoveryDiscard", json!({"id": doc.id}));
+                            }
+                        });
+                    })
                 });
             });
-            ui.end_row();
         }
     });
     ui.add_space(20.0);
@@ -352,13 +373,14 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
             egui::StrokeKind::Inside,
         );
         let ppp = ui.ctx().pixels_per_point();
-        let key = format!("tpl:{template}:{ppp}");
+        let params = template_params(app, template);
+        let key = format!("tpl:{template}:{}:{ppp}", app.session.new_documents_rtl);
         let region = app.session.region();
         let tex = ui.ctx().data(|d| d.get_temp::<egui::TextureHandle>(egui::Id::unique(&key))).or_else(|| {
             let mut s = wordcraft_engine::Session::new(wordcraft_doc::Document::new());
             // The blank tile shows the region's paper (#838).
             s.system_region = region;
-            let _ = s.run("file.new", &json!({"template": template}));
+            let _ = s.run("file.new", &params);
             let l = s.export_layout();
             let page = l.pages.first()?;
             let img = wordcraft_render::render_page(&s.doc, page, 150.0 / page.w * ppp, &crate::canvas::screen_render_options());
@@ -377,11 +399,19 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
         let x = if flows { r.max.x - galley.size().x } else { r.min.x };
         ui.painter().galley(pos2(x, r.max.y), galley, ui.visuals().text_color());
         if resp.clicked() {
-            let _ = app.run("file.new", json!({"template": template}));
+            let _ = app.run("file.new", params);
             app.ui.backstage = false;
             app.canvas.want_focus = true;
         }
     });
+}
+
+/// `file.new`'s parameters for the built-in template `template`: its right-to-left Hebrew version
+/// where new documents start right to left (the Hebrew interface,
+/// [`wordcraft_engine::Session::new_documents_rtl`]), as a blank document then does; the
+/// English one otherwise.
+fn template_params(app: &WordApp, template: &str) -> serde_json::Value {
+    if app.session.new_documents_rtl { json!({"template": template, "direction": "rtl"}) } else { json!({"template": template}) }
 }
 
 /// The built-in templates in gallery order: display label and the `file.new` template id.
@@ -424,7 +454,9 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
         }
     });
     ui.add_space(8.0);
-    let more = ui.add(egui::Label::new(egui::RichText::new(tl!("More templates →")).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
+    let more = ui.add(
+        egui::Label::new(egui::RichText::new(crate::rtl::forward(tl!("More templates →"))).font(medium(13.5)).color(t.accent)).sense(Sense::click()),
+    );
     if more.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
         app.ui.backstage_page = "new".into();
     }
@@ -439,7 +471,8 @@ fn new_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "New");
     let id = app.window_id("backstage_template_search");
     let mut query = ui.ctx().data(|d| d.get_temp::<String>(id)).unwrap_or_default();
-    let search = ui.add(egui::TextEdit::singleline(&mut query).hint_text(tl!("Search for templates")).desired_width(360.0));
+    let search =
+        ui.add(egui::TextEdit::singleline(&mut query).hint_text(tl!("Search for templates")).desired_width(360.0).align(crate::rtl::field_align()));
     if search.changed() {
         ui.ctx().data_mut(|d| d.insert_temp(id, query.clone()));
     }
@@ -816,12 +849,14 @@ fn open_page(app: &mut WordApp, ui: &mut Ui) {
         let _ = app.run("ui.openFileDialog", json!({}));
     }
     // Linux and the BSDs (#576): the system dialog needs a file chooser portal or zenity; when it
-    // doesn't show up, WordCraft's own browser is always one click away.
+    // doesn't show up, WordCraft's own browser is always one click away (Browse… shows it already
+    // where it is the one chosen in Options).
     #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
-    if ui
-        .button(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(14.0)))
-        .on_hover_text(tl!("Open a file with WordCraft's own browser when the system file dialog doesn't appear."))
-        .clicked()
+    if !app.uses_own_file_browser()
+        && ui
+            .button(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(14.0)))
+            .on_hover_text(tl!("Open a file with WordCraft's own browser when the system file dialog doesn't appear."))
+            .clicked()
     {
         let _ = app.run("ui.fileBrowser", json!({}));
     }
@@ -843,7 +878,7 @@ fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
     }
     // Linux and the BSDs (#3535): WordCraft's own browser when the system dialog doesn't appear.
     #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
-    if ui.button(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(14.0))).clicked() {
+    if !app.uses_own_file_browser() && ui.button(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(14.0))).clicked() {
         let _ = app.run("ui.fileBrowser", json!({"purpose": "save"}));
     }
     // A Word template in the user templates folder, which File › New lists under Personal (#2852).

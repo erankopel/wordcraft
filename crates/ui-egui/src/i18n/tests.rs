@@ -1477,3 +1477,89 @@ fn the_editions_language_is_what_auto_follows() {
     assert_eq!(super::resolve_auto(None, Some("zz"), system(&["he-IL"])), he, "no catalog for the edition's language");
     assert_eq!(super::EDITION_LANGUAGE, None, "the tests run as a stock build; the edition sets its language when it compiles");
 }
+
+/// The left x of each glyph of `text` as a label lays it out (first strong character, wrapped at
+/// a wide width), in drawn order: what a reader sees, not the logical order.
+fn drawn_xs(text: &str) -> Vec<(char, f32)> {
+    drawn_xs_in(text, 2000.0)
+}
+
+/// [`drawn_xs`] for a label wrapped at `width`.
+fn drawn_xs_in(text: &str, width: f32) -> Vec<(char, f32)> {
+    let ctx = egui::Context::default();
+    let mut glyphs = Vec::new();
+    ctx.run_ui(egui::RawInput::default(), |ui| {
+        let job = egui::text::LayoutJob::simple(text.to_string(), egui::FontId::proportional(14.0), egui::Color32::BLACK, width);
+        let galley = ui.painter().layout_job(job);
+        for row in &galley.rows {
+            for g in &row.glyphs {
+                glyphs.push((g.chr, row.pos.x + g.pos.x));
+            }
+        }
+    })
+    .drop_without_applying_deltas();
+    glyphs
+}
+
+/// The x of the first `c` drawn in `glyphs`.
+fn x_of(glyphs: &[(char, f32)], c: char) -> f32 {
+    glyphs.iter().find(|(g, _)| *g == c).map(|(_, x)| *x).unwrap_or_else(|| panic!("{c} is drawn"))
+}
+
+/// A right-to-left interface's text reads right with its Latin parts in it: a file pattern keeps
+/// its brackets, star and dot in place (it was drawn `(png.*)`), a path keeps its leading dot (it
+/// was drawn `local/share/fonts.`), code keeps its order, and a line that starts with a Latin
+/// word or a placeholder still reads from the right (it was laid out left to right, the period at
+/// the far right).
+#[test]
+fn right_to_left_text_keeps_its_latin_parts_in_order() {
+    struct English;
+    impl Drop for English {
+        fn drop(&mut self) {
+            set_current(Lang::EN);
+        }
+    }
+    let _english = English;
+    set_current(fixture_lang(
+        "he",
+        "\tPage image (*.png)\tתמונת עמוד (*.png)\n\tCopy the files to the .local/share/fonts folder.\tהעתיקו את הקבצים לתיקייה .local/share/fonts כאן.\n\tRun `--control <port>` now.\tהריצו `--control <port>` עכשיו.\n\t{language}: WordCraft checks it.\t{language}: WordCraft בודק אותה.\n",
+    ));
+    // (*.png) after Hebrew: left to right as one piece, left of the Hebrew.
+    let g = drawn_xs(t("Page image (*.png)"));
+    let (open, star, dot, p, close, hebrew) = (x_of(&g, '('), x_of(&g, '*'), x_of(&g, '.'), x_of(&g, 'p'), x_of(&g, ')'), x_of(&g, 'ת'));
+    assert!(open < star && star < dot && dot < p && p < close && close < hebrew, "(*.png): {g:?}");
+    // A path keeps its leading dot at its start, on one line or wrapped over several.
+    for width in [2000.0, 160.0] {
+        let g = drawn_xs_in(t("Copy the files to the .local/share/fonts folder."), width);
+        assert!(x_of(&g, '.') < x_of(&g, 'l'), ".local/share/fonts at {width}: {g:?}");
+    }
+    // Code reads as typed: `--control` before `<port>`, left to right.
+    let g = drawn_xs(t("Run `--control <port>` now."));
+    assert!(x_of(&g, '-') < x_of(&g, 'c') && x_of(&g, 'c') < x_of(&g, '<') && x_of(&g, '<') < x_of(&g, 'p'), "`--control <port>`: {g:?}");
+    // A line that starts with a placeholder and a Latin word reads from the right: the value at
+    // the right end, the Latin word left of it, the Hebrew after both.
+    let line = fmt(t("{language}: WordCraft checks it."), &[("language", "עברית")]);
+    let g = drawn_xs(&line);
+    let (value, latin, rest) = (x_of(&g, 'ע'), x_of(&g, 'W'), x_of(&g, 'ק'));
+    assert!(value > latin && latin > rest, "{line:?}: {g:?}");
+    // English text is never touched.
+    set_current(Lang::EN);
+    assert_eq!(t("Page image (*.png)"), "Page image (*.png)");
+}
+
+/// A Hebrew file name keeps its dot between the name and the extension in a right-to-left line
+/// (`בדיקה.docx` read from the right); a mark meant for a name ending in a digit put the dot
+/// at the extension's far end instead.
+#[test]
+fn a_right_to_left_file_name_keeps_its_dot_between_name_and_extension() {
+    set_current(fixture_lang("he", "\tHome\tבית\n"));
+    let shown = isolate("בדיקה.docx");
+    let numbered = isolate("דוח 2.docx");
+    set_current(Lang::EN);
+    let g = drawn_xs(&shown);
+    let (d, dot, name) = (x_of(&g, 'd'), x_of(&g, '.'), x_of(&g, 'ב'));
+    assert!(d < dot && dot < name, "{shown:?}: {g:?}");
+    // After a digit the mark stays: `2.docx` reads left to right as one piece.
+    let g = drawn_xs(&numbered);
+    assert!(x_of(&g, '2') < x_of(&g, '.') && x_of(&g, '.') < x_of(&g, 'd'), "{numbered:?}: {g:?}");
+}

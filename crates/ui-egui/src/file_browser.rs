@@ -6,7 +6,11 @@
 //! A folder path field with Up and Home folder, the folder's subfolders and the files of the
 //! chosen type, a file name field and the file types. It only lists folders the user navigates to
 //! and never reads a file: the picked path goes to the same follow-up as the system dialog's.
+//! Add Font… takes several files, as the system dialog does: Ctrl (⌘ on a Mac) and a click, or
+//! Space, adds a file or takes it out again, and Shift picks the files from the highlighted one;
+//! a status line in the buttons' row says how many are highlighted.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use egui::{Align2, Rect, Sense, Ui, pos2, vec2};
@@ -108,6 +112,12 @@ pub(crate) fn resolve(dir: &Path, typed: &str) -> Option<PathBuf> {
     Some(dir.join(typed))
 }
 
+/// The names typed in quotes in the file name field (`"a.ttf" "b.ttf"`, as the field shows the
+/// files Add Font… takes together); none when nothing is in quotes.
+fn quoted_names(typed: &str) -> Vec<&str> {
+    typed.split('"').skip(1).step_by(2).filter(|n| !n.trim().is_empty()).collect()
+}
+
 /// What OK (or Enter, or a double click) did.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Step {
@@ -115,6 +125,43 @@ pub(crate) enum Step {
     Stay,
     /// The file to open or save to.
     Pick(PathBuf),
+    /// The files Add Font… takes together.
+    PickMany(Vec<PathBuf>),
+}
+
+/// What a click on an entry (or Space on it) does to the highlight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Highlight {
+    /// Highlight that entry alone.
+    Only,
+    /// With Ctrl (⌘ on a Mac), picking several files: add the file to the highlighted ones, or take
+    /// it out again.
+    Toggle,
+    /// With Shift, picking several files: the files from the highlighted one to this one.
+    Range,
+}
+
+impl Highlight {
+    /// From the modifiers held for this frame's click: those of the pointer button or of Space or
+    /// Enter, which a frame that also sees the keys released can't tell from the keyboard's state.
+    fn of(i: &egui::InputState) -> Highlight {
+        let held = i
+            .events
+            .iter()
+            .find_map(|e| match e {
+                egui::Event::PointerButton { button: egui::PointerButton::Primary, modifiers, .. } => Some(*modifiers),
+                egui::Event::Key { key: egui::Key::Space | egui::Key::Enter, pressed: true, modifiers, .. } => Some(*modifiers),
+                _ => None,
+            })
+            .unwrap_or(i.modifiers);
+        if held.command {
+            Highlight::Toggle
+        } else if held.shift {
+            Highlight::Range
+        } else {
+            Highlight::Only
+        }
+    }
 }
 
 /// A message under the listing.
@@ -142,10 +189,12 @@ pub(crate) struct FileBrowser {
     /// Exporting: the format behind each type, which `after` follows; empty otherwise.
     exports: Vec<String>,
     listing: Result<Listing, String>,
-    /// The highlighted entry.
+    /// The highlighted entry; picking several files, the one Shift counts from.
     selected: Option<PathBuf>,
     /// The highlighted entry was a folder when it was selected.
     selected_is_dir: bool,
+    /// Picking several files (Add Font…): the files highlighted besides `selected`.
+    also: HashSet<PathBuf>,
     note: Note,
     focus_name: bool,
 }
@@ -185,6 +234,7 @@ impl FileBrowser {
             listing: Ok(Listing::default()),
             selected: None,
             selected_is_dir: false,
+            also: HashSet::new(),
             note: Note::None,
             focus_name: true,
         };
@@ -201,9 +251,30 @@ impl FileBrowser {
         self.listing = list_dir(&dir, self.exts(), MAX_LISTED).map_err(|e| e.to_string());
         self.location = dir.to_string_lossy().into_owned();
         self.dir = dir;
+        self.unhighlight();
+        self.note = Note::None;
+    }
+
+    /// Nothing highlighted.
+    fn unhighlight(&mut self) {
         self.selected = None;
         self.selected_is_dir = false;
-        self.note = Note::None;
+        self.also.clear();
+    }
+
+    /// Add Font… takes several files.
+    fn several(&self) -> bool {
+        matches!(self.req, FileDialogRequest::OpenMany { .. })
+    }
+
+    fn highlighted(&self, path: &Path) -> bool {
+        self.selected.as_deref() == Some(path) || self.also.contains(path)
+    }
+
+    /// The highlighted files, in the order they are listed.
+    fn highlighted_files(&self) -> Vec<&Entry> {
+        let entries = self.listing.as_ref().map(|l| l.entries.as_slice()).unwrap_or(&[]);
+        entries.iter().filter(|e| !e.dir && self.highlighted(&e.path)).collect()
     }
 
     /// A type was chosen: when exporting it is the format, and the name's export extension follows it.
@@ -229,6 +300,25 @@ impl FileBrowser {
         if let Some(dir) = self.selected.clone().filter(|p| p.is_dir()) {
             self.navigate(dir);
             return Step::Stay;
+        }
+        // Add Font…: the highlighted files, or the names typed in quotes, all of which must exist.
+        if self.several() {
+            let files: Vec<PathBuf> = if self.also.is_empty() {
+                quoted_names(&self.name).into_iter().filter_map(|n| resolve(&self.dir, n)).collect()
+            } else {
+                self.highlighted_files().into_iter().map(|e| e.path.clone()).collect()
+            };
+            if let Some(missing) = files.iter().find(|p| !p.is_file()) {
+                let name = missing.file_name().map_or_else(|| missing.to_string_lossy(), |n| n.to_string_lossy());
+                self.note = Note::NotFound(name.into_owned());
+                return Step::Stay;
+            }
+            if files.len() > 1 {
+                return Step::PickMany(files);
+            }
+            if let Some(file) = files.into_iter().next() {
+                return Step::Pick(file);
+            }
         }
         // A removed folder remains a folder selection, not a proposed file name.
         let selected_file = self.selected.clone().filter(|_| !self.selected_is_dir);
@@ -265,14 +355,52 @@ impl FileBrowser {
         }
     }
 
-    /// A click on an entry: highlight it, and a file's name goes into the file name field.
-    fn select(&mut self, e: &Entry) {
-        self.selected = Some(e.path.clone());
-        self.selected_is_dir = e.dir;
-        if !e.dir {
-            self.name = e.name.clone();
-        }
+    /// A click on an entry: highlight it, and a file's name goes into the file name field. Picking
+    /// several files, with a file highlighted, [`Highlight::Toggle`] and [`Highlight::Range`] change
+    /// which files are, and the field names each in quotes.
+    fn select(&mut self, e: &Entry, how: Highlight) {
         self.note = Note::None;
+        let anchor = self.selected.clone().filter(|_| self.several() && !self.selected_is_dir && !e.dir);
+        match (how, anchor) {
+            (Highlight::Toggle, Some(anchor)) => {
+                if anchor == e.path {
+                    // The next highlighted file, if any, is the one Shift counts from now.
+                    let next = self.highlighted_files().into_iter().map(|f| f.path.clone()).find(|p| *p != anchor);
+                    if let Some(next) = &next {
+                        self.also.remove(next);
+                    }
+                    self.selected = next;
+                } else if !self.also.remove(&e.path) {
+                    self.also.insert(anchor);
+                    self.selected = Some(e.path.clone());
+                }
+            }
+            (Highlight::Range, Some(anchor)) => {
+                let entries = self.listing.as_ref().map(|l| l.entries.as_slice()).unwrap_or(&[]);
+                let at = |p: &Path| entries.iter().position(|x| x.path == p);
+                if let (Some(from), Some(to)) = (at(&anchor), at(&e.path)) {
+                    let range = entries.get(from.min(to)..=from.max(to)).unwrap_or(&[]);
+                    self.also = range.iter().filter(|x| !x.dir && x.path != anchor).map(|x| x.path.clone()).collect();
+                }
+            }
+            _ => {
+                self.also.clear();
+                self.selected = Some(e.path.clone());
+                self.selected_is_dir = e.dir;
+                if !e.dir {
+                    self.name = e.name.clone();
+                }
+                return;
+            }
+        }
+        let name = {
+            let names: Vec<&str> = self.highlighted_files().into_iter().map(|f| f.name.as_str()).collect();
+            match names.as_slice() {
+                [one] => (*one).to_string(),
+                several => several.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(" "),
+            }
+        };
+        self.name = name;
     }
 
     fn title(&self) -> &'static str {
@@ -332,12 +460,13 @@ impl WordApp {
         self.show_file_browser(req, after, false);
     }
 
-    /// Close the browser with this answer (`None`: cancelled) and finish what it was for.
-    pub(crate) fn close_file_browser(&mut self, picked: Option<PathBuf>) {
+    /// Close the browser with the picked files (none: cancelled; several only for Add Font…) and
+    /// finish what it was for.
+    pub(crate) fn close_file_browser(&mut self, picked: impl IntoIterator<Item = PathBuf>) {
         let Some(b) = self.file_browser.open.take() else { return };
         self.file_browser.last_dir = Some(b.dir.clone());
-        let picked = picked.map(|p| p.to_string_lossy().into_owned());
-        if let Err(e) = self.finish_pick(b.after, picked) {
+        let picked = picked.into_iter().map(|p| p.to_string_lossy().into_owned()).collect();
+        if let Err(e) = self.finish_picks(b.after, picked) {
             log::warn!("file browser: {e}");
         }
         // A modal dialog (the one that asked for the file, or one the pick opened) keeps the keyboard.
@@ -351,7 +480,7 @@ impl WordApp {
 pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
     let Some(mut b) = app.file_browser.open.take() else { return };
     let t = Tokens::get(ctx);
-    let mut done: Option<Option<PathBuf>> = None;
+    let mut done: Option<Vec<PathBuf>> = None;
     let id = egui::Id::unique("builtin_file_browser");
     let window = egui::Window::new(tl!(b.title())).id(id).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, -20.0));
     let shown = crate::window_close::window(ctx, window).show(ctx, |ui| {
@@ -360,7 +489,7 @@ pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
     });
     if let Some(s) = &shown {
         if crate::window_close::show(ctx, &s.response, &t) {
-            done = Some(None);
+            done = Some(Vec::new());
         }
         if done.is_none() {
             crate::dialogs::block_behind(app, ctx, &s.response);
@@ -373,8 +502,8 @@ pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
     }
 }
 
-/// The browser's contents; `Some` once it closes (`Some(None)`: cancelled).
-fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>> {
+/// The browser's contents; `Some` once it closes, with the picked files (none: cancelled).
+fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Vec<PathBuf>> {
     if b.unavailable {
         ui.label(
             egui::RichText::new(tl!(
@@ -406,7 +535,9 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
     ui.add_space(4.0);
     let mut pick = false;
     let mut go: Option<PathBuf> = None;
-    let mut clicked: Option<Entry> = None;
+    let mut clicked: Option<(Entry, Highlight)> = None;
+    // Enter on a row clicks it too; with several files highlighted it picks them all instead.
+    let keep_highlight = !b.also.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Enter));
     egui::Frame::NONE.fill(t.input).stroke(egui::Stroke::new(1.0, t.input_border)).inner_margin(2.0).show(ui, |ui| {
         let entries: &[Entry] = b.listing.as_ref().map(|l| l.entries.as_slice()).unwrap_or(&[]);
         // An unreadable folder has its own message below; the hint is for a listing that came back empty.
@@ -426,10 +557,9 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
                 }
                 for e in entries.get(range).unwrap_or(&[]) {
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
-                    resp.widget_info(|| {
-                        egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), b.selected.as_ref() == Some(&e.path), &e.name)
-                    });
-                    if b.selected.as_ref() == Some(&e.path) {
+                    let highlighted = b.highlighted(&e.path);
+                    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), highlighted, &e.name));
+                    if highlighted {
                         ui.painter().rect_filled(r, 2.0, t.checked);
                     } else if resp.hovered() {
                         ui.painter().rect_filled(r, 2.0, t.hover);
@@ -453,18 +583,18 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
                         if e.dir {
                             go = Some(e.path.clone());
                         } else {
-                            clicked = Some(e.clone());
+                            clicked = Some((e.clone(), Highlight::Only));
                             pick = true;
                         }
-                    } else if resp.clicked() {
-                        clicked = Some(e.clone());
+                    } else if resp.clicked() && !keep_highlight {
+                        clicked = Some((e.clone(), ui.input(Highlight::of)));
                     }
                 }
             },
         );
     });
-    if let Some(e) = clicked {
-        b.select(&e);
+    if let Some((e, how)) = clicked {
+        b.select(&e, how);
     }
     if let Some(dir) = go {
         b.navigate(dir);
@@ -496,8 +626,7 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
             b.focus_name = false;
         }
         if r.changed() {
-            b.selected = None;
-            b.selected_is_dir = false;
+            b.unhighlight();
             b.note = Note::None;
         }
         let before = b.filter;
@@ -522,6 +651,14 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
     let mut cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
     let enter = !location_done && ui.input(|i| i.key_pressed(egui::Key::Enter));
     ui.horizontal(|ui| {
+        // Add Font… with several files highlighted: how many, at the row's start, and said again
+        // each time it changes, since Shift highlights rows away from the keyboard focus.
+        let count = if b.several() { b.highlighted_files().len() } else { 0 };
+        if count > 1 {
+            let text = crate::i18n::tn(count as u64, "{n} file selected", "{n} files selected");
+            let r = ui.label(egui::RichText::new(&text).color(t.text_dim));
+            live_status(ui, r.id, &text);
+        }
         ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
             let (ok, cancelb) =
                 crate::dialogs::ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, tl!(b.ok_label()))), tl!("Cancel"));
@@ -530,12 +667,27 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
         });
     });
     if cancel {
-        return Some(None);
+        return Some(Vec::new());
     }
-    if pick && let Step::Pick(path) = b.accept() {
-        return Some(Some(path));
+    if pick {
+        match b.accept() {
+            Step::Pick(path) => return Some(vec![path]),
+            Step::PickMany(paths) => return Some(paths),
+            Step::Stay => {}
+        }
     }
     None
+}
+
+/// Make the label `id` a polite live region (a status line), so that a screen reader says `text`,
+/// its text, when it appears and whenever it changes.
+fn live_status(ui: &Ui, id: egui::Id, text: &str) {
+    ui.ctx().accesskit_node_builder(id, |node| {
+        node.set_role(egui::accesskit::Role::Status);
+        node.set_live(egui::accesskit::Live::Polite);
+        node.set_label(text);
+        node.clear_value();
+    });
 }
 
 /// A small button with a drawn icon and a tooltip; true when clicked.
@@ -626,7 +778,7 @@ mod tests {
             };
             let mut browser = FileBrowser::new(req, AfterPick::OpenDocument { document: 0 }, dir.clone(), false);
             let entry = browser.listing.as_ref().unwrap().entries.iter().find(|entry| entry.path == selected).unwrap().clone();
-            browser.select(&entry);
+            browser.select(&entry, Highlight::Only);
             if save {
                 assert_eq!(browser.accept(), Step::Stay, "Save still asks before replacing the selected file");
                 assert_eq!(browser.note, Note::Replace(selected.clone()));
@@ -648,7 +800,7 @@ mod tests {
             let req = FileDialogRequest::Save { name: "chapter.docx".into(), dir: None };
             let mut browser = FileBrowser::new(req, AfterPick::OpenDocument { document: 0 }, dir.clone(), false);
             let entry = browser.listing.as_ref().unwrap().entries.iter().find(|entry| entry.path == folder).unwrap().clone();
-            browser.select(&entry);
+            browser.select(&entry, Highlight::Only);
             assert_eq!(browser.name, "chapter.docx");
             if removed {
                 std::fs::remove_dir(&folder).unwrap();
@@ -671,7 +823,7 @@ mod tests {
         let req = FileDialogRequest::Save { name: "Draft.docx".into(), dir: None };
         let mut browser = FileBrowser::new(req, AfterPick::OpenDocument { document: 0 }, dir.clone(), false);
         let entry = browser.listing.as_ref().unwrap().entries.iter().find(|entry| entry.path == selected).unwrap().clone();
-        browser.select(&entry);
+        browser.select(&entry, Highlight::Only);
         std::fs::remove_file(&selected).unwrap();
         assert_eq!(browser.accept(), Step::Pick(selected));
         assert_eq!(browser.note, Note::None);
@@ -859,7 +1011,7 @@ mod tests {
         // Font changes take effect next frame; the buttons need the named semibold family.
         let mut fonts = false;
         let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 520.0)).build_ui_state(
-            move |ui, state: &mut (FileBrowser, Option<Option<PathBuf>>)| {
+            move |ui, state: &mut (FileBrowser, Option<Vec<PathBuf>>)| {
                 if !fonts {
                     crate::theme::install_fonts(ui.ctx());
                     fonts = true;
@@ -888,7 +1040,7 @@ mod tests {
         assert_eq!(h.get_by_role_and_label(Role::Button, "chapter.docx").accesskit_node().toggled(), Some(Toggled::True));
         h.get_by_role_and_label(Role::Button, "Open").click();
         h.run_steps(2);
-        assert_eq!(h.state().1, Some(Some(file)));
+        assert_eq!(h.state().1, Some(vec![file]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1086,6 +1238,119 @@ mod tests {
         }
         assert!(texts(&h).iter().any(|t| t.contains("chapter.docx")), "the file is listed");
         assert!(!texts(&h).iter().any(|t| t.contains("No items to show.")), "the hint is gone");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1789 in this browser (an edition's Automatic, or chosen in File › Options): Add Font… takes
+    /// several files, highlighted with Ctrl or Shift or named in quotes, and every one goes to Add
+    /// Font; one that is missing stops the pick with a note. A picker for one file highlights one.
+    #[test]
+    fn add_font_takes_several_files() {
+        let dir = scratch("several_fonts");
+        for f in ["a.ttf", "b.ttf", "c.otf", "d.ttf", "x.docx", "y.docx"] {
+            std::fs::write(dir.join(f), b"not a font").unwrap();
+        }
+        std::fs::create_dir(dir.join("more")).unwrap();
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        a.run("ui.fileDialogs", json!({"value": "wordcraft"})).unwrap();
+        a.pick_font();
+        let b = a.file_browser.open.as_mut().expect("WordCraft's own browser asks which fonts");
+        b.navigate(dir.clone());
+        let entry = |b: &FileBrowser, name: &str| b.listing.as_ref().unwrap().entries.iter().find(|e| e.name == name).unwrap().clone();
+        let [first, third, fourth, folder] = ["a.ttf", "c.otf", "d.ttf", "more"].map(|n| entry(b, n));
+        b.select(&first, Highlight::Only);
+        b.select(&fourth, Highlight::Toggle);
+        assert_eq!(quoted_names(&b.name), ["a.ttf", "d.ttf"], "the name field names both");
+        // Shift counts from the file Ctrl added last, and the range replaces the others.
+        b.select(&third, Highlight::Range);
+        assert_eq!(quoted_names(&b.name), ["c.otf", "d.ttf"]);
+        b.select(&first, Highlight::Toggle);
+        let picked = vec![dir.join("a.ttf"), dir.join("c.otf"), dir.join("d.ttf")];
+        assert_eq!(b.accept(), Step::PickMany(picked.clone()), "in the order they are listed");
+        // Ctrl on a highlighted file takes it out; a folder is highlighted alone.
+        b.select(&first, Highlight::Toggle);
+        assert_eq!(quoted_names(&b.name), ["c.otf", "d.ttf"]);
+        b.select(&folder, Highlight::Toggle);
+        assert!(b.highlighted_files().is_empty() && b.selected.as_ref() == Some(&folder.path));
+        // Names typed in quotes, as the field shows them.
+        b.name = "\"b.ttf\" \"a.ttf\"".into();
+        b.unhighlight();
+        assert_eq!(b.accept(), Step::PickMany(vec![dir.join("b.ttf"), dir.join("a.ttf")]));
+        b.name = "\"a.ttf\" \"gone.ttf\"".into();
+        assert_eq!(b.accept(), Step::Stay);
+        assert_eq!(b.note, Note::NotFound("gone.ttf".into()));
+        a.close_file_browser(picked);
+        let msg = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
+        assert!(msg.contains("3 couldn't be read"), "every picked file went to Add Font: {msg}");
+        // Open takes one document: Ctrl and a click highlights that one alone.
+        let mut one =
+            FileBrowser::new(FileDialogRequest::Open { purpose: "document".into() }, AfterPick::OpenDocument { document: 0 }, dir.clone(), false);
+        let [x, y] = ["x.docx", "y.docx"].map(|n| entry(&one, n));
+        one.select(&x, Highlight::Only);
+        one.select(&y, Highlight::Toggle);
+        assert_eq!(one.highlighted_files().len(), 1);
+        assert_eq!(one.accept(), Step::Pick(dir.join("y.docx")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The keyboard picks several fonts too: Space highlights the focused file, Shift+Space the
+    /// files from the highlighted one to the focused one, Ctrl+Space takes one out again, and Enter
+    /// picks every highlighted file. Each row tells assistive technology whether it is highlighted
+    /// and the focus stays on the row; how many are highlighted is a live status line, since Shift
+    /// changes rows away from the focus.
+    #[test]
+    fn several_fonts_by_keyboard() {
+        use egui::accesskit::{Live, Role, Toggled};
+        use egui_kittest::kittest::{By, NodeT, Queryable};
+        type H<'a> = egui_kittest::Harness<'a, (FileBrowser, Option<Vec<PathBuf>>)>;
+        // The live status line's text, if it is there.
+        fn status(h: &H<'_>) -> Option<String> {
+            h.query_all(By::new().role(Role::Status)).find(|n| n.accesskit_node().live() != Live::Off).and_then(|n| n.accesskit_node().label())
+        }
+        fn press(h: &mut H<'_>, row: &str, modifiers: egui::Modifiers) {
+            h.get_by_role_and_label(Role::Button, row).focus();
+            h.run_steps(2);
+            h.key_press_modifiers(modifiers, egui::Key::Space);
+            h.run_steps(2);
+        }
+        let dir = scratch("several_fonts_keys");
+        for f in ["a.ttf", "b.ttf", "c.ttf"] {
+            std::fs::write(dir.join(f), b"x").unwrap();
+        }
+        let browser = FileBrowser::new(FileDialogRequest::OpenMany { purpose: "font".into() }, AfterPick::Font, dir.clone(), false);
+        // Font changes take effect next frame; the buttons need the named semibold family.
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 520.0)).build_ui_state(
+            move |ui, state: &mut (FileBrowser, Option<Vec<PathBuf>>)| {
+                if !fonts {
+                    crate::theme::install_fonts(ui.ctx());
+                    fonts = true;
+                    return;
+                }
+                let t = Tokens::get(ui.ctx());
+                if let Some(picked) = body(ui, &mut state.0, &t) {
+                    state.1 = Some(picked);
+                }
+            },
+            (browser, None),
+        );
+        h.run_steps(4);
+        press(&mut h, "a.ttf", egui::Modifiers::NONE);
+        assert_eq!(status(&h), None, "one file needs no count");
+        press(&mut h, "c.ttf", egui::Modifiers::SHIFT);
+        let all = status(&h).expect("a range says how many files it highlighted");
+        assert!(all.contains('3'), "{all}");
+        press(&mut h, "b.ttf", egui::Modifiers::COMMAND);
+        let fewer = status(&h).expect("the count is still said");
+        assert!(fewer.contains('2'), "the count follows: {fewer}");
+        for (name, on) in [("a.ttf", true), ("b.ttf", false), ("c.ttf", true)] {
+            let want = if on { Toggled::True } else { Toggled::False };
+            assert_eq!(h.get_by_role_and_label(Role::Button, name).accesskit_node().toggled(), Some(want), "{name}");
+        }
+        assert!(h.get_by_role_and_label(Role::Button, "b.ttf").is_focused(), "the focus stays on the row");
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(h.state().1, Some(vec![dir.join("a.ttf"), dir.join("c.ttf")]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

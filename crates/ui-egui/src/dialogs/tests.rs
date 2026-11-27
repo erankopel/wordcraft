@@ -157,6 +157,28 @@ fn find_replace_and_go_to_are_one_dialog() {
     }
 }
 
+/// Search Options open by themselves only onto a ticked box: a search option the dialog has no
+/// box for (Match diacritics, which a script's search leaves on) doesn't open them showing
+/// nothing set.
+#[test]
+fn search_options_open_by_themselves_only_onto_a_ticked_box() {
+    use egui::accesskit::{Role, Toggled};
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let mut app = app_with("Lanterns");
+    app.execute("edit.find", json!({"text": "Lanterns", "matchDiacritics": true})).unwrap();
+    app.run("ui.dialog", json!({"name": "replace"})).unwrap();
+    // The dialog alone, without the app's fonts (its ▸ and ▾ have no glyph in egui's own).
+    let mut h = egui_kittest::Harness::builder()
+        .with_size(vec2(800.0, 600.0))
+        .allow_missing_glyphs()
+        .build_ui_state(|ui, app: &mut WordApp| crate::dialogs::show(app, ui.ctx()), app);
+    h.run_steps(3);
+    let Some(Dialog::Find { extra, .. }) = &h.state().dialog else { panic!("Replace opens the Find and Replace dialog") };
+    let boxes: Vec<_> = h.query_all_by_role(Role::CheckBox).map(|n| n.accesskit_node().toggled()).collect();
+    assert!(!boxes.is_empty(), "the dialog's check boxes are drawn");
+    assert!(!extra.more || boxes.contains(&Some(Toggled::True)), "Search Options opened with no box in the dialog ticked");
+}
+
 /// #4327: View › Macros opens a dialog that runs, deletes and records macros; the command with
 /// a name to run or delete (what scripts send) still acts without one.
 #[test]

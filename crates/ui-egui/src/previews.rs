@@ -678,12 +678,17 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
         let dark_page = app.session.view.dark_mode;
         let key = format!("style:{id}:{skey}:{ppp}:{lang}:{dark_page}");
         let doc = &app.session.doc;
+        // A right-to-left style (every style of a document whose paragraphs default to right to
+        // left) sets its sample from the right: the tile shows the snippet's right end, against
+        // its own right edge, where the text starts.
+        let style_rtl = doc.styles.resolve_para(&Paragraph::new().styled(id).props).bidi;
         let tex = app.previews.get_or(ui.ctx(), &key, || {
             // Sample letters in the interface's script (`АаБбВвГг` in Russian).
             let mut p = Paragraph::with_text(tl!("AaBbCcDd"), CharProps::default()).styled(id);
             p.props.space_before = Some(0.0);
+            // The start edge: the left, or the right in a right-to-left paragraph.
             p.props.align = Some(wordcraft_doc::Align::Left);
-            // Keep hanging indents (bullets) but start the first line at the tile's left edge.
+            // Keep hanging indents (bullets) but start the first line at the tile's edge.
             let first = doc.styles.resolve_para(&p.props).indent_first;
             p.props.indent_left = Some(if first.is_finite() { (-first).max(0.0) } else { 0.0 });
             p.props.borders = None;
@@ -692,8 +697,11 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
         });
         if let Some(h) = tex {
             let sz = h.size_vec2() / ppp;
-            let ir = Rect::from_min_size(pos2(r.min.x + 3.0, r.min.y + 4.0), sz.min(vec2(68.0, 32.0)));
-            let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2((ir.width() / sz.x).min(1.0), (ir.height() / sz.y).min(1.0)));
+            let size = sz.min(vec2(68.0, 32.0));
+            let x = if style_rtl { r.max.x - 3.0 - size.x } else { r.min.x + 3.0 };
+            let ir = Rect::from_min_size(pos2(x, r.min.y + 4.0), size);
+            let (u, v) = ((ir.width() / sz.x).min(1.0), (ir.height() / sz.y).min(1.0));
+            let uv = if style_rtl { Rect::from_min_max(pos2(1.0 - u, 0.0), pos2(1.0, v)) } else { Rect::from_min_max(pos2(0.0, 0.0), pos2(u, v)) };
             ui.painter().with_clip_rect(r).image(h.id(), ir, uv, preview_tint(&t, dark_page));
         }
         let mut job = egui::text::LayoutJob::single_section(name.clone(), egui::TextFormat::simple(regular(10.5), t.text));
@@ -702,7 +710,7 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
         let label_pos = pos2(r.center().x - galley.size().x / 2.0, r.max.y - 9.0 - galley.size().y / 2.0);
         ui.painter().with_clip_rect(r).galley(label_pos, galley, t.text);
         // Right-click a tile: the same style actions as the Styles pane.
-        resp.context_menu(|ui| {
+        crate::rtl::context_menu(&resp, |ui| {
             if ui.button(tl!("Update to Match Selection")).clicked() {
                 let _ = app.run("styles.updateToMatch", json!({"style": id}));
                 ui.close();
@@ -742,8 +750,22 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
     }
 }
 
-/// Style sets shown in the Design tab's gallery, in order.
-const STYLE_SETS: [&str; 7] = ["default", "basic", "lines", "shaded", "casual", "centered", "minimalist"];
+/// Style sets shown in the Design tab's gallery, in order: the `design.styleSet` name, and the name
+/// the gallery shows (in the catalog with the context `style set`).
+const STYLE_SETS: [(&str, &str); 7] = [
+    ("default", "Default"),
+    ("basic", "Basic"),
+    ("lines", "Lines"),
+    ("shaded", "Shaded"),
+    ("casual", "Casual"),
+    ("centered", "Centered"),
+    ("minimalist", "Minimalist"),
+];
+
+/// A style set's tooltip: `Style set: Lines`, in the interface language.
+pub(crate) fn style_set_tip(shown: &str) -> String {
+    crate::i18n::fmt(tl!("Style set: {name}"), &[("name", crate::i18n::tc("style set", shown))])
+}
 /// Width of one gallery thumbnail, points.
 pub const STYLE_SET_W: f32 = 56.0;
 /// Width the whole gallery takes with the ribbon's 1 pt item spacing.
@@ -753,7 +775,11 @@ pub const STYLE_SET_GALLERY_W: f32 = STYLE_SETS.len() as f32 * (STYLE_SET_W + 1.
 pub fn style_set_gallery(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let ppp = ui.ctx().pixels_per_point();
-    for name in STYLE_SETS {
+    // The sample is in the interface's language: in a right-to-left one its paragraphs are right
+    // to left, set from the right, and the thumbnail shows the page's right part, where the lines
+    // start (the left part would cut the start of a line that runs past it).
+    let rtl = crate::rtl::on();
+    for (name, shown) in STYLE_SETS {
         let (r, resp) = ui.allocate_exact_size(vec2(STYLE_SET_W, crate::widgets::CONTENT_H), Sense::click());
         if resp.hovered() {
             ui.painter().rect_filled(r, 3.0, t.hover);
@@ -762,10 +788,21 @@ pub fn style_set_gallery(app: &mut WordApp, ui: &mut Ui) {
         let tex = app.previews.get_or(ui.ctx(), &key, || {
             let mut s = wordcraft_engine::Session::new(Document::new());
             let _ = s.run("design.styleSet", &json!({"name": name}));
+            let para = |text: &str, style: Option<&str>| {
+                let p = Paragraph::with_text(text, CharProps::default());
+                let mut p = match style {
+                    Some(style) => p.styled(style),
+                    None => p,
+                };
+                if rtl {
+                    p.props.bidi = Some(true);
+                }
+                Block::Para(p)
+            };
             let blocks = vec![
-                Block::Para(Paragraph::with_text(crate::i18n::tc("preview", "Title"), CharProps::default()).styled("Title")),
-                Block::Para(Paragraph::with_text(tl!("Heading 1"), CharProps::default()).styled("Heading1")),
-                Block::Para(Paragraph::with_text(tl!("Body text in a short paragraph to show spacing."), CharProps::default())),
+                para(crate::i18n::tc("preview", "Title"), Some("Title")),
+                para(tl!("Heading 1"), Some("Heading1")),
+                para(tl!("Body text in a short paragraph to show spacing."), None),
             ];
             snippet_blocks(
                 &s.doc,
@@ -777,10 +814,13 @@ pub fn style_set_gallery(app: &mut WordApp, ui: &mut Ui) {
             let sz = h.size_vec2() / ppp;
             let ir = Rect::from_min_size(pos2(r.min.x + 3.0, r.min.y + 3.0), sz.min(vec2(50.0, 60.0)));
             ui.painter().rect_stroke(ir, 0.0, Stroke::new(1.0, t.border), egui::StrokeKind::Outside);
-            let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2((ir.width() / sz.x).min(1.0), (ir.height() / sz.y).min(1.0)));
+            let (u, v) = ((ir.width() / sz.x).min(1.0), (ir.height() / sz.y).min(1.0));
+            let uv = if rtl { Rect::from_min_max(pos2(1.0 - u, 0.0), pos2(1.0, v)) } else { Rect::from_min_max(pos2(0.0, 0.0), pos2(u, v)) };
             ui.painter().image(h.id(), ir, uv, preview_tint(&t, false));
         }
-        if resp.on_hover_text(format!("Style set: {name}")).clicked() {
+        let tip = style_set_tip(shown);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &tip));
+        if resp.on_hover_text(tip).clicked() {
             let _ = app.run("design.styleSet", json!({"name": name}));
         }
     }

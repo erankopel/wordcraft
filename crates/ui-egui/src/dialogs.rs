@@ -341,7 +341,14 @@ pub enum Dialog {
     /// Confirm before deleting a recovery copy.
     DiscardRecovery {
         id: String,
+        /// The copy as the question names it, as File › Recover lists it
+        /// ([`crate::backstage::recovery_name`]): a document never saved has the interface's name.
+        #[serde(skip)]
         name: String,
+        /// The copy's name as the engine stores it (`file.recover`), which the control channel
+        /// reports as `name`.
+        #[serde(rename = "name")]
+        stored_name: String,
     },
     /// "Do you want to save changes?" before a user's New, Open, Close, Envelopes, Labels or
     /// Finish & Merge replaces the document (see [`WordApp::run`]); `then` runs once it is
@@ -801,7 +808,7 @@ impl Dialog {
                     focus: true,
                 }
             }
-            "newStyle" => Dialog::NewStyle { name: "Style1".into(), based_on: "Normal".into(), back: false },
+            "newStyle" => Dialog::NewStyle { name: styles::new_style_name(app), based_on: "Normal".into(), back: false },
             "manageStyles" => Dialog::ManageStyles { alphabetical: false, selected: s("style") },
             "newTableStyle" | "modifyTableStyle" => crate::dialogs_table_style::open(app, name)?,
             "commands" => Dialog::Commands { query: String::new(), swallow: true },

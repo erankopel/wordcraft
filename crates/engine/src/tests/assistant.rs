@@ -165,3 +165,70 @@ fn input_that_cannot_be_applied_is_refused_and_changes_nothing() {
         assert_eq!(serde_json::to_value(&s.doc).unwrap(), before, "a refused reply leaves the document as it was");
     }
 }
+
+/// The changes an assistant made with commands apply as one undo step: one Undo takes all of them
+/// back and Redo puts them back.
+#[test]
+fn assistant_changes_apply_as_one_undo_step() {
+    let mut s = session("Hello world\nSecond");
+    let steps = json!([
+        {"command": "select.text", "params": {"text": "world"}},
+        {"command": "format.bold"},
+        {"command": "select.text", "params": {"text": "Second"}},
+        {"command": "text.insert", "params": {"text": "Third", "raw": true}},
+    ]);
+    let undo_before = s.undo_depth();
+    run(&mut s, "assistant.runSteps", json!({"steps": steps}));
+    assert_eq!(body(&s), "Hello world\nThird");
+    assert_eq!(s.undo_depth(), undo_before + 1, "one undo step for all of them");
+    assert_eq!(s.undo_label(), Some("Apply Assistant Changes"));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(body(&s), "Hello world\nSecond");
+    run(&mut s, "select.text", json!({"text": "world"}));
+    let state = run(&mut s, "format.state", json!({}));
+    assert_ne!(state["bold"], true, "the bold went with the same Undo");
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!(body(&s), "Hello world\nThird");
+}
+
+/// With Track Changes on, the assistant's typing and deleting are tracked under its own name and
+/// its formatting is not; the person's tracking stays on.
+#[test]
+fn with_track_changes_on_text_is_tracked_and_formatting_is_not() {
+    let mut s = session("Keep this\nChange me");
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    let steps = json!([
+        {"command": "select.text", "params": {"text": "this"}},
+        {"command": "format.bold"},
+        {"command": "select.text", "params": {"text": "me"}},
+        {"command": "text.insert", "params": {"text": "it", "raw": true}},
+    ]);
+    run(&mut s, "assistant.runSteps", json!({"steps": steps, "author": "Helper"}));
+    let changes = run(&mut s, "review.changes", json!({}));
+    let list = changes.as_array().unwrap();
+    let kinds: Vec<&str> = list.iter().filter_map(|c| c["kind"].as_str()).collect();
+    assert!(kinds.contains(&"insert") && kinds.contains(&"delete"), "{kinds:?}");
+    assert!(!kinds.contains(&"format"), "formatting applies directly: {kinds:?}");
+    assert!(list.iter().all(|c| c["author"] == "Helper"), "the changes carry the assistant's name: {list:?}");
+    assert!(s.doc.settings.track_changes, "tracking is still on");
+}
+
+/// A step that is not allowed, unknown or failing makes the whole request change nothing and leaves
+/// no undo step.
+#[test]
+fn a_refused_or_failing_step_changes_nothing() {
+    for bad in [
+        json!({"command": "file.save", "params": {"path": "/tmp/out.docx"}}),
+        json!({"command": "review.trackChanges", "params": {"value": false}}),
+        json!({"command": "no.such.command"}),
+        json!({"params": {}}),
+    ] {
+        let mut s = session("Hello world");
+        let undo_before = s.undo_depth();
+        let steps = json!([{"command": "select.text", "params": {"text": "world"}}, {"command": "format.bold"}, bad]);
+        assert!(s.run("assistant.runSteps", &json!({"steps": steps})).is_err(), "{bad}");
+        assert_eq!((body(&s), s.undo_depth()), ("Hello world".to_string(), undo_before), "{bad}");
+        run(&mut s, "select.text", json!({"text": "world"}));
+        assert_ne!(run(&mut s, "format.state", json!({}))["bold"], true, "{bad}: the bold before it did not stay either");
+    }
+}

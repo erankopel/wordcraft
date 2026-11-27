@@ -5947,3 +5947,48 @@ fn a_linked_text_box_shows_and_follows_its_link_from_inside() {
     let (start, _) = wordcraft_engine::cmd::insert::bookmark_range(&s.doc, "Spot").unwrap();
     assert!(s.sel.is_collapsed() && s.sel.focus == start, "the caret went to the bookmark: {:?}", s.sel);
 }
+
+/// The markup area and its balloons are beside each page on the side a line ends on: right of
+/// it left to right, and left of it in the right-to-left (Hebrew) interface, which kept them on
+/// the right, where a wide pane cut the start of a Hebrew comment off at the window's edge. The
+/// leader runs to the page's edge on that side.
+#[test]
+fn comment_balloons_sit_beside_the_page_on_the_side_lines_end() {
+    struct English;
+    impl Drop for English {
+        fn drop(&mut self) {
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        }
+    }
+    let _english = English;
+    for (language, left) in [("en", false), ("he", true)] {
+        if language == "he" && crate::i18n::Lang::from_code("he").is_none() {
+            eprintln!("skipped the right-to-left half: built without the craft-i18n he catalog (set CRAFT_I18N_DIR)");
+            continue;
+        }
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.ui.language = language.into();
+        a.run("text.insert", json!({"text": "Some text here"})).unwrap();
+        a.run("select.text", json!({"text": "text"})).unwrap();
+        let id = a.run("review.newComment", json!({})).unwrap()["id"].as_u64().unwrap() as u32;
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let page = *h.state().canvas.page_rects.first().expect("the page is drawn");
+        let card = h.state().canvas.balloon_rects.iter().find(|(i, _)| *i == id).map(|(_, r)| *r).expect("the comment has a balloon");
+        if left {
+            assert!(card.max.x <= page.min.x, "{language}: the balloon {card:?} is left of the page {page:?}");
+        } else {
+            assert!(card.min.x >= page.max.x, "{language}: the balloon {card:?} is right of the page {page:?}");
+        }
+    }
+}

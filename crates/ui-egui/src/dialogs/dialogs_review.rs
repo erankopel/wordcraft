@@ -89,9 +89,10 @@ fn heading(ui: &mut Ui, s: &str) {
     ui.label(egui::RichText::new(tl!(s)).font(semibold(12.5)));
 }
 
+/// A dialog's message: a command's error, in the interface language where the catalog knows it.
 fn error(ui: &mut Ui, message: &str) {
     if !message.is_empty() {
-        ui.label(egui::RichText::new(message).small().color(ui.visuals().error_fg_color));
+        ui.label(egui::RichText::new(crate::i18n::message(message)).small().color(ui.visuals().error_fg_color));
     }
 }
 
@@ -281,6 +282,7 @@ fn compare_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CompareForm) -> bool {
     if let Some(revised) = pick {
         // A blocking picker answers now, while this dialog is out of `app.dialog`: fill it here.
         if app.services.file_dialog.is_none()
+            && !app.uses_own_file_browser()
             && let Some(pick_open) = &app.services.pick_open
         {
             if let Some(path) = pick_open("document") {

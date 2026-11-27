@@ -140,7 +140,7 @@ pub(crate) fn put_result(app: &mut WordApp, ctx: &egui::Context, r: &Value) {
                 }
             }
             Err(e) => {
-                app.status(format!("Couldn't copy the picture: {e}"));
+                app.status(crate::i18n::fmt(tl!("Couldn't copy the picture: {error}"), &[("error", &crate::i18n::message(&e))]));
             }
         }
     }

@@ -325,7 +325,7 @@ pub fn data_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ChartDataForm) -> bool {
         }
     });
     if !f.message.is_empty() {
-        ui.label(egui::RichText::new(f.message.as_str()).color(Tokens::get(ui.ctx()).red));
+        ui.label(egui::RichText::new(crate::i18n::message(&f.message)).color(Tokens::get(ui.ctx()).red));
     }
     let (ok, cancel) = crate::dialogs::buttons(ui, tl!("OK"));
     if !ok {

@@ -3,6 +3,9 @@
 
 use std::collections::VecDeque;
 
+use serde_json::Value;
+
+use crate::agent::{Step, ToolRequest};
 use crate::{Disclosure, Error, Provider, Reply, Request, Stop, Usage};
 
 /// Answers each request with the next canned result, and remembers what it was asked.
@@ -10,6 +13,10 @@ use crate::{Disclosure, Error, Provider, Reply, Request, Stop, Usage};
 pub struct MockProvider {
     replies: VecDeque<Result<Reply, Error>>,
     seen: Vec<Request>,
+    steps: VecDeque<Result<Step, Error>>,
+    /// The messages of each tool request it was sent, as their JSON text, and whether tools were
+    /// barred in it.
+    tool_requests: Vec<(Vec<String>, bool)>,
 }
 
 impl MockProvider {
@@ -34,6 +41,22 @@ impl MockProvider {
     pub fn requests(&self) -> &[Request] {
         &self.seen
     }
+
+    /// Queue a turn of a tool conversation.
+    pub fn push_step(&mut self, step: Result<Step, Error>) -> &mut MockProvider {
+        self.steps.push_back(step);
+        self
+    }
+
+    /// The messages of each tool request it was sent, parsed, oldest first.
+    pub fn tool_requests(&self) -> Vec<Vec<Value>> {
+        self.tool_requests.iter().map(|(m, _)| m.iter().map(|t| serde_json::from_str(t).unwrap_or(Value::Null)).collect()).collect()
+    }
+
+    /// The messages of each tool request exactly as sent, and whether tools were barred.
+    pub fn raw_tool_requests(&self) -> &[(Vec<String>, bool)] {
+        &self.tool_requests
+    }
 }
 
 impl Provider for MockProvider {
@@ -44,5 +67,10 @@ impl Provider for MockProvider {
     fn send(&mut self, request: &Request) -> Result<Reply, Error> {
         self.seen.push(request.clone());
         self.replies.pop_front().unwrap_or_else(|| Err(Error::Network("the mock has no reply left".into())))
+    }
+
+    fn send_tools(&mut self, request: &ToolRequest) -> Result<Step, Error> {
+        self.tool_requests.push((request.messages.to_vec(), request.no_tools));
+        self.steps.pop_front().unwrap_or_else(|| Err(Error::Network("the mock has no turn left".into())))
     }
 }

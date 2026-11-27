@@ -25,7 +25,8 @@ pub fn remember_symbol(app: &mut WordApp, ch: &str, font: &str) {
 }
 
 /// Unicode blocks the subset list offers (name, first, last code point). The names are the
-/// Unicode Standard's block names and stay as they are in every language.
+/// Unicode Standard's block names: the key the list and [`SymbolForm::jump_to`] go by, shown in
+/// the interface language ([`subset_name`]).
 pub const SUBSETS: &[(&str, u32, u32)] = &[
     ("Basic Latin", 0x0020, 0x007F),
     ("Latin-1 Supplement", 0x0080, 0x00FF),
@@ -75,6 +76,12 @@ pub const SUBSETS: &[(&str, u32, u32)] = &[
     ("Mathematical Alphanumeric Symbols", 0x1D400, 0x1D7FF),
     ("Emoji and Pictographs", 0x1F300, 0x1FAFF),
 ];
+
+/// A subset's name as the list shows it: in the interface language, from the catalog's rows with
+/// the context `unicode` (or the plain row: `Hebrew`, `Arrows`), else the Unicode name itself.
+pub fn subset_name(name: &str) -> &str {
+    crate::i18n::tc("unicode", name)
+}
 
 /// The subset a character belongs to.
 pub fn subset_of(c: char) -> Option<&'static str> {
@@ -352,10 +359,10 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
             ui.label(tl!("Subset:"));
             let current = f.selected.and_then(subset_of).unwrap_or("");
             let mut chosen = None;
-            craft_ui::ComboBox::from_id_salt("symbol_subset").selected_text(current).width(170.0).show_ui(ui, |ui| {
+            craft_ui::ComboBox::from_id_salt("symbol_subset").selected_text(subset_name(current)).width(170.0).show_ui(ui, |ui| {
                 for (name, a, b) in SUBSETS {
                     let i = f.chars.partition_point(|c| (*c as u32) < *a);
-                    if f.chars.get(i).is_some_and(|c| (*c as u32) <= *b) && ui.selectable_label(*name == current, *name).clicked() {
+                    if f.chars.get(i).is_some_and(|c| (*c as u32) <= *b) && ui.selectable_label(*name == current, subset_name(name)).clicked() {
                         chosen = Some(*name);
                     }
                 }

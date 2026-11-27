@@ -90,13 +90,16 @@ const ORIENTATIONS: [(&str, &str); 3] = [("auto", "Auto orientation"), ("portrai
 fn choice(ui: &mut Ui, salt: &str, current: &mut String, items: &[(&str, &str)], label: &egui::Response) -> bool {
     let shown = items.iter().find(|(id, _)| *id == current.as_str()).map_or("", |(_, l)| *l);
     let mut changed = false;
+    // The list reads from the right in a right-to-left interface, as the box does.
     let combo = craft_ui::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
-        for (id, item) in items {
-            if ui.selectable_label(current == id, tl!(item)).clicked() && current != id {
-                *current = (*id).to_string();
-                changed = true;
+        crate::rtl::root(ui, |ui| {
+            for (id, item) in items {
+                if ui.selectable_label(current == id, tl!(item)).clicked() && current != id {
+                    *current = (*id).to_string();
+                    changed = true;
+                }
             }
-        }
+        });
     });
     combo.response.labelled_by(label.id);
     changed
@@ -106,13 +109,16 @@ fn choice(ui: &mut Ui, salt: &str, current: &mut String, items: &[(&str, &str)],
 fn choice_named(ui: &mut Ui, salt: &str, current: &mut String, items: &[(&str, &str)], name: &str) -> bool {
     let shown = items.iter().find(|(id, _)| *id == current.as_str()).map_or("", |(_, l)| *l);
     let mut changed = false;
+    // The list reads from the right in a right-to-left interface, as the box does.
     let combo = craft_ui::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
-        for (id, item) in items {
-            if ui.selectable_label(current == id, tl!(item)).clicked() && current != id {
-                *current = (*id).to_string();
-                changed = true;
+        crate::rtl::root(ui, |ui| {
+            for (id, item) in items {
+                if ui.selectable_label(current == id, tl!(item)).clicked() && current != id {
+                    *current = (*id).to_string();
+                    changed = true;
+                }
             }
-        }
+        });
     });
     combo.response.accessible_name(name);
     changed
@@ -565,9 +571,10 @@ pub fn export_formats(app: &mut WordApp, ui: &mut Ui) {
         }
         ui.add_space(4.0);
     }
-    // Linux and the BSDs (#3535): WordCraft's own browser when the system dialog doesn't appear.
+    // Linux and the BSDs (#3535): WordCraft's own browser when the system dialog doesn't appear
+    // (where the buttons above show it already, nothing more).
     #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
-    {
+    if !app.uses_own_file_browser() {
         ui.add_space(8.0);
         if ui.add(egui::Button::new(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(13.5))).min_size(vec2(320.0, 34.0))).clicked() {
             let _ = app.run("ui.fileBrowser", json!({"purpose": "export"}));

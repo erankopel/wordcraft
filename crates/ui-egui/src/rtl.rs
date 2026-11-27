@@ -70,6 +70,25 @@ pub fn arrows(text: &str) -> String {
     if on() { text.replace(">>", "\u{1}").replace("<<", ">>").replace('\u{1}', "<<") } else { text.to_string() }
 }
 
+/// Text whose `→` points forward, to more of something (More templates →): forward is to the
+/// left in a mirrored interface, so the arrow there is `←`. A translation that already turned it
+/// round keeps its `←`.
+pub fn forward(text: &str) -> String {
+    if on() { text.replace('→', "←") } else { text.to_string() }
+}
+
+/// The side a list's rows start from: the right in a right-to-left interface. For a list's own
+/// layout (`top_down`, `top_down_justified`), which egui would start at the left.
+pub fn start_align() -> Align {
+    if on() { Align::RIGHT } else { Align::LEFT }
+}
+
+/// Where a text field sets its text and hint: from the right edge in a right-to-left interface
+/// (a field takes the side from the layout it is in, and egui starts most layouts at the left).
+pub fn field_align() -> Align2 {
+    if on() { Align2::RIGHT_TOP } else { Align2::LEFT_TOP }
+}
+
 /// The layout for a row's items that belong at its far end (the side rows end on): filled from
 /// that end inwards.
 pub fn far_side(ui: &Ui, align: Align) -> Layout {

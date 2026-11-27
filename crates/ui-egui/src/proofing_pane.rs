@@ -72,17 +72,17 @@ impl SpellingForm {
         }
     }
 
-    fn act(&mut self, app: &mut WordApp, command: Option<&str>) {
+    /// Run `command` on the issue shown, while the document and the selection are as the form
+    /// found them, then move on to the next issue.
+    fn act(&mut self, app: &mut WordApp, command: &str) {
         if !self.current(app) {
             self.message = tl!("The document or selection changed. Check again to continue.").into();
             return;
         }
-        if let Some(command) = command {
-            let params = if command == "review.applySuggestion" { json!({"text": self.replacement}) } else { json!({}) };
-            if let Err(e) = app.run(command, params) {
-                self.message = e;
-                return;
-            }
+        let params = if command == "review.applySuggestion" { json!({"text": self.replacement}) } else { json!({}) };
+        if let Err(e) = app.run(command, params) {
+            self.message = e;
+            return;
         }
         self.next(app, false);
     }
@@ -147,7 +147,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, form: &mut SpellingForm) {
     let spelling = form.issue.get("kind").and_then(Value::as_str) == Some("spelling");
     ui.label(egui::RichText::new(tl!(if spelling { "Spelling" } else { "Grammar" })).font(regular(14.0)))
         .on_hover_text(form.issue.get("lang").and_then(Value::as_str).unwrap_or(""));
-    let message = if spelling { tl!("Not in Dictionary") } else { tl!(form.issue.get("message").and_then(Value::as_str).unwrap_or("")) };
+    let message = if spelling {
+        tl!("Not in Dictionary").to_string()
+    } else {
+        crate::i18n::message(form.issue.get("message").and_then(Value::as_str).unwrap_or(""))
+    };
     ui.label(egui::RichText::new(message).font(regular(11.0)).color(t.text_dim));
     ui.add_space(8.0);
     context(ui, app, form, spelling);
@@ -217,16 +221,17 @@ fn body(app: &mut WordApp, ui: &mut Ui, form: &mut SpellingForm) {
     }
     if let Some(replacement) = change {
         form.replacement = replacement;
-        form.act(app, Some("review.applySuggestion"));
+        form.act(app, "review.applySuggestion");
         return;
     }
     ui.add_space(6.0);
+    // Ignore Once: this occurrence only, left unmarked until its paragraph changes.
     if action_link(ui, "Ignore Once") {
-        form.act(app, None);
+        form.act(app, "review.ignoreOnce");
     } else if spelling && action_link(ui, "Ignore All") {
-        form.act(app, Some("review.ignoreAll"));
+        form.act(app, "review.ignoreAll");
     } else if spelling && action_link(ui, "Add to Dictionary") {
-        form.act(app, Some("review.addToDictionary"));
+        form.act(app, "review.addToDictionary");
     }
     if suggestions.is_empty() && action_link(ui, "Change…") {
         form.manual = true;
@@ -236,11 +241,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, form: &mut SpellingForm) {
         let label = ui.label(tl!("Change to:"));
         ui.add(egui::TextEdit::singleline(&mut form.replacement).char_limit(1024)).labelled_by(label.id);
         if ui.button(tl!("Change")).clicked() {
-            form.act(app, Some("review.applySuggestion"));
+            form.act(app, "review.applySuggestion");
         }
     }
     if !form.message.is_empty() {
-        ui.colored_label(ui.visuals().error_fg_color, &form.message);
+        ui.colored_label(ui.visuals().error_fg_color, crate::i18n::message(&form.message));
         if action_link(ui, "Check Again") {
             form.next(app, true);
         }
@@ -294,22 +299,36 @@ mod tests {
         assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "The quick brwn fox.");
     }
 
+    /// Ignore Once leaves the occurrence shown unmarked (`review.ignoreOnce`) and moves on: the other
+    /// occurrence is still an issue, checking again finds neither, and once their paragraph changes
+    /// both are issues again.
     #[test]
     fn spelling_review_dialog_ignore_once_advances_and_finishes_without_changing_text() {
+        /// The spelling issues on `brwn` the document has now.
+        fn misspelt(app: &mut WordApp) -> usize {
+            let issues = app.session.run("review.issues", &json!({})).unwrap();
+            issues.as_array().into_iter().flatten().filter(|i| i["kind"] == "spelling" && i["text"] == "brwn").count()
+        }
         let text = "The brwn fox and brwn dog.";
         let mut h = harness(text);
+        assert_eq!(misspelt(h.state_mut()), 2);
         let first = h.state().session.sel.clone();
         h.get_by_label("Ignore Once").click();
         h.run_steps(3);
         assert_ne!(h.state().session.sel, first);
         assert_eq!(form(h.state()).issue["text"], "brwn");
+        assert_eq!(misspelt(h.state_mut()), 1, "the occurrence ignored is no longer an issue; the other one still is");
         h.get_by_label("Ignore Once").click();
         h.run_steps(3);
         assert!(form(h.state()).done());
         assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), text);
+        assert_eq!(misspelt(h.state_mut()), 0);
         h.get_by_label("Check Again").click();
         h.run_steps(3);
-        assert_eq!(h.state().session.sel, first, "Ignore Once never adds a word to the dictionary");
+        assert!(form(h.state()).done(), "checking again doesn't bring back what was ignored");
+        h.state_mut().run("caret.docEnd", json!({})).unwrap();
+        h.state_mut().run("text.insert", json!({"text": " Yes"})).unwrap();
+        assert_eq!(misspelt(h.state_mut()), 2, "Ignore Once never adds a word to the dictionary");
     }
 
     #[test]
@@ -334,7 +353,7 @@ mod tests {
         assert_eq!(f.issue["kind"], "spelling");
         assert!(f.current(&mut a), "the selected typo is current despite overlapping grammar");
         f.replacement = "sentence".into();
-        f.act(&mut a, Some("review.applySuggestion"));
+        f.act(&mut a, "review.applySuggestion");
         assert!(f.message.is_empty());
         assert_eq!(a.session.doc.plain_text(StoryRef::Body), "A sentense sentence.");
         a.run("edit.undo", json!({})).unwrap();
@@ -355,7 +374,7 @@ mod tests {
                 a.session.sel = Selection::caret(Pos::body(0, 0));
             }
             let before = a.session.doc.plain_text(StoryRef::Body);
-            f.act(&mut a, Some("review.applySuggestion"));
+            f.act(&mut a, "review.applySuggestion");
             assert!(!f.message.is_empty());
             assert_eq!(a.session.doc.plain_text(StoryRef::Body), before);
         }

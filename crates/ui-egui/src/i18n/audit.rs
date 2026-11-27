@@ -230,13 +230,18 @@ impl<'a> Exempt<'a> {
             || self.names.contains(plain)
             || self.math.contains(plain) // the Equation tab's `lim\below(n→∞)`-style placeholders
             || plain.starts_with('@') // contributor handles
-            || plain.starts_with("Style") || plain.starts_with("Table Style ") // a new style's default name
+            || numbered(plain, "Style") || numbered(plain, "Table Style ") // a new style's default name (`Style1`)
             || plain.contains('┬') || plain.contains('\u{2061}') // equation input (UnicodeMath), drawn as math
             || matches!(plain, "WordCraft" | "WordCraft User" | "Discord" | "https://" | "auto" | "I. II. III." | "i. ii. iii." | "I, II, III, …" | "i, ii, iii, …")
             || plain == "CONFIDENTIAL" // the watermark dialog's text: document content, kept as typed
             || plain == "Figure 1" // the caption dialog's sample: the label goes into the document as is
             || crate::dialogs_insert::date_time_preview_matches(plain)
     }
+}
+
+/// `text` is `prefix` and a number (`Style1`, `Table Style 2`).
+fn numbered(text: &str, prefix: &str) -> bool {
+    text.strip_prefix(prefix).is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
 }
 
 #[test]

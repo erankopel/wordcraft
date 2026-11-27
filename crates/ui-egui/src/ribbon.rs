@@ -334,7 +334,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                     let _ = app.run("ui.collapseRibbon", json!({}));
                                 }
                                 if ghost.is_none() {
-                                    resp.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
+                                    crate::rtl::context_menu(&resp, |ui| crate::widgets::customize_menu_items(ui, app));
                                 }
                             }
                             let left_out: Vec<(&str, &str)> = tabs

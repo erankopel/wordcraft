@@ -94,10 +94,16 @@ pub trait MeasureExt {
 impl MeasureExt for egui::DragValue<'_> {
     fn measure(self, unit: Unit) -> Self {
         let sep = decimal();
-        self.suffix(unit_suffix(unit))
+        // A field places its number and its suffix left to right. A right-to-left interface reads
+        // the number first, at the right of its unit (`2,5 ס"מ`): there the unit is part of the
+        // value's own text, which is laid out in its own direction (and typed back in, as a
+        // length with a unit always could be).
+        let (field, unit_text) = if crate::rtl::on() { (self, unit_suffix(unit)) } else { (self.suffix(unit_suffix(unit)), String::new()) };
+        field
             .custom_formatter(move |n, decimals| {
                 let s = egui::emath::format_with_decimals_in_range(n, decimals);
-                if sep == '.' { s } else { s.replace('.', &sep.to_string()) }
+                let s = if sep == '.' { s } else { s.replace('.', &sep.to_string()) };
+                format!("{s}{unit_text}")
             })
             .custom_parser(move |text| parse_length(text, unit))
     }
@@ -249,7 +255,9 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
     {
         let _ = app.run("view.darkMode", json!({"value": dark_page}));
     }
-    ui.checkbox(&mut app.ui.show_discord, tl!("Show the community button in the title bar"));
+    if crate::links_to_artcraft() {
+        ui.checkbox(&mut app.ui.show_discord, tl!("Show the community button in the title bar"));
+    }
     ui.checkbox(&mut app.ui.font_download_notice, tl!("Tell me when a document's missing fonts can be downloaded"));
     default_app_button(app, ui);
     ui.add_space(8.0);
@@ -482,7 +490,13 @@ fn custom_dictionary(app: &mut WordApp, ui: &mut Ui) {
     let mut word = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_default();
     ui.horizontal(|ui| {
         let r = ui
-            .add(egui::TextEdit::singleline(&mut word).desired_width(220.0).char_limit(MAX_WORD_CHARS).hint_text(tl!("New word")))
+            .add(
+                egui::TextEdit::singleline(&mut word)
+                    .desired_width(220.0)
+                    .char_limit(MAX_WORD_CHARS)
+                    .hint_text(tl!("New word"))
+                    .align(crate::rtl::field_align()),
+            )
             .accessible_name(tl!("New word"));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let w = word.trim().to_string();
@@ -669,11 +683,14 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
         section(ui, "Linux display server");
         display_server_picker(app, ui);
     }
-    // The web app has no folders to name.
+    // The web app has no folders to name, and only the browser's own file picker.
     if !cfg!(target_arch = "wasm32") {
         ui.add_space(8.0);
         section(ui, "File locations");
         templates_folder(app, ui);
+        ui.add_space(8.0);
+        section(ui, "File dialogs");
+        file_dialogs_picker(app, ui);
     }
     ui.add_space(8.0);
     section(ui, "Scrolling");
@@ -823,6 +840,33 @@ fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
         };
         note(ui, reported);
     }
+}
+
+/// Which dialog Open, Save As, Export and the other file pickers show ([`crate::FileDialogs`]):
+/// Automatic names what it comes to in this build.
+fn file_dialogs_picker(app: &mut WordApp, ui: &mut Ui) {
+    use crate::FileDialogs;
+    let auto_is_own = FileDialogs::Auto.own_browser(crate::i18n::EDITION_LANGUAGE);
+    let name = |d: FileDialogs| {
+        if d == FileDialogs::Auto {
+            let now = if auto_is_own { FileDialogs::WordCraft } else { FileDialogs::System };
+            crate::i18n::fmt(tl!("Automatic ({choice})"), &[("choice", tl!(now.label()))])
+        } else {
+            tl!(d.label()).to_string()
+        }
+    };
+    ui.horizontal(|ui| {
+        let label = ui.label(tl!("Open and save with:"));
+        let combo = craft_ui::ComboBox::from_id_salt("file_dialogs").selected_text(name(app.ui.file_dialogs)).width(260.0).show_ui(ui, |ui| {
+            for d in FileDialogs::ALL {
+                if ui.selectable_label(app.ui.file_dialogs == d, name(d)).clicked() {
+                    let _ = app.run("ui.fileDialogs", json!({"value": d.code()}));
+                }
+            }
+        });
+        combo.response.labelled_by(label.id);
+    });
+    note(ui, "WordCraft's own file browser is in the interface language. The system's file dialogs follow the language of the desktop.");
 }
 
 /// Linux display server (#2184): Automatic, Wayland or X11 (XWayland). The desktop app reads it

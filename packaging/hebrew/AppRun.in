@@ -1,0 +1,189 @@
+#!/bin/sh
+# AppRun of WordCraft's Hebrew edition AppImage, made from packaging/hebrew/AppRun.in by
+# packaging/linux/package.sh, which fills in the app id, the menu entry's name, the region, the
+# version and the oldest glibc. The AppImage runtime starts it with the AppImage's own arguments,
+# APPIMAGE set to the AppImage file. See --help, and docs/localization-he.md ("Installing on
+# Ubuntu"); packaging/hebrew/test-appimage.sh checks it.
+HERE="$(dirname "$(readlink -f "$0")")"
+APP_ID='@APP_ID@'
+NAME='@NAME@'
+GLIBC='@GLIBC@'
+# Israel's paper size and units (A4, centimetres) unless the person set a region; the app would
+# otherwise take them from the system, and an English session would start Letter pages.
+: "${WORDCRAFT_REGION:=@REGION@}"
+export WORDCRAFT_REGION
+
+say() { printf '%s\n' "$*"; }
+fail() {
+  printf 'wordcraft: %s\n' "$*" >&2
+  exit 1
+}
+
+# The folder desktop entries and icons go to: $XDG_DATA_HOME, or ~/.local/share (a relative
+# XDG_DATA_HOME is ignored, as the XDG Base Directory spec says).
+data_home() {
+  case "${XDG_DATA_HOME:-}" in
+    /*) printf '%s\n' "$XDG_DATA_HOME" ;;
+    *)
+      case "${HOME:-}" in
+        /*) printf '%s\n' "$HOME/.local/share" ;;
+        *) fail "HOME is not set to a folder, so there is no applications menu to add to" ;;
+      esac
+      ;;
+  esac
+}
+
+# $1 as one quoted argument of a desktop entry's Exec key: the Desktop Entry spec's quoting (a
+# backslash before " ` $ and \), then its escaping of every backslash again, and %% for %.
+exec_arg() {
+  printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\\\\\/g' -e 's/["`$]/\\\\&/g' -e 's/%/%%/g')"
+}
+
+# $1 as a desktop entry string value: a backslash is written twice.
+string_value() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g'
+}
+
+# This AppImage's file, or nothing. The runtime sets APPIMAGE to the file and APPDIR to where it
+# mounted or unpacked it, which is this folder. A program started from another AppImage inherits
+# that one's APPIMAGE and APPDIR (#5653), so they count only when APPDIR is this folder: run from a
+# folder extracted with --appimage-extract, they belong to another program.
+own_appimage() {
+  if [ -n "${APPIMAGE:-}" ] && [ -n "${APPDIR:-}" ] && [ "$(readlink -f "$APPDIR")" = "$HERE" ]; then
+    printf '%s\n' "$APPIMAGE"
+  fi
+}
+
+# Whether $1, a menu entry, is one --install wrote: it carries the mark.
+written_by_install() {
+  grep -q '^X-WordCraft-AppImage=' "$1"
+}
+
+install_entry() {
+  # The AppImage file, which the menu entry starts; a folder extracted from it (--appimage-extract)
+  # starts through its AppRun instead.
+  target="$(own_appimage)"
+  [ -n "$target" ] || target="$HERE/AppRun"
+  case "$target" in
+    /*) ;;
+    *) target="$PWD/$target" ;;
+  esac
+  [ -x "$target" ] || fail "$target is not an executable file"
+  nl='
+'
+  case "$target" in
+    *"$nl"* | *"$(printf '\r')"*) fail "the AppImage's path has a line break; move it to a folder whose name has none" ;;
+    /tmp/* | /var/tmp/* | /run/*) say "note: $target is in a temporary folder, which may be emptied; the menu entry stops working if it is." ;;
+  esac
+  data="$(data_home)" || exit 1
+  apps="$data/applications"
+  icons="$data/icons/hicolor"
+  mkdir -p "$apps" || fail "couldn't create $apps"
+  entry="$apps/$APP_ID.desktop"
+  # An entry of that name that --install didn't write is the person's own (or copied out of the
+  # AppImage by hand): it and its icons are left as they are, as --uninstall leaves them.
+  if [ -f "$entry" ] && ! written_by_install "$entry"; then
+    fail "left $entry and its icons as they are: --install did not write it. To have --install replace it, remove it first."
+  fi
+  # The entry inside the AppImage, with Exec and TryExec pointing at this file, and a mark that
+  # --uninstall looks for before it removes anything.
+  {
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        'Exec=wordcraft' | 'Exec=wordcraft '*) printf 'Exec=%s%s\n' "$(exec_arg "$target")" "${line#Exec=wordcraft}" ;;
+        TryExec=*) printf 'TryExec=%s\n' "$(string_value "$target")" ;;
+        '[Desktop Entry]') printf '%s\nX-WordCraft-AppImage=%s\n' "$line" "$(string_value "$target")" ;;
+        *) printf '%s\n' "$line" ;;
+      esac
+    done <"$HERE/$APP_ID.desktop"
+  } >"$entry.tmp" || fail "couldn't write $entry"
+  mv -f "$entry.tmp" "$entry" || fail "couldn't write $entry"
+  for icon in "$HERE"/usr/share/icons/hicolor/*/apps/"$APP_ID".png "$HERE"/usr/share/icons/hicolor/*/apps/"$APP_ID".svg; do
+    [ -f "$icon" ] || continue
+    size="$(basename "$(dirname "$(dirname "$icon")")")"
+    if ! { mkdir -p "$icons/$size/apps" && cp -f "$icon" "$icons/$size/apps/"; }; then
+      fail "couldn't copy the icons to $icons"
+    fi
+  done
+  refresh "$apps" "$icons"
+  say "$NAME is in your applications menu, and in Open With for Word, OpenDocument and RTF files."
+  say "  menu entry: $entry"
+  say "  icons:      $icons/*/apps/$APP_ID.*"
+  say "  it starts:  $target"
+  say "If you move or rename the AppImage, run it with --install again from its new place."
+  say "To make it the default app for Word documents: File > Options > General in WordCraft."
+}
+
+uninstall_entry() {
+  data="$(data_home)" || exit 1
+  apps="$data/applications"
+  icons="$data/icons/hicolor"
+  entry="$apps/$APP_ID.desktop"
+  # An entry --install didn't write is the person's own, and so are the icons it shows: both stay.
+  if [ -f "$entry" ] && ! written_by_install "$entry"; then
+    fail "left $entry and its icons as they are: --install did not write it"
+  fi
+  if [ -f "$entry" ]; then
+    rm -f "$entry" || fail "couldn't remove $entry"
+    say "removed $entry"
+  fi
+  # With the entry gone (or never there), the icons under the edition's id are --install's.
+  for icon in "$icons"/*/apps/"$APP_ID".png "$icons"/*/apps/"$APP_ID".svg; do
+    [ -f "$icon" ] || continue
+    rm -f "$icon" || fail "couldn't remove $icon"
+    say "removed $icon"
+  done
+  refresh "$apps" "$icons"
+  say "$NAME is no longer in your applications menu. The AppImage and your settings are where they were."
+}
+
+# Tell the desktop about the change: the Open With list (mimeinfo.cache) and the icons. Each tool
+# is optional.
+refresh() {
+  if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q "$1" 2>/dev/null || true; fi
+  if [ -f "$2/icon-theme.cache" ] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f "$2" 2>/dev/null || true
+  fi
+  [ -d "$2" ] && touch "$2"
+  return 0
+}
+
+usage() {
+  me="$(own_appimage)"
+  me="$(basename "${me:-$0}")"
+  cat <<USAGE
+$NAME @VERSION@: WordCraft's Hebrew edition, an AppImage for Linux on x86_64.
+Needs Ubuntu 22.04 or newer, or another Linux with glibc $GLIBC or newer.
+
+USAGE:
+  $me [FILE...]
+      Start WordCraft, opening the FILEs.
+  $me --install
+      Add WordCraft to your applications menu and to Open With, for you only (under
+      ~/.local/share). Run it again after moving or renaming the AppImage.
+  $me --uninstall
+      Remove what --install added.
+  $me --cli ARGS...
+      Run the command-line tool, wordcraft-cli: --cli --help lists what it does.
+  $me --version
+  $me --help
+
+The program's own options:
+USAGE
+  "$HERE/usr/bin/wordcraft" --help | sed '1,/^OPTIONS:/d'
+}
+
+case "${1:-}" in
+  --install) install_entry ;;
+  --uninstall) uninstall_entry ;;
+  --cli)
+    shift
+    exec "$HERE/usr/bin/wordcraft-cli" "$@"
+    ;;
+  --help | -h) usage ;;
+  --version)
+    "$HERE/usr/bin/wordcraft" --version || exit 1
+    say "Hebrew edition ($APP_ID); needs glibc $GLIBC or newer (Ubuntu 22.04 or newer), x86_64"
+    ;;
+  *) exec "$HERE/usr/bin/wordcraft" "$@" ;;
+esac

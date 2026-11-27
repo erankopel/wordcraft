@@ -46,13 +46,37 @@ warn() {
   return 0
 }
 
-# Copy licence and readme files that exist into a package directory.
+# Copy licence and readme files that exist into a package directory, with the licences of every
+# font the programs embed.
 copy_docs() {
   local dest="$1" f
   for f in README.md LICENSE LICENSE-MIT LICENSE-APACHE COPYRIGHT NOTICE ATTRIBUTION.md; do
     if [[ -f "$ROOT/$f" ]]; then cp "$ROOT/$f" "$dest/"; fi
   done
+  # Inter, Source Sans 3, Source Serif 4 and JetBrains Mono (assets/fonts, NOTICE).
+  for f in "$ROOT"/assets/fonts/OFL-*.txt; do
+    if [[ -f "$f" ]]; then cp "$f" "$dest/"; fi
+  done
   copy_font_licences "$dest"
+  copy_egui_font_licences "$dest"
+  return 0
+}
+
+# egui's default fonts, which the desktop and web apps embed (eframe's `default_fonts`): Ubuntu
+# Light (Ubuntu Font Licence), Hack (MIT and the Bitstream Vera licence), Noto Emoji (OFL), the
+# emoji icon font (MIT) and egui's icons. Their licences come from the epaint_default_fonts crate
+# the build used, as epaint_default_fonts-<file>.txt.
+copy_egui_font_licences() {
+  local dest="$1" manifest f
+  manifest="$(cargo metadata --manifest-path "$ROOT/Cargo.toml" --format-version 1 --locked --offline 2>/dev/null |
+    grep -o '"manifest_path":"[^"]*/epaint_default_fonts/Cargo.toml"' | head -n 1 | cut -d'"' -f4)" || manifest=""
+  if [[ -z "$manifest" ]]; then
+    warn "epaint_default_fonts not found with cargo metadata, so the licences of egui's fonts are not in the package"
+    return 0
+  fi
+  for f in "$(dirname "$manifest")"/fonts/*.txt; do
+    if [[ -f "$f" ]]; then cp "$f" "$dest/epaint_default_fonts-$(basename "$f")"; fi
+  done
   return 0
 }
 

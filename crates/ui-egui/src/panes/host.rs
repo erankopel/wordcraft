@@ -1,4 +1,4 @@
-use super::state::{SavedDock, labels, move_before, open, pane_state};
+use super::state::{SavedDock, labels, move_before, open, pane_state, side_of};
 use super::{Edge, Pane, PaneHost, PaneRequest, PaneState, Place, SidePolicy, Stroke, Tokens, Ui, Value, WordApp, json};
 
 pub(super) struct Content<'a> {
@@ -54,7 +54,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     }
     route_f6(app, ui.ctx());
     let states: Vec<(Pane, PaneState)> = open.iter().map(|pane| (*pane, pane_state(app, *pane))).collect();
+    // Mirrored in a right-to-left interface: title bars read from the right (title, then ▾ and
+    // ×), and the `Start` edge is the window's right; `pane_state` keeps saved sides physical.
     let out = PaneHost::new(app.window_id(HOST))
+        .rtl(crate::rtl::on())
         .policy(SidePolicy::Columns)
         .f6(false)
         .labels(labels())
@@ -74,13 +77,12 @@ pub(crate) fn apply(app: &mut WordApp, request: PaneRequest<Pane>) {
     match request {
         PaneRequest::Close(pane) => close(app, pane),
         PaneRequest::Place(Pane::Styles, place) => {
-            // Physical sides: the host is not RTL-flipped, and Dock Left / Dock Right mean the
-            // window's left and right (same as `ui.paneDock` / `view.stylesPaneDock`).
+            // Physical sides: Dock Left / Dock Right mean the window's left and right (same as
+            // `ui.paneDock` / `view.stylesPaneDock`), whichever edge the mirrored host calls them.
             let dock = match place {
-                Place::Docked(Edge::Start) => "left",
-                Place::Docked(Edge::End) => "right",
-                Place::Floating => "float",
                 Place::Docked(Edge::Bottom) => return,
+                Place::Docked(edge) => side_of(edge),
+                Place::Floating => "float",
             };
             let _ = app.run("view.stylesPaneDock", json!({"dock": dock}));
         }
@@ -88,10 +90,9 @@ pub(crate) fn apply(app: &mut WordApp, request: PaneRequest<Pane>) {
         PaneRequest::FloatRect(Pane::Styles, rect) => app.ui.styles_pane_float = Some(rect),
         PaneRequest::Place(pane, place) => {
             let dock = match place {
-                Place::Docked(Edge::Start) => "left",
-                Place::Docked(Edge::End) => "right",
-                Place::Floating => "float",
                 Place::Docked(Edge::Bottom) => return,
+                Place::Docked(edge) => side_of(edge),
+                Place::Floating => "float",
             };
             let _ = app.run("ui.paneDock", json!({"pane": pane.key(), "dock": dock}));
         }
@@ -142,9 +143,8 @@ pub(crate) fn dock_command(app: &mut WordApp, p: &Value) -> Result<Value, String
     }
     // Report the physical side the pane occupies (matches what was stored / requested).
     let name = match pane_state(app, pane).place {
-        Place::Docked(Edge::Start) => "left",
+        Place::Docked(edge) => side_of(edge),
         Place::Floating => "float",
-        Place::Docked(_) => "right",
     };
     Ok(json!({"pane": key, "dock": name}))
 }

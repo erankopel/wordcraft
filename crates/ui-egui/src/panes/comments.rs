@@ -125,6 +125,7 @@ pub(crate) fn comment_editor(app: &mut WordApp, ui: &mut Ui, id: u32, font: Opti
         .interactive(editable)
         .desired_rows(1)
         .desired_width(f32::INFINITY)
+        .align(crate::rtl::field_align())
         .hint_text(tl!("Add a comment"));
     if let Some(f) = &font {
         edit = edit.font(f.clone());
@@ -202,6 +203,7 @@ pub(crate) fn reply_editor(app: &mut WordApp, ui: &mut Ui, id: u32, font: Option
         .interactive(editable)
         .desired_rows(1)
         .desired_width(f32::INFINITY)
+        .align(crate::rtl::field_align())
         .hint_text(tl!("Write a reply"));
     if let Some(f) = &font {
         edit = edit.font(f.clone());

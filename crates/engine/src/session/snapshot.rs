@@ -155,6 +155,7 @@ impl Session {
             // A preference for new documents, like `prefs`: not part of this document.
             editing_lang: _,
             new_documents_rtl: _,
+            agent_only: _,
             // Equation editing mode, like `view`: not part of the document or its history.
             math: _,
             math_latex: _,

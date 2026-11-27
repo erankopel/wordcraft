@@ -1,7 +1,7 @@
-//! The About window's credits: every contributor (GitHub login always; display and real names only
-//! with recorded consent) and the AI models that helped. The tables are baked into the binary by
-//! build.rs from contributors/contributors.json; nothing is
-//! read at run time.
+//! The About window's credits: where the program comes from ([`about_ui`]), every contributor
+//! (GitHub login always; display and real names only with recorded consent) and the AI models that
+//! helped. The tables are baked into the binary by build.rs from contributors/contributors.json;
+//! nothing is read at run time.
 
 use std::cmp::Ordering;
 
@@ -208,6 +208,37 @@ impl Default for View {
     fn default() -> Self {
         View { names: NameMode::Username, key: SortKey::FirstCommit, ascending: true, table: false }
     }
+}
+
+/// About ▸ About: the program, its version and build, where it comes from and its licence.
+///
+/// An edition ([`crate::links_to_artcraft`] is false) is a modified version of WordCraft, and
+/// `docs/brand/LICENSE-brand.txt` keeps the ArtCraft name and the links to the ArtCraft team's site
+/// and community for WordCraft's own builds: the edition says in plain text that it is based on
+/// WordCraft by the ArtCraft team, with no such link. The source code link and the copyright line
+/// stay.
+pub fn about_ui(ui: &mut egui::Ui) {
+    about_page(ui, crate::links_to_artcraft());
+}
+
+/// [`about_ui`] for a build that does (`artcraft`) or doesn't link to the ArtCraft team.
+fn about_page(ui: &mut egui::Ui, artcraft: bool) {
+    ui.label(RichText::new(tl!("WordCraft")).font(crate::theme::semibold(22.0)));
+    let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(tl!("development build"));
+    ui.label(crate::i18n::fmt(tl!("Version {version} ({build})"), &[("version", env!("CARGO_PKG_VERSION")), ("build", build)]));
+    if artcraft {
+        ui.label(tl!("A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team."));
+    } else {
+        ui.label(tl!("A free, open-source word processor written from scratch in Rust.\nBased on WordCraft by the ArtCraft team."));
+    }
+    ui.add_space(6.0);
+    if artcraft {
+        ui.hyperlink_to(tl!("getartcraft.com/apps/wordcraft"), "https://getartcraft.com/apps/wordcraft");
+        ui.hyperlink_to(tl!("Join us on Discord: discord.gg/artcraft"), "https://discord.gg/artcraft");
+    }
+    ui.hyperlink_to(tl!("Source code: github.com/storytold/wordcraft"), "https://github.com/storytold/wordcraft");
+    ui.add_space(6.0);
+    ui.label(RichText::new(tl!("MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the WordCraft contributors.")).small().weak());
 }
 
 /// About ▸ Contributors: a name toggle, a sort, and the list as a grab bag or a table.
@@ -531,6 +562,34 @@ mod tests {
 
     fn logins(v: &[&Contributor]) -> Vec<&'static str> {
         v.iter().map(|c| c.login).collect()
+    }
+
+    /// An edition, a modified version of WordCraft, says in plain text that it is based on
+    /// WordCraft by the ArtCraft team and links to neither the ArtCraft team's site nor its
+    /// community (`docs/brand/LICENSE-brand.txt`); WordCraft's own build links to both. Both link
+    /// to the source code.
+    #[test]
+    fn an_edition_names_the_artcraft_team_in_plain_text_without_its_links() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{NodeT, Queryable};
+        for artcraft in [true, false] {
+            // Font changes take effect next frame; the title needs the named semibold family.
+            let mut fonts = false;
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(820.0, 400.0)).build_ui(move |ui| {
+                if !fonts {
+                    crate::theme::install_fonts(ui.ctx());
+                    fonts = true;
+                    return;
+                }
+                about_page(ui, artcraft);
+            });
+            h.run_steps(3);
+            let links: Vec<String> = h.query_all_by_role(Role::Link).filter_map(|n| n.accesskit_node().label()).collect();
+            assert_eq!(links.iter().any(|l| l.to_lowercase().contains("artcraft")), artcraft, "links: {links:?}");
+            assert!(links.iter().any(|l| l.contains("github.com/storytold/wordcraft")), "links: {links:?}");
+            assert_eq!(h.query_by_label_contains("Based on WordCraft by the ArtCraft team").is_some(), !artcraft);
+            assert_eq!(h.query_by_label_contains("Crafting Apps").is_some(), artcraft);
+        }
     }
 
     #[test]

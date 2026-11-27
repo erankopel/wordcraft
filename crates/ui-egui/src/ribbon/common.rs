@@ -209,18 +209,23 @@ pub(super) fn graphic_size(ui: &mut Ui, app: &mut WordApp) {
         let (w0, h0) =
             wordcraft_engine::cmd::objects::selected(&app.session).and_then(|(_, o)| o.frame().map(|(w, h, _)| (w, h))).unwrap_or((0.0, 0.0));
         stack(ui, |ui| {
+            // In the interface's unit, as Picture and Shape Format's sizes are.
+            let unit = crate::options::unit();
+            let k = unit.pt_per_unit();
             for (label, key, v0) in [("H:", "height", h0), ("W:", "width", w0)] {
                 crate::widgets::row(ui, |ui| {
-                    ui.label(egui::RichText::new(tl!(label)).small());
-                    let mut v = v0;
+                    let name = ui.label(egui::RichText::new(tl!(label)).small());
+                    let was = v0 / k;
+                    let mut v = was;
                     // The range bounds what is typed or dragged; a size outside it is shown as it
                     // is (clamped, egui would report a change and resize the graphic unasked).
-                    let r = ui.add(egui::DragValue::new(&mut v).speed(1.0).range(36.0..=2000.0).clamp_existing_to_range(false).suffix(" pt"));
-                    if r.changed() && v != v0 {
+                    let field = egui::DragValue::new(&mut v).speed(1.0 / k).range(36.0 / k..=2000.0 / k).clamp_existing_to_range(false);
+                    let r = ui.add(field.measure(unit).max_decimals(2)).labelled_by(name.id);
+                    if r.changed() && v != was {
                         if r.dragged() && !r.drag_started() {
                             app.session.join_next_undo();
                         }
-                        let _ = app.run("picture.size", json!({key: v, "lockAspect": false}));
+                        let _ = app.run("picture.size", json!({key: v * k, "lockAspect": false}));
                     }
                 });
             }

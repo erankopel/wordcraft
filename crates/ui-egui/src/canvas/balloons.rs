@@ -1,13 +1,80 @@
-use super::geometry::{FLOAT_WIDTH, floating_comments, markup_width, shown_comment};
+use super::geometry::{FLOAT_WIDTH, floating_comments, markup_left, markup_width, shown_comment};
 use super::pages::page_screen_scale;
 use super::{
     Color32, CommentDisplay, DocLayout, HashMap, PX_PER_PT, Pos, Pos2, Rect, Sense, StoryRef, Stroke, Tokens, Ui, WordApp, json, pos2, regular,
     semibold, vec2,
 };
 
-/// Comment balloons in the markup area right of each page, joined to their anchors, with each
-/// comment's replies under it. Clicking a balloon selects it, like Word: its text becomes editable
-/// in place, with Reply, Resolve and Delete (the same commands as the Comments pane).
+/// The side of the page the markup area and the balloons are on ([`markup_left`]), and the
+/// places that follow from it. A balloon's author stripe and its text start on the side next to
+/// the page's edge it is joined to: mirrored, the card reads from the right.
+#[derive(Clone, Copy)]
+struct Side {
+    left: bool,
+}
+
+impl Side {
+    /// The markup area `width` wide beside page `pr`.
+    fn area(self, pr: Rect, width: f32) -> Rect {
+        if self.left {
+            Rect::from_min_max(pos2(pr.min.x - width, pr.min.y), pos2(pr.min.x, pr.max.y))
+        } else {
+            Rect::from_min_max(pos2(pr.max.x, pr.min.y), pos2(pr.max.x + width, pr.max.y))
+        }
+    }
+
+    /// The edge of the area against the page.
+    fn inner_edge(self, area: Rect) -> f32 {
+        if self.left { area.max.x } else { area.min.x }
+    }
+
+    /// The page edge a leader runs along the text to.
+    fn page_edge(self, pr: Rect) -> f32 {
+        if self.left { pr.min.x } else { pr.max.x }
+    }
+
+    /// The left x of a card `w` wide beside page `pr`, and whether it had to go over the page's
+    /// edge because the view has no room beside it (`fixed`: the markup column, always room).
+    fn card_x(self, pr: Rect, w: f32, view: Rect, fixed: bool) -> (f32, bool) {
+        let beside = if self.left { pr.min.x - 10.0 - w } else { pr.max.x + 10.0 };
+        if fixed {
+            return (beside, false);
+        }
+        let fits = if self.left { beside >= view.min.x + 8.0 } else { beside + w <= view.max.x - 8.0 };
+        if fits {
+            (beside, false)
+        } else if self.left {
+            ((view.min.x + 8.0).min(view.max.x - w - 8.0), true)
+        } else {
+            ((view.max.x - w - 8.0).max(view.min.x + 8.0), true)
+        }
+    }
+
+    /// Where a leader meets a card whose left x is `x0`.
+    fn card_edge(self, x0: f32, w: f32) -> f32 {
+        if self.left { x0 + w } else { x0 }
+    }
+
+    /// The x a card's text starts from, the stripe's side having the wider margin.
+    fn text_x(self, card: Rect) -> f32 {
+        if self.left { card.min.x + 6.0 } else { card.min.x + 10.0 }
+    }
+
+    /// The x range of the hairline above a reply: in from the stripe's side as far as its text.
+    fn rule(self, card: Rect) -> std::ops::RangeInclusive<f32> {
+        if self.left { card.min.x + 8.0..=card.max.x - 10.0 } else { card.min.x + 10.0..=card.max.x - 8.0 }
+    }
+
+    /// The left x of a line of text `width` wide set against the card's reading side.
+    fn line_x(self, card: Rect, width: f32) -> f32 {
+        if self.left { card.max.x - 10.0 - width } else { card.min.x + 10.0 }
+    }
+}
+
+/// Comment balloons in the markup area beside each page (right of it, or left in a mirrored
+/// interface), joined to their anchors, with each comment's replies under it. Clicking a balloon
+/// selects it, like Word: its text becomes editable in place, with Reply, Resolve and Delete (the
+/// same commands as the Comments pane).
 pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Rect], layout: &DocLayout, scale: f32, view: Rect) {
     app.canvas.balloon_rects.clear();
     let mw = markup_width(app);
@@ -27,13 +94,15 @@ pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, 
     let leaders = t.leader_colors;
     let mut authors: Vec<String> = Vec::new();
     let mut clicked: Option<(u32, Pos)> = None;
+    let side = Side { left: markup_left() };
     // The markup area extends each page.
     for (pi, pr) in rects.iter().enumerate() {
         let page_scale = layout.pages.get(pi).map_or(scale, |page| page_screen_scale(*pr, page, scale));
-        let area = Rect::from_min_max(pos2(pr.max.x, pr.min.y), pos2(pr.max.x + mw * page_scale, pr.max.y));
+        let area = side.area(*pr, mw * page_scale);
         if mw > 0.0 && area.intersects(clip) {
             painter.rect_filled(area, 0.0, t.markup_area);
-            painter.line_segment([area.left_top(), area.left_bottom()], Stroke::new(1.0, t.markup_edge));
+            let edge = side.inner_edge(area);
+            painter.line_segment([pos2(edge, area.top()), pos2(edge, area.bottom())], Stroke::new(1.0, t.markup_edge));
         }
     }
     let mut pages: Vec<usize> = by_page.keys().copied().collect();
@@ -47,13 +116,9 @@ pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, 
         list.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
         let page_scale = layout.pages.get(pi).map_or(scale, |page| page_screen_scale(*pr, page, scale));
         // Beside the page in the column; floating, beside it when the view has room, else over its edge.
-        let (x0, w, over_page) = if mw > 0.0 {
-            (pr.max.x + 10.0, (mw * page_scale - 20.0).max(60.0), false)
-        } else {
-            let w = (FLOAT_WIDTH * page_scale - 20.0).max(60.0);
-            let beside = pr.max.x + 10.0;
-            if beside + w <= view.max.x - 8.0 { (beside, w, false) } else { ((view.max.x - w - 8.0).max(view.min.x + 8.0), w, true) }
-        };
+        let w = if mw > 0.0 { (mw * page_scale - 20.0).max(60.0) } else { (FLOAT_WIDTH * page_scale - 20.0).max(60.0) };
+        let (x0, over_page) = side.card_x(*pr, w, view, mw > 0.0);
+        let (page_edge, card_edge) = (side.page_edge(*pr), side.card_edge(x0, w));
         let mut next_y = pr.min.y;
         for (ax, ay, item, pos) in list.iter() {
             let id = match item {
@@ -78,13 +143,14 @@ pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, 
                     }
                     let lead = Stroke::new(1.0, color.linear_multiply(0.7));
                     let on_page = Stroke::new(1.0, leaders.get(ai % leaders.len()).copied().unwrap_or(color).linear_multiply(0.7));
-                    dashed(painter, anchor, pos2(pr.max.x, anchor.y), on_page);
-                    painter.line_segment([pos2(pr.max.x, anchor.y), pos2(x0, top + 10.0)], lead);
+                    dashed(painter, anchor, pos2(page_edge, anchor.y), on_page);
+                    painter.line_segment([pos2(page_edge, anchor.y), pos2(card_edge, top + 10.0)], lead);
                     card_shapes(painter, &t, card, color, false, None);
                     let y = card.min.y + 6.0;
                     let hh = head.size().y;
-                    painter.galley(pos2(card.min.x + 10.0, y), head, t.text);
-                    painter.galley(pos2(card.min.x + 10.0, y + hh + 4.0), body, t.text_dim);
+                    let (hx, bx) = (side.line_x(card, head.size().x), side.line_x(card, body.size().x));
+                    painter.galley(pos2(hx, y), head, t.text);
+                    painter.galley(pos2(bx, y + hh + 4.0), body, t.text_dim);
                     continue;
                 }
             };
@@ -113,12 +179,13 @@ pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, 
                 for (i, cid) in std::iter::once(*id).chain(thread.iter().copied()).enumerate() {
                     let Some(r) = app.session.doc.comments.get(&cid) else { continue };
                     let gap = if i == 0 { 0.0 } else { 9.0 };
-                    let g = balloon_text(painter, author_name(&r.author), semibold(fs), t.text, w - 16.0);
+                    // Who and when start on the card's reading side; the comment by its own direction.
+                    let g = balloon_line(painter, author_name(&r.author), semibold(fs), t.text, w - 16.0, side.left);
                     let h = g.height();
                     lines.push((g, gap, i > 0, h));
                     let when = crate::local_time::comment_time(r);
                     if !when.is_empty() {
-                        let g = balloon_text(painter, when, small.clone(), t.text_dim, w - 16.0);
+                        let g = balloon_line(painter, when, small.clone(), t.text_dim, w - 16.0, side.left);
                         let h = g.height();
                         lines.push((g, 1.0, false, h));
                     }
@@ -142,8 +209,8 @@ pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, 
                     lead.width,
                     leaders.get(ai % leaders.len()).copied().unwrap_or(color).linear_multiply(if selected { 1.0 } else { 0.7 }),
                 );
-                dashed(painter, anchor, pos2(pr.max.x, anchor.y), on_page);
-                painter.line_segment([pos2(pr.max.x, anchor.y), pos2(x0, top + 10.0)], lead);
+                dashed(painter, anchor, pos2(page_edge, anchor.y), on_page);
+                painter.line_segment([pos2(page_edge, anchor.y), pos2(card_edge, top + 10.0)], lead);
             }
             let card = if active {
                 active_balloon(app, ui, painter, ActiveBalloon { id: *id, thread: &thread, card, font_size: fs, color })
@@ -155,7 +222,7 @@ pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, 
                     y += gap;
                     if rule {
                         // A reply starts: a hairline between it and what it answers.
-                        painter.hline(card.min.x + 10.0..=card.max.x - 8.0, y - gap / 2.0, Stroke::new(1.0, t.border));
+                        painter.hline(side.rule(card), y - gap / 2.0, Stroke::new(1.0, t.border));
                     }
                     // A body cut off at its shown rows paints none of the rows below them.
                     let shown = if h < g.height() {
@@ -163,7 +230,7 @@ pub(super) fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, 
                     } else {
                         text_painter.clone()
                     };
-                    g.paint(&shown, pos2(card.min.x + 10.0, y), t.text);
+                    g.paint(&shown, pos2(side.text_x(card), y), t.text);
                     y += h;
                 }
                 let r = ui.interact(card, ui.scope_id().with(("balloon", *id)), Sense::click());
@@ -257,14 +324,20 @@ fn author_name(a: &str) -> String {
     if a.is_empty() { tl!("Author").to_string() } else { a.to_string() }
 }
 
-/// A balloon card's background, border and author-colour stripe; `slot` paints them under
-/// widgets added before the card's size was known.
+/// A balloon card's background, border and author-colour stripe (on the side its text starts
+/// from: the right in a mirrored interface); `slot` paints them under widgets added before the
+/// card's size was known.
 fn card_shapes(painter: &egui::Painter, t: &Tokens, card: Rect, color: Color32, selected: bool, slot: Option<egui::layers::ShapeIdx>) {
+    let stripe = if markup_left() {
+        (Rect::from_min_size(pos2(card.max.x - 4.0, card.min.y), vec2(4.0, card.height())), egui::CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 })
+    } else {
+        (Rect::from_min_size(card.min, vec2(4.0, card.height())), egui::CornerRadius { nw: 4, sw: 4, ne: 0, se: 0 })
+    };
     let shapes = vec![
         egui::Shape::rect_filled(card.translate(vec2(0.0, 1.0)), 4.0, t.page_shadow),
         egui::Shape::rect_filled(card, 4.0, if selected { t.checked } else { t.balloon }),
         egui::Shape::rect_stroke(card, 4.0, Stroke::new(if selected { 1.5 } else { 1.0 }, color), egui::StrokeKind::Inside),
-        egui::Shape::rect_filled(Rect::from_min_size(card.min, vec2(4.0, card.height())), egui::CornerRadius { nw: 4, sw: 4, ne: 0, se: 0 }, color),
+        egui::Shape::rect_filled(stripe.0, stripe.1, color),
     ];
     match slot {
         Some(i) => painter.set(i, egui::Shape::Vec(shapes)),
@@ -288,12 +361,22 @@ fn shown_height(g: &craft_ui::text::AlignedGalley) -> f32 {
 /// character. Place each already-shaped row against the card's start edge, including neutral
 /// paragraphs inheriting their predecessor's direction. Logical text and glyph order stay intact.
 pub(super) fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color: Color32, width: f32) -> craft_ui::text::AlignedGalley {
+    balloon_line(painter, text, font, color, width, false)
+}
+
+/// [`balloon_text`], every row against the right edge when `right` (a mirrored card's author and
+/// time, whatever their script).
+fn balloon_line(painter: &egui::Painter, text: String, font: egui::FontId, color: Color32, width: f32, right: bool) -> craft_ui::text::AlignedGalley {
     let mut job = egui::text::LayoutJob::simple(text, font, color, width);
     job.direction = egui::epaint::text::TextDirection::Auto;
     job.halign = egui::Align::Min;
     // Row placement below supplies the reading edge, including empty RTL rows.
     job.halign_min_is_start = false;
-    craft_ui::text::align_galley_rows(painter.layout_job(job), width, |row| if row.rtl_paragraph { egui::Align::Max } else { egui::Align::Min })
+    craft_ui::text::align_galley_rows(
+        painter.layout_job(job),
+        width,
+        |row| if right || row.rtl_paragraph { egui::Align::Max } else { egui::Align::Min },
+    )
 }
 
 /// The selected balloon: the comment and its replies, each with who wrote it and when, as
@@ -306,8 +389,13 @@ fn active_balloon(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, ballo
     let slot = painter.add(egui::Shape::Noop);
     // The card's own click area sits under its fields, so a click on its padding stays here.
     let _ = ui.interact(card, ui.scope_id().with(("balloon", id)), Sense::click());
-    let inner = Rect::from_min_max(pos2(card.min.x + 10.0, card.min.y + 6.0), pos2(card.max.x - 6.0, card.min.y + 20_000.0));
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
+    // Mirrored, the card reads from the right: its stripe and wider margin are there, and its rows
+    // (who, when, the buttons) start there.
+    let left = markup_left();
+    let (lead, trail) = if left { (6.0, 10.0) } else { (10.0, 6.0) };
+    let inner = Rect::from_min_max(pos2(card.min.x + lead, card.min.y + 6.0), pos2(card.max.x - trail, card.min.y + 20_000.0));
+    let align = if left { egui::Align::Max } else { egui::Align::Min };
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(align)));
     child.spacing_mut().item_spacing.y = 3.0;
     let (font, bold, small) = (regular(fs), semibold(fs), regular((fs * 0.9).max(8.0)));
     let focus = std::mem::take(&mut app.canvas.balloon_focus);

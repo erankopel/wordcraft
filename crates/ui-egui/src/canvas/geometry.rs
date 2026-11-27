@@ -90,6 +90,13 @@ pub(super) fn shown_comment(app: &WordApp) -> Option<u32> {
     app.canvas.balloon.or_else(|| wordcraft_engine::cmd::review::comment_range_at_caret(&app.session))
 }
 
+/// Is the markup area (comment and revision balloons) on the left of each page? In a mirrored,
+/// right-to-left interface it is, as a right-to-left reader's margin notes are; elsewhere it is
+/// on the right.
+pub(super) fn markup_left() -> bool {
+    crate::rtl::on()
+}
+
 /// Width of the markup area beside each page for comment and revision balloons (points), or 0.
 pub fn markup_width(app: &WordApp) -> f32 {
     // Word shows comments either in balloons (contextual) or in the Comments pane (list); Track
@@ -216,6 +223,12 @@ pub fn geometry(app: &WordApp, l: &DocLayout, avail: egui::Vec2) -> Geometry {
         return Geometry { rects, size, scale, cols: 1, bands };
     }
     let (mut rects, mut size) = place_pages(&sizes, markup, scale, cols, avail);
+    if markup > 0.0 && markup_left() {
+        // Each slot is a page and its markup area: the area goes first, the page after it.
+        for r in &mut rects {
+            *r = r.translate(vec2(markup * scale, 0.0));
+        }
+    }
     let mut bands: Vec<(f32, f32)> = rects.iter().map(|r| (0.0, r.height())).collect();
     let editing_part = matches!(app.session.sel.focus.story, StoryRef::Part(_));
     if v.hide_white_space && v.mode == wordcraft_layout::ViewMode::Print && !v.read_mode && cols == 1 && !editing_part && rects.len() > 1 {

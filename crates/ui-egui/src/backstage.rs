@@ -251,26 +251,36 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
         ui.label(tl!("No recovery copies."));
     }
     let busy = app.session.recovery_busy();
-    crate::rtl::grid(ui, egui::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)), |ui| {
+    // Mirrored in a right-to-left interface: the document at the right, its buttons at the left.
+    let table = crate::rtl::Table::new("recovery_documents").columns(3).spacing(vec2(24.0, 16.0));
+    table.show(ui, |rows| {
+        let column = |ui: &mut Ui, text: egui::WidgetText| {
+            ui.set_min_width(180.0);
+            ui.label(text)
+        };
         if !documents.is_empty() {
-            ui.strong(tl!("Document"));
-            ui.strong(tl!("Recovery copy"));
-            ui.end_row();
+            rows.row(|r| {
+                r.cell(|ui| column(ui, egui::RichText::new(tl!("Document")).strong().into()));
+                r.cell(|ui| column(ui, egui::RichText::new(tl!("Recovery copy")).strong().into()));
+            });
         }
         for doc in documents {
-            ui.label(&doc.name);
-            ui.label(&doc.saved_at);
-            ui.add_enabled_ui(!busy, |ui| {
-                ui.horizontal(|ui| {
-                    if ui.button(tl!("Restore")).clicked() {
-                        let _ = app.run("file.recover", json!({"restore": doc.id}));
-                    }
-                    if ui.button(tl!("Discard…")).clicked() {
-                        let _ = app.run("ui.recoveryDiscard", json!({"id": doc.id}));
-                    }
+            rows.row(|r| {
+                r.cell(|ui| column(ui, crate::i18n::isolate(&doc.name).into()));
+                r.cell(|ui| column(ui, doc.saved_at.as_str().into()));
+                r.cell(|ui| {
+                    ui.add_enabled_ui(!busy, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.button(tl!("Restore")).clicked() {
+                                let _ = app.run("file.recover", json!({"restore": doc.id}));
+                            }
+                            if ui.button(tl!("Discard…")).clicked() {
+                                let _ = app.run("ui.recoveryDiscard", json!({"id": doc.id}));
+                            }
+                        });
+                    })
                 });
             });
-            ui.end_row();
         }
     });
     ui.add_space(20.0);
@@ -424,7 +434,9 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
         }
     });
     ui.add_space(8.0);
-    let more = ui.add(egui::Label::new(egui::RichText::new(tl!("More templates →")).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
+    let more = ui.add(
+        egui::Label::new(egui::RichText::new(crate::rtl::forward(tl!("More templates →"))).font(medium(13.5)).color(t.accent)).sense(Sense::click()),
+    );
     if more.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
         app.ui.backstage_page = "new".into();
     }
@@ -439,7 +451,8 @@ fn new_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "New");
     let id = app.window_id("backstage_template_search");
     let mut query = ui.ctx().data(|d| d.get_temp::<String>(id)).unwrap_or_default();
-    let search = ui.add(egui::TextEdit::singleline(&mut query).hint_text(tl!("Search for templates")).desired_width(360.0));
+    let search =
+        ui.add(egui::TextEdit::singleline(&mut query).hint_text(tl!("Search for templates")).desired_width(360.0).align(crate::rtl::field_align()));
     if search.changed() {
         ui.ctx().data_mut(|d| d.insert_temp(id, query.clone()));
     }

@@ -56,12 +56,15 @@ fn capitalised(text: &str) -> String {
 /// usual delay (egui itself only hints for the pointer), unless the pointer is busy elsewhere or a
 /// menu is open, whose hint would otherwise be drawn over the menu.
 pub(super) fn show_hint(resp: &Response, title: &str, notes: &[String]) {
+    // Its lines start at the right in a right-to-left interface, like every other popup.
     let add = |ui: &mut Ui| {
         ui.set_max_width(260.0);
-        ui.label(egui::RichText::new(title).font(crate::theme::semibold(12.0)));
-        for n in notes {
-            ui.label(egui::RichText::new(n).small().weak());
-        }
+        crate::rtl::root(ui, |ui| {
+            ui.label(egui::RichText::new(title).font(crate::theme::semibold(12.0)));
+            for n in notes {
+                ui.label(egui::RichText::new(n).small().weak());
+            }
+        });
     };
     let ctx = &resp.ctx;
     let since_key = id_since_focus(resp);

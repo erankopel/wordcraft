@@ -338,29 +338,33 @@ pub(crate) fn bar(app: &mut WordApp, ui: &mut Ui) {
             let bottom = ui.max_rect().bottom();
             let full = ui.max_rect();
             ui.painter().hline(full.x_range(), bottom - 0.5, egui::Stroke::new(1.0, t.border));
-            ui.horizontal_centered(|ui| {
-                let language = shown(&language_of(&pack.locale, &pack.name), MAX_BAR_NAME);
-                ui.label(RichText::new(crate::i18n::fmt(tl!("{language} proofing isn't installed."), &[("language", &language)])).color(t.text));
-                match progress(&pack.locale) {
-                    Some((done, total)) => {
-                        let pct = (done.min(total) * 100 / total).to_string();
-                        ui.label(RichText::new(crate::i18n::fmt(tl!("Installing… {percent}%"), &[("percent", &pct)])).color(t.text_dim));
-                    }
-                    None => {
-                        let label = crate::i18n::fmt(tl!("Install ({size})"), &[("size", &size_text(pack.size))]);
-                        if ui.add(crate::widgets::primary_button(ui, label)).on_hover_text(licence_hover(&pack)).clicked() {
-                            start_install(app, &ui.ctx().clone(), &pack);
+            // Mirrored with the window: the message reads from the right, Install after it,
+            // and Not now at the far (left) end.
+            crate::rtl::root(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    let language = shown(&language_of(&pack.locale, &pack.name), MAX_BAR_NAME);
+                    ui.label(RichText::new(crate::i18n::fmt(tl!("{language} proofing isn't installed."), &[("language", &language)])).color(t.text));
+                    match progress(&pack.locale) {
+                        Some((done, total)) => {
+                            let pct = (done.min(total) * 100 / total).to_string();
+                            ui.label(RichText::new(crate::i18n::fmt(tl!("Installing… {percent}%"), &[("percent", &pct)])).color(t.text_dim));
+                        }
+                        None => {
+                            let label = crate::i18n::fmt(tl!("Install ({size})"), &[("size", &size_text(pack.size))]);
+                            if ui.add(crate::widgets::primary_button(ui, label)).on_hover_text(licence_hover(&pack)).clicked() {
+                                start_install(app, &ui.ctx().clone(), &pack);
+                            }
                         }
                     }
-                }
-                if let Some(e) = error_of(app, &pack.locale) {
-                    ui.add(egui::Label::new(RichText::new(e).color(t.red)).truncate());
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if crate::widgets::icon_button(ui, "close", tl!("Not now")).clicked() {
-                        app.packs_rt.dismissed.insert((document, pack.locale.clone()));
+                    if let Some(e) = error_of(app, &pack.locale) {
+                        ui.add(egui::Label::new(RichText::new(e).color(t.red)).truncate());
                     }
-                });
+                    ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
+                        if crate::widgets::icon_button(ui, "close", tl!("Not now")).clicked() {
+                            app.packs_rt.dismissed.insert((document, pack.locale.clone()));
+                        }
+                    });
+                })
             });
         });
 }
@@ -397,31 +401,33 @@ fn unlisted_bar(app: &mut WordApp, ui: &mut Ui, tag: &str) {
             let bottom = ui.max_rect().bottom();
             let full = ui.max_rect();
             ui.painter().hline(full.x_range(), bottom - 0.5, egui::Stroke::new(1.0, t.border));
-            ui.horizontal_centered(|ui| {
-                let language = shown(&language_of(&tag.to_ascii_lowercase(), ""), MAX_BAR_NAME);
-                ui.label(RichText::new(crate::i18n::fmt(tl!("{language} proofing isn't installed."), &[("language", &language)])).color(t.text));
-                if fetching {
-                    ui.spinner();
-                    ui.label(RichText::new(tl!("Getting the list of languages…")).color(t.text_dim));
-                } else {
-                    let mut hover = vec![tl!("Gets the list of Language packs, then this language's pack if there is one.").to_string()];
-                    if packs::backend().is_some_and(|b| !b.network_on()) {
-                        hover.push(tl!("Installing turns on downloading of fonts and Language packs from GitHub.").to_string());
+            crate::rtl::root(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    let language = shown(&language_of(&tag.to_ascii_lowercase(), ""), MAX_BAR_NAME);
+                    ui.label(RichText::new(crate::i18n::fmt(tl!("{language} proofing isn't installed."), &[("language", &language)])).color(t.text));
+                    if fetching {
+                        ui.spinner();
+                        ui.label(RichText::new(tl!("Getting the list of languages…")).color(t.text_dim));
+                    } else {
+                        let mut hover = vec![tl!("Gets the list of Language packs, then this language's pack if there is one.").to_string()];
+                        if packs::backend().is_some_and(|b| !b.network_on()) {
+                            hover.push(tl!("Installing turns on downloading of fonts and Language packs from GitHub.").to_string());
+                        }
+                        if ui.add(crate::widgets::primary_button(ui, tl!("Install").to_string())).on_hover_text(hover.join("\n")).clicked() {
+                            start_get(app, &ui.ctx().clone(), tag);
+                        }
                     }
-                    if ui.add(crate::widgets::primary_button(ui, tl!("Install").to_string())).on_hover_text(hover.join("\n")).clicked() {
-                        start_get(app, &ui.ctx().clone(), tag);
+                    // The window's own failure (consent), else the list's when the person asked.
+                    let e = app.packs_rt.errors.get("").cloned().or_else(|| if app.packs_rt.asked { error_of(app, "") } else { None });
+                    if let Some(e) = e {
+                        ui.add(egui::Label::new(RichText::new(e).color(t.red)).truncate());
                     }
-                }
-                // The window's own failure (consent), else the list's when the person asked.
-                let e = app.packs_rt.errors.get("").cloned().or_else(|| if app.packs_rt.asked { error_of(app, "") } else { None });
-                if let Some(e) = e {
-                    ui.add(egui::Label::new(RichText::new(e).color(t.red)).truncate());
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if crate::widgets::icon_button(ui, "close", tl!("Not now")).clicked() {
-                        app.packs_rt.dismissed_tags.insert((document, tag.to_string()));
-                    }
-                });
+                    ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
+                        if crate::widgets::icon_button(ui, "close", tl!("Not now")).clicked() {
+                            app.packs_rt.dismissed_tags.insert((document, tag.to_string()));
+                        }
+                    });
+                })
             });
         });
 }
@@ -571,119 +577,82 @@ pub(crate) fn your_languages_section(app: &mut WordApp, ui: &mut Ui) {
     // As wide as the window leaves room for (the rows scroll sideways in a narrow one).
     let room = (ui.ctx().content_rect().right() - ui.cursor().min.x - 16.0).clamp(200.0, 760.0);
     let narrow = room < 660.0;
-    egui::ScrollArea::both().id_salt("options_your_languages").max_width(room).max_height(300.0).auto_shrink([false, true]).show(ui, |ui| {
-        crate::rtl::grid(
-            ui,
-            egui::Grid::new("options_your_languages_grid").num_columns(if narrow { 2 } else { 3 }).spacing(vec2(16.0, 8.0)).striped(true),
-            |ui| {
-                for (name, detail, row) in &view {
-                    let mut actions = |ui: &mut Ui| {
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-                            if !row.default
-                                && ui
-                                    .small_button(tl!("Set as default"))
-                                    .on_hover_text(tl!("New blank documents are written in this language"))
-                                    .clicked()
-                            {
-                                default = Some(row_tag(row));
-                            }
-                            if row.installed
-                                && let Some(locale) = &row.pack
-                                && ui.add_enabled(!busy(), egui::Button::new(tl!("Remove")).small()).clicked()
-                            {
-                                removal = Some(locale.clone());
-                            }
-                        });
-                    };
-                    let here = caret.as_deref().is_some_and(|c| row.is_tag(c));
-                    ui.vertical(|ui| {
-                        ui.set_width(if narrow { 170.0 } else { 250.0 });
-                        let shown_name = shown(name, MAX_BAR_NAME);
-                        let line = if row.default { crate::i18n::fmt(tl!("{language} (default)"), &[("language", &shown_name)]) } else { shown_name };
-                        ui.label(if here { RichText::new(line).font(semibold(14.0)) } else { RichText::new(line) });
-                        ui.label(RichText::new(detail.as_str()).small().weak());
-                    });
-                    let pack = row.pack.as_deref().and_then(|l| index.iter().find(|p| p.locale == l));
-                    let size = size_text(row.size);
-                    ui.vertical(|ui| {
-                        ui.set_width(190.0);
-                        match row.proofing {
-                            Proofing::BuiltIn => {
-                                ui.label(tl!("Built in"));
-                            }
-                            Proofing::Installed => {
-                                ui.label(RichText::new(tl!("Installed")).color(t.green));
-                            }
-                            Proofing::OwnDictionary => {
-                                ui.label(tl!("Your own dictionary"));
-                            }
-                            Proofing::SystemDictionary => {
-                                ui.label(tl!("System dictionary"));
-                            }
-                            Proofing::NotAvailable => {
-                                ui.label(RichText::new(tl!("Not available yet")).weak());
-                            }
-                            Proofing::GrammarBuiltIn => {
-                                ui.label(tl!("Grammar built in"));
-                            }
-                            Proofing::Install => {}
-                        }
-                        if let Some(pack) = pack
-                            && !row.installed
-                            && matches!(row.proofing, Proofing::Install | Proofing::GrammarBuiltIn)
+    // Mirrored, the rows read from the right: the name first, Remove and Set as default at the
+    // left end. A mirrored table can't scroll sideways (it grows from the right edge), and the
+    // narrow layout keeps it within the room.
+    let area = if crate::rtl::flows(ui) { egui::ScrollArea::vertical() } else { egui::ScrollArea::both() };
+    area.id_salt("options_your_languages").max_width(room).max_height(300.0).auto_shrink([false, true]).show(ui, |ui| {
+        let table = crate::rtl::Table::new("options_your_languages_grid").columns(if narrow { 2 } else { 3 }).spacing(vec2(16.0, 8.0));
+        table.striped(true).top().show(ui, |rows| {
+            for (name, detail, row) in &view {
+                let mut actions = |ui: &mut Ui| {
+                    ui.with_layout(crate::rtl::row_layout(ui, egui::Align::TOP), |ui| {
+                        if !row.default
+                            && ui.small_button(tl!("Set as default")).on_hover_text(tl!("New blank documents are written in this language")).clicked()
                         {
-                            match progress(&pack.locale) {
-                                Some((done, total)) => {
-                                    ui.horizontal(|ui| {
-                                        ui.add(egui::ProgressBar::new(done.min(total) as f32 / total as f32).desired_width(90.0).show_percentage());
-                                        if ui.small_button(tl!("Cancel")).clicked() {
-                                            packs::cancel(&pack.locale);
-                                        }
-                                    });
-                                }
-                                None => {
-                                    let label = if row.proofing == Proofing::Install {
-                                        crate::i18n::fmt(tl!("Install ({size})"), &[("size", &size)])
-                                    } else {
-                                        crate::i18n::fmt(tl!("Install spelling ({size})"), &[("size", &size)])
-                                    };
-                                    if ui.button(label).on_hover_text(licence_hover(pack)).clicked() {
-                                        install = Some(pack.clone());
-                                    }
-                                }
+                            default = Some(row_tag(row));
+                        }
+                        if row.installed
+                            && let Some(locale) = &row.pack
+                            && ui.add_enabled(!busy(), egui::Button::new(tl!("Remove")).small()).clicked()
+                        {
+                            removal = Some(locale.clone());
+                        }
+                    });
+                };
+                let here = caret.as_deref().is_some_and(|c| row.is_tag(c));
+                let pack = row.pack.as_deref().and_then(|l| index.iter().find(|p| p.locale == l));
+                let size = size_text(row.size);
+                rows.row(|cells| {
+                    cells.cell(|ui| {
+                        crate::rtl::vertical(ui, |ui| {
+                            ui.set_width(if narrow { 170.0 } else { 250.0 });
+                            let shown_name = shown(name, MAX_BAR_NAME);
+                            let line =
+                                if row.default { crate::i18n::fmt(tl!("{language} (default)"), &[("language", &shown_name)]) } else { shown_name };
+                            ui.label(if here { RichText::new(line).font(semibold(14.0)) } else { RichText::new(line) });
+                            ui.label(RichText::new(detail.as_str()).small().weak());
+                        })
+                    });
+                    cells.cell(|ui| {
+                        crate::rtl::vertical(ui, |ui| {
+                            ui.set_width(190.0);
+                            proofing_cell(ui, &t, row, pack, &size, &mut install);
+                            if narrow {
+                                actions(ui);
                             }
-                        }
-                        if narrow {
-                            actions(ui);
-                        }
+                        })
                     });
                     if !narrow {
-                        actions(ui);
+                        cells.cell(|ui| actions(ui));
                     }
-                    ui.end_row();
-                    let error = row.pack.as_deref().and_then(|l| error_of(app, l));
-                    let unreadable = (matches!(row.proofing, Proofing::OwnDictionary | Proofing::SystemDictionary))
-                        .then(|| wordcraft_engine::proof::dictionary_load_error(wordcraft_engine::proof::ProofLang::from_tag(Some(&row_tag(row)))))
-                        .flatten();
-                    if error.is_some() || unreadable.is_some() {
-                        ui.label("");
-                        ui.vertical(|ui| {
-                            if let Some(e) = error {
-                                ui.add(egui::Label::new(RichText::new(e).small().color(t.red)).wrap());
-                            }
-                            if let Some(reason) = unreadable {
-                                let line = crate::i18n::fmt(tl!("Its dictionary couldn't be read: {reason}"), &[("reason", &shown_error(&reason))]);
-                                ui.add(egui::Label::new(RichText::new(line).small().color(t.red)).wrap());
-                            }
+                });
+                let error = row.pack.as_deref().and_then(|l| error_of(app, l));
+                let unreadable = (matches!(row.proofing, Proofing::OwnDictionary | Proofing::SystemDictionary))
+                    .then(|| wordcraft_engine::proof::dictionary_load_error(wordcraft_engine::proof::ProofLang::from_tag(Some(&row_tag(row)))))
+                    .flatten();
+                if error.is_some() || unreadable.is_some() {
+                    rows.row(|cells| {
+                        cells.cell(|ui| ui.label(""));
+                        cells.cell(|ui| {
+                            crate::rtl::vertical(ui, |ui| {
+                                if let Some(e) = error {
+                                    ui.add(egui::Label::new(RichText::new(e).small().color(t.red)).wrap());
+                                }
+                                if let Some(reason) = unreadable {
+                                    let line =
+                                        crate::i18n::fmt(tl!("Its dictionary couldn't be read: {reason}"), &[("reason", &shown_error(&reason))]);
+                                    ui.add(egui::Label::new(RichText::new(line).small().color(t.red)).wrap());
+                                }
+                            })
                         });
                         if !narrow {
-                            ui.label("");
+                            cells.cell(|ui| ui.label(""));
                         }
-                        ui.end_row();
-                    }
+                    });
                 }
-            },
-        );
+            }
+        });
     });
     ui.add_space(4.0);
     if let Some(e) = error_of(app, "") {
@@ -717,6 +686,56 @@ pub(crate) fn your_languages_section(app: &mut WordApp, ui: &mut Ui) {
         && let Err(e) = app.run("review.language.preferred", json!({"lang": tag}))
     {
         app.status(e);
+    }
+}
+
+/// A row's proofing: where it comes from, or Install (or its progress) for a pack to download.
+fn proofing_cell(ui: &mut Ui, t: &Tokens, row: &LanguageRow, pack: Option<&Pack>, size: &str, install: &mut Option<Pack>) {
+    match row.proofing {
+        Proofing::BuiltIn => {
+            ui.label(tl!("Built in"));
+        }
+        Proofing::Installed => {
+            ui.label(RichText::new(tl!("Installed")).color(t.green));
+        }
+        Proofing::OwnDictionary => {
+            ui.label(tl!("Your own dictionary"));
+        }
+        Proofing::SystemDictionary => {
+            ui.label(tl!("System dictionary"));
+        }
+        Proofing::NotAvailable => {
+            ui.label(RichText::new(tl!("Not available yet")).weak());
+        }
+        Proofing::GrammarBuiltIn => {
+            ui.label(tl!("Grammar built in"));
+        }
+        Proofing::Install => {}
+    }
+    if let Some(pack) = pack
+        && !row.installed
+        && matches!(row.proofing, Proofing::Install | Proofing::GrammarBuiltIn)
+    {
+        match progress(&pack.locale) {
+            Some((done, total)) => {
+                ui.horizontal(|ui| {
+                    ui.add(egui::ProgressBar::new(done.min(total) as f32 / total as f32).desired_width(90.0).show_percentage());
+                    if ui.small_button(tl!("Cancel")).clicked() {
+                        packs::cancel(&pack.locale);
+                    }
+                });
+            }
+            None => {
+                let label = if row.proofing == Proofing::Install {
+                    crate::i18n::fmt(tl!("Install ({size})"), &[("size", size)])
+                } else {
+                    crate::i18n::fmt(tl!("Install spelling ({size})"), &[("size", size)])
+                };
+                if ui.button(label).on_hover_text(licence_hover(pack)).clicked() {
+                    *install = Some(pack.clone());
+                }
+            }
+        }
     }
 }
 
@@ -785,46 +804,61 @@ pub(crate) fn add_language_window(app: &mut WordApp, ctx: &egui::Context) {
                     ui.label(RichText::new(text).weak());
                 }
                 let mut install = None;
-                egui::ScrollArea::both().id_salt("add_language_list").max_height(340.0).auto_shrink([true, true]).show(ui, |ui| {
-                    crate::rtl::grid(ui, egui::Grid::new("add_language_grid").num_columns(4).spacing(vec2(14.0, 8.0)).striped(true), |ui| {
+                // Mirrored, each row reads from the right (name, size, licence, Install); a
+                // mirrored table grows from the right edge, so the list scrolls only down.
+                let area = if crate::rtl::flows(ui) { egui::ScrollArea::vertical() } else { egui::ScrollArea::both() };
+                area.id_salt("add_language_list").max_height(340.0).auto_shrink([true, true]).show(ui, |ui| {
+                    let table = crate::rtl::Table::new("add_language_grid").columns(4).spacing(vec2(14.0, 8.0)).striped(true);
+                    table.show(ui, |rows| {
                         for (name, pack) in &list {
-                            ui.vertical(|ui| {
-                                ui.set_width(180.0);
-                                ui.label(name.as_str());
-                                let endonym = shown(&pack.name, MAX_BAR_NAME);
-                                let detail = if endonym == *name { pack.locale.clone() } else { format!("{endonym} · {}", pack.locale) };
-                                ui.label(RichText::new(detail.as_str()).small().weak());
+                            rows.row(|cells| {
+                                cells.cell(|ui| {
+                                    crate::rtl::vertical(ui, |ui| {
+                                        ui.set_width(180.0);
+                                        ui.label(name.as_str());
+                                        let endonym = shown(&pack.name, MAX_BAR_NAME);
+                                        let detail = if endonym == *name { pack.locale.clone() } else { format!("{endonym} · {}", pack.locale) };
+                                        ui.label(RichText::new(detail.as_str()).small().weak());
+                                    })
+                                });
+                                cells.cell(|ui| ui.label(if pack.size > 0 { size_text(pack.size) } else { String::new() }));
+                                cells.cell(|ui| {
+                                    crate::rtl::vertical(ui, |ui| {
+                                        ui.set_width(150.0);
+                                        let licence = shown(&pack.licence, 300);
+                                        ui.add(egui::Label::new(RichText::new(licence.as_str()).small()).truncate())
+                                            .on_hover_text(licence_hover(pack));
+                                        let source = pack.source_link();
+                                        if !source.is_empty() {
+                                            ui.hyperlink_to(tl!("Source"), source).on_hover_text(shown(source, 300));
+                                        }
+                                    })
+                                });
+                                cells.cell(|ui| {
+                                    ui.horizontal(|ui| match progress(&pack.locale) {
+                                        Some((done, total)) => {
+                                            ui.add(
+                                                egui::ProgressBar::new(done.min(total) as f32 / total as f32).desired_width(80.0).show_percentage(),
+                                            );
+                                            if ui.small_button(tl!("Cancel")).clicked() {
+                                                packs::cancel(&pack.locale);
+                                            }
+                                        }
+                                        None => {
+                                            if ui.button(tl!("Install")).clicked() {
+                                                install = Some(pack.clone());
+                                            }
+                                        }
+                                    })
+                                });
                             });
-                            ui.label(if pack.size > 0 { size_text(pack.size) } else { String::new() });
-                            ui.vertical(|ui| {
-                                ui.set_width(150.0);
-                                let licence = shown(&pack.licence, 300);
-                                ui.add(egui::Label::new(RichText::new(licence.as_str()).small()).truncate()).on_hover_text(licence_hover(pack));
-                                let source = pack.source_link();
-                                if !source.is_empty() {
-                                    ui.hyperlink_to(tl!("Source"), source).on_hover_text(shown(source, 300));
-                                }
-                            });
-                            ui.horizontal(|ui| match progress(&pack.locale) {
-                                Some((done, total)) => {
-                                    ui.add(egui::ProgressBar::new(done.min(total) as f32 / total as f32).desired_width(80.0).show_percentage());
-                                    if ui.small_button(tl!("Cancel")).clicked() {
-                                        packs::cancel(&pack.locale);
-                                    }
-                                }
-                                None => {
-                                    if ui.button(tl!("Install")).clicked() {
-                                        install = Some(pack.clone());
-                                    }
-                                }
-                            });
-                            ui.end_row();
                             if let Some(e) = error_of(app, &pack.locale) {
-                                ui.label("");
-                                ui.add(egui::Label::new(RichText::new(e).small().color(t.red)).wrap());
-                                ui.label("");
-                                ui.label("");
-                                ui.end_row();
+                                rows.row(|cells| {
+                                    cells.cell(|ui| ui.label(""));
+                                    cells.cell(|ui| ui.add(egui::Label::new(RichText::new(e).small().color(t.red)).wrap()));
+                                    cells.cell(|ui| ui.label(""));
+                                    cells.cell(|ui| ui.label(""));
+                                });
                             }
                         }
                     });
@@ -1407,6 +1441,113 @@ mod tests {
         let all = labels(&tree);
         assert!(!all.iter().any(|l| l.starts_with("Dictionaries") || l.starts_with("Dictionary files")), "{all:?}");
         assert!(all.iter().any(|l| l == "Custom dictionary"));
+    }
+
+    /// The missing-pack bar is mirrored with the window: in a right-to-left interface it reads
+    /// from the right (the message, then Install), with Not now at the left end; left to right it
+    /// reads from the left with Not now at the right end. It was laid out left to right in both.
+    #[test]
+    fn the_pack_bar_reads_from_the_right_in_a_right_to_left_interface() {
+        let _g = BACKEND_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _reset = ResetBackend;
+        struct English;
+        impl Drop for English {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _english = English;
+        packs::set_backend(Some(std::sync::Arc::new(FixedBackend::sample()) as std::sync::Arc<dyn Backend>));
+        // The x centres of the message, Install and Not now.
+        let places = |lang: crate::i18n::Lang| -> [f64; 3] {
+            let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            a.run("document.setText", json!({"text": "Dzień dobry, jak się masz?"})).unwrap();
+            a.run("select.all", json!({})).unwrap();
+            a.run("review.language", json!({"lang": "pl-PL"})).unwrap();
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut nodes: std::collections::BTreeMap<u64, egui::accesskit::Node> = Default::default();
+            for i in 0..4 {
+                let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 400.0));
+                let raw = egui::RawInput { time: Some(f64::from(i) * 0.05), screen_rect: Some(screen), ..Default::default() };
+                let mut out = ctx.run_ui(raw, |ui| {
+                    crate::i18n::set_current(lang);
+                    crate::rtl::sync(ui.ctx());
+                    super::bar(&mut a, ui);
+                });
+                out.textures_delta.clear();
+                for (id, node) in out.platform_output.accesskit_update.take().map(|u| u.nodes).unwrap_or_default() {
+                    nodes.insert(id.0, node);
+                }
+            }
+            let x = |prefix: &str| {
+                let node = nodes.values().find(|n| n.label().or_else(|| n.value()).is_some_and(|l| l.starts_with(prefix)));
+                let b = node.and_then(|n| n.bounds()).unwrap_or_else(|| panic!("the bar shows {prefix}"));
+                (b.x0 + b.x1) / 2.0
+            };
+            [x("Polish proofing"), x("Install ("), x("Not now")]
+        };
+        let [message, install, close] = places(crate::i18n::Lang::EN);
+        assert!(message < install && install < close, "left to right: {message} {install} {close}");
+        let [message, install, close] = places(crate::i18n::fixture_lang("ar", "\tHome\tالرئيسية\n"));
+        assert!(message > install && install > close, "right to left: {message} {install} {close}");
+    }
+
+    /// Options › Language › Your languages reads from the right in a right-to-left interface: a
+    /// row's name at the right with its code under it, the proofing after it, the buttons at the
+    /// left end. The rows kept their left-to-right order, and the codes were cut at the left edge.
+    #[test]
+    fn your_languages_rows_read_from_the_right_in_a_right_to_left_interface() {
+        let _g = BACKEND_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _reset = ResetBackend;
+        struct English;
+        impl Drop for English {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _english = English;
+        let (mut a, _, _backend) = options_app("language", true);
+        a.run("document.setText", json!({"text": "Cześć"})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        a.run("review.language", json!({"lang": "pl-PL"})).unwrap();
+        // The bounds of the widget whose name starts with each prefix.
+        let mut bounds = |lang: crate::i18n::Lang, prefixes: &[&str]| -> Vec<egui::accesskit::Rect> {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut nodes: std::collections::BTreeMap<u64, egui::accesskit::Node> = Default::default();
+            for i in 0..4 {
+                let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 700.0));
+                let raw = egui::RawInput { time: Some(f64::from(i) * 0.05), screen_rect: Some(screen), ..Default::default() };
+                let mut out = ctx.run_ui(raw, |ui| {
+                    crate::i18n::set_current(lang);
+                    crate::rtl::sync(ui.ctx());
+                    crate::rtl::root(ui, |ui| super::your_languages_section(&mut a, ui));
+                });
+                out.textures_delta.clear();
+                for (id, node) in out.platform_output.accesskit_update.take().map(|u| u.nodes).unwrap_or_default() {
+                    nodes.insert(id.0, node);
+                }
+            }
+            prefixes
+                .iter()
+                .map(|prefix| {
+                    let node = nodes.values().find(|n| n.label().or_else(|| n.value()).is_some_and(|l| l.starts_with(prefix)));
+                    node.and_then(|n| n.bounds()).unwrap_or_else(|| panic!("Your languages shows {prefix}"))
+                })
+                .collect()
+        };
+        let parts = ["Polish", "Install spelling (", "Set as default", "English (United States)", "en-US"];
+        let centre = |r: &egui::accesskit::Rect| (r.x0 + r.x1) / 2.0;
+        let ltr = bounds(crate::i18n::Lang::EN, &parts);
+        let (name, install, default) = (centre(&ltr[0]), centre(&ltr[1]), centre(&ltr[2]));
+        assert!(name < install && install < default, "left to right: {name} {install} {default}");
+        assert!((ltr[4].x0 - ltr[3].x0).abs() < 2.0, "left to right, the code starts under its name: {:?} {:?}", ltr[4], ltr[3]);
+        let rtl = bounds(crate::i18n::fixture_lang("ar", "\tHome\tالرئيسية\n"), &parts);
+        let (name, install, default) = (centre(&rtl[0]), centre(&rtl[1]), centre(&rtl[2]));
+        assert!(name > install && install > default, "right to left: {name} {install} {default}");
+        assert!((rtl[4].x1 - rtl[3].x1).abs() < 2.0, "right to left, the code ends under its name: {:?} {:?}", rtl[4], rtl[3]);
+        assert!(rtl.iter().all(|r| r.x0 >= 0.0 && r.x1 <= 1200.0), "every part is inside the window: {rtl:?}");
     }
 
     /// Installing and removing a pack show in Your languages at once (the rows follow the

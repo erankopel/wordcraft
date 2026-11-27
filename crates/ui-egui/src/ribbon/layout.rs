@@ -163,7 +163,10 @@ pub(super) fn layout(app: &mut WordApp, ui: &mut Ui) {
                 });
                 r.cell(|ui| spaced(ui, egui::RichText::new(tl!("Before:")).small()));
                 r.cell(|ui| {
-                    if ui.add_sized(FIELD, egui::DragValue::new(&mut b).speed(1.0).range(0.0..=1584.0).suffix(format!(" {}", tl!("pt")))).changed() {
+                    if ui
+                        .add_sized(FIELD, egui::DragValue::new(&mut b).speed(1.0).range(0.0..=1584.0).measure(wordcraft_geom::Unit::Points))
+                        .changed()
+                    {
                         let _ = app.run("para.spacing", json!({"before": b}));
                     }
                 });
@@ -182,7 +185,10 @@ pub(super) fn layout(app: &mut WordApp, ui: &mut Ui) {
                 });
                 r.cell(|ui| spaced(ui, egui::RichText::new(tl!("After:")).small()));
                 r.cell(|ui| {
-                    if ui.add_sized(FIELD, egui::DragValue::new(&mut a).speed(1.0).range(0.0..=1584.0).suffix(format!(" {}", tl!("pt")))).changed() {
+                    if ui
+                        .add_sized(FIELD, egui::DragValue::new(&mut a).speed(1.0).range(0.0..=1584.0).measure(wordcraft_geom::Unit::Points))
+                        .changed()
+                    {
                         let _ = app.run("para.spacing", json!({"after": a}));
                     }
                 });

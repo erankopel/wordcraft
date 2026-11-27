@@ -94,10 +94,16 @@ pub trait MeasureExt {
 impl MeasureExt for egui::DragValue<'_> {
     fn measure(self, unit: Unit) -> Self {
         let sep = decimal();
-        self.suffix(unit_suffix(unit))
+        // A field places its number and its suffix left to right. A right-to-left interface reads
+        // the number first, at the right of its unit (`2,5 ס"מ`): there the unit is part of the
+        // value's own text, which is laid out in its own direction (and typed back in, as a
+        // length with a unit always could be).
+        let (field, unit_text) = if crate::rtl::on() { (self, unit_suffix(unit)) } else { (self.suffix(unit_suffix(unit)), String::new()) };
+        field
             .custom_formatter(move |n, decimals| {
                 let s = egui::emath::format_with_decimals_in_range(n, decimals);
-                if sep == '.' { s } else { s.replace('.', &sep.to_string()) }
+                let s = if sep == '.' { s } else { s.replace('.', &sep.to_string()) };
+                format!("{s}{unit_text}")
             })
             .custom_parser(move |text| parse_length(text, unit))
     }
@@ -482,7 +488,13 @@ fn custom_dictionary(app: &mut WordApp, ui: &mut Ui) {
     let mut word = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_default();
     ui.horizontal(|ui| {
         let r = ui
-            .add(egui::TextEdit::singleline(&mut word).desired_width(220.0).char_limit(MAX_WORD_CHARS).hint_text(tl!("New word")))
+            .add(
+                egui::TextEdit::singleline(&mut word)
+                    .desired_width(220.0)
+                    .char_limit(MAX_WORD_CHARS)
+                    .hint_text(tl!("New word"))
+                    .align(crate::rtl::field_align()),
+            )
             .accessible_name(tl!("New word"));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let w = word.trim().to_string();

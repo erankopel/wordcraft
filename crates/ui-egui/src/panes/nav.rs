@@ -10,7 +10,8 @@ pub(super) fn nav(app: &mut WordApp, ui: &mut Ui) {
     if let Some(t) = &picked {
         q = t.clone();
     }
-    let mut out = egui::TextEdit::singleline(&mut q).hint_text(tl!("Search document")).desired_width(f32::INFINITY).show(ui);
+    let mut out =
+        egui::TextEdit::singleline(&mut q).hint_text(tl!("Search document")).desired_width(f32::INFINITY).align(crate::rtl::field_align()).show(ui);
     let r = out.response.clone();
     if focus {
         // Focused with its text selected, so typing replaces it.
@@ -160,6 +161,9 @@ pub(super) fn nav_headings(doc: &Document) -> Vec<(Path, u8, String)> {
 /// wider than the pane is broken too — and the row grows with it, so the label reads whole
 /// instead of ending in an ellipsis (#3015).
 pub(super) fn nav_heading(ui: &mut Ui, level: u8, text: &str, selected: bool, collapsed: Option<bool>) -> (bool, egui::Response) {
+    // Mirrored, a row reads from the right: its indent, its triangle (a closed one points left,
+    // to where its text starts), then its text, flush right.
+    let rtl = crate::rtl::flows(ui);
     ui.horizontal(|ui| {
         ui.add_space(level as f32 * 14.0);
         // The triangle is drawn in code; headings without children keep an empty slot so text aligns.
@@ -169,7 +173,8 @@ pub(super) fn nav_heading(ui: &mut Ui, level: u8, text: &str, selected: bool, co
             let ctr = rect.center();
             let col = ui.visuals().text_color();
             let pts = if c {
-                vec![ctr + vec2(-2.5, -4.0), ctr + vec2(-2.5, 4.0), ctr + vec2(3.0, 0.0)]
+                let x = if rtl { -1.0 } else { 1.0 };
+                vec![ctr + vec2(-2.5 * x, -4.0), ctr + vec2(-2.5 * x, 4.0), ctr + vec2(3.0 * x, 0.0)]
             } else {
                 vec![ctr + vec2(-4.0, -2.5), ctr + vec2(4.0, -2.5), ctr + vec2(0.0, 3.0)]
             };
@@ -178,12 +183,15 @@ pub(super) fn nav_heading(ui: &mut Ui, level: u8, text: &str, selected: bool, co
         }
         let label = egui::RichText::new(text).font(if level == 0 { semibold(12.5) } else { regular(12.5) });
         let width = ui.available_width();
-        let r = ui.add(
-            // The trailing grow atom takes the spare width, so the text starts flush left
-            // under its parent instead of centred, as in Word (#1199). A minimum height
-            // keeps short headings on one row; a wrapped one becomes as tall as it needs.
-            egui::Button::selectable(selected, (label, egui::Atom::grow())).wrap().min_size(vec2(width, ui.spacing().interact_size.y)),
-        );
+        // The trailing grow atom takes the spare width, so the text starts flush left (flush
+        // right, mirrored) under its parent instead of centred, as in Word (#1199). A minimum
+        // height keeps short headings on one row; a wrapped one becomes as tall as it needs.
+        let button = if rtl {
+            egui::Button::selectable(selected, (egui::Atom::grow(), label))
+        } else {
+            egui::Button::selectable(selected, (label, egui::Atom::grow()))
+        };
+        let r = ui.add(button.wrap().min_size(vec2(width, ui.spacing().interact_size.y)));
         (toggled, r)
     })
     .inner

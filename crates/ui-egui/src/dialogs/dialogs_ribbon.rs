@@ -319,7 +319,8 @@ fn tree(app: &mut WordApp, ui: &mut Ui, f: &mut RibbonForm, rows: &[Row], h: f32
         ui.set_height(h);
         egui::ScrollArea::vertical().id_salt("rb_tree").auto_shrink([false, false]).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| tree_rows_ui(app, ui, f, rows));
+            // Mirrored, a row reads from the right: its indent, its box, then its name.
+            ui.with_layout(egui::Layout::top_down(crate::rtl::start_align()), |ui| tree_rows_ui(app, ui, f, rows));
         });
     });
 }

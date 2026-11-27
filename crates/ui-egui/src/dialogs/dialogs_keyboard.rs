@@ -159,7 +159,7 @@ pub(crate) fn list(ui: &mut Ui, id: &str, size: egui::Vec2, rows: &[(String, Str
                 let top = ui.max_rect().top() + (index as f32 - range.start as f32) * row_step;
                 ui.scroll_to_rect(egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), top..=top + row_h), None);
             }
-            ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+            ui.with_layout(egui::Layout::top_down_justified(crate::rtl::start_align()), |ui| {
                 for (value, text) in rows.get(range).unwrap_or_default() {
                     if ui.add(egui::Button::selectable(value == selected, text.as_str()).min_size(vec2(0.0, row_h))).clicked() {
                         picked = Some(value.clone());
@@ -192,7 +192,7 @@ pub fn customize_keyboard(app: &mut WordApp, ui: &mut Ui, f: &mut KeyboardForm) 
     let (left, right) = (170.0, 300.0);
 
     heading(ui, "Choose a command");
-    ui.add(egui::TextEdit::singleline(&mut f.filter).hint_text(tl!("Search")).desired_width(left + right + 8.0));
+    ui.add(egui::TextEdit::singleline(&mut f.filter).hint_text(tl!("Search")).desired_width(left + right + 8.0).align(crate::rtl::field_align()));
     let mut cats: Vec<(String, String)> = categories(app).into_iter().map(|c| (c.clone(), tl!(&c).to_string())).collect();
     cats.push((ALL.to_string(), tl!("All Commands").to_string()));
     let cmds: Vec<(String, String)> = matching_commands(app, &f.category, &f.filter);

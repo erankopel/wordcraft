@@ -521,3 +521,50 @@ fn screen_paper_color_options_round_trip_and_work_without_a_document() {
     h.run_steps(3);
     assert_eq!(h.state().session.prefs.paper_color, PaperColor::Cream);
 }
+
+/// Where a length field draws its number and its unit: the x of the number's first digit and of
+/// the unit's first letter, in `lang`.
+fn length_field_places(lang: crate::i18n::Lang) -> (f32, f32) {
+    use super::MeasureExt;
+    crate::i18n::set_current(lang);
+    let ctx = egui::Context::default();
+    let mut glyphs: Vec<(char, f32)> = Vec::new();
+    for _ in 0..2 {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            crate::rtl::root(ui, |ui| {
+                let mut v = 2.5_f32;
+                ui.add(egui::DragValue::new(&mut v).measure(Unit::Centimeters));
+            });
+        });
+        out.textures_delta.clear();
+        glyphs = out
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t),
+                _ => None,
+            })
+            .flat_map(|t| t.galley.rows.iter().flat_map(move |r| r.glyphs.iter().map(move |g| (g.chr, t.pos.x + r.pos.x + g.pos.x))))
+            .collect();
+    }
+    let x = |want: fn(char) -> bool| glyphs.iter().find(|(c, _)| want(*c)).map(|(_, x)| *x).expect("the field draws it");
+    (x(|c| c == '2'), x(|c| c.is_alphabetic()))
+}
+
+/// A length reads number first: left to right the number is left of its unit (`2.5 cm`), and in
+/// a right-to-left interface it is right of it (`2.5 ס"מ` read from the right). The field placed
+/// its number and unit left to right in both.
+#[test]
+fn a_length_field_reads_its_number_first_in_either_direction() {
+    struct English;
+    impl Drop for English {
+        fn drop(&mut self) {
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        }
+    }
+    let _english = English;
+    let (number, unit) = length_field_places(crate::i18n::Lang::EN);
+    assert!(number < unit, "left to right: number {number}, unit {unit}");
+    let (number, unit) = length_field_places(crate::i18n::fixture_lang("he", "\tcm\tס\"מ\n"));
+    assert!(number > unit, "right to left: number {number}, unit {unit}");
+}

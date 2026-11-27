@@ -1,6 +1,6 @@
 # Hebrew interface and the Hebrew edition
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-26 · **Change:** major (first version) · **Target:** WordCraft 0.19.1
+> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (mirrored interface details) · **Target:** WordCraft 0.19.1
 
 WordCraft has a Hebrew (`he`) interface language, mirrored right to left like the Arabic one, and a
 Hebrew edition: a build of the same program that starts in Hebrew, starts new documents right to
@@ -24,7 +24,32 @@ person who wants English in the edition picks English once in Options. A stock b
 
 Hebrew is written right to left, so the interface is mirrored: the tabs and ribbon groups run from
 the right, side panes swap sides, the status bar starts at the right and dialogs read from the
-right.
+right. In more detail:
+
+- **Task panes** read from the right: the title, then ▾ and ×, at the left end of the title bar. A
+  pane that was never moved opens on the right. Dock Left and Dock Right (in the pane's menu, where
+  Dock Right comes first, and in `ui.paneDock` and `view.stylesPaneDock`) still mean the window's
+  left and right, and saved places keep that meaning.
+- **Comment and revision balloons** sit left of the page, where a right-to-left line ends, with
+  the author's stripe, name and time on the card's right.
+- **Icons that point along a line or through a sequence** are drawn mirrored: previous and next
+  (records, comments, changes, footnotes), undo and redo, bullets, numbering, indents, promote and
+  demote. Icons of a fixed side (Align Left, the text directions, Insert Left), the media player's
+  and the chevrons are not. Bold, Italic and Underline write מ, נ and ק, the first letters of
+  מודגש, נטוי and קו תחתון, as the English buttons write B, I and U; Spelling writes אבג. These are
+  catalog rows with the context `icon`, so a language without them keeps the Latin letters.
+- **Interface text** is laid out from the right even where a Hebrew row starts with a Latin word,
+  a key name or a placeholder (`{language}: WordCraft …`), and file patterns (`(*.png)`), paths,
+  web addresses and `code` inside Hebrew text keep their own left-to-right order. This is done
+  when a catalog row is looked up, with a right-to-left mark and left-to-right isolates; the
+  characters are never reordered by hand. A Hebrew file name keeps its dot between the name and
+  the extension (`בדיקה.docx`).
+- **Lengths** read number first: `2.5 ס"מ` has the number on the right of its unit.
+- Text fields, tooltips, the language-pack bar, Options › Language › Your languages and Add a
+  language, File › Recover, the Colors dialog, Customize Keyboard and Customize Ribbon lists, the
+  Print page's lists and the style gallery's and status bar's context menus are mirrored too.
+- The Home › Styles gallery shows each style's sample from the right in a right-to-left document,
+  and Design › Document Formatting draws its samples right to left.
 
 ## Catalog
 
@@ -56,15 +81,16 @@ English on purpose (`pi`, `{n} KB`, `{n} MB`). Every placeholder, trailing ellip
 
 **Interface.** Inter and Source Sans 3 have no Hebrew letters. The interface draws Hebrew with
 craft-fonts' Noto Sans Hebrew (SIL OFL 1.1, one Regular face), embedded when the build has
-`CRAFT_FONTS_DIR`, in the regular, medium and semibold families (so a semibold ribbon label is
-drawn at Regular weight, as for Arabic and CJK). A release build with `CRAFT_FONTS_REQUIRED` fails
+`CRAFT_FONTS_DIR`, in the regular, medium, semibold and monospace families (so a semibold ribbon
+label is drawn at Regular weight, as for Arabic and CJK, and the update window's buttons and Markdown
+Source, which are monospace, draw Hebrew rather than boxes). A release build with `CRAFT_FONTS_REQUIRED` fails
 without it. Without `CRAFT_FONTS_DIR` the build looks for an installed Hebrew font when the
 interface is right to left (Noto Sans Hebrew, FreeSans, Liberation Sans, DejaVu Sans, Segoe UI,
 Arial). A character no font has is drawn as a box and never panics in the app: `main.rs` sets
 egui's `MissingGlyphPolicy::Tofu` explicitly, and only the tests use the strict policy.
 `theme::tests::the_hebrew_interface_has_a_face_for_every_hebrew_letter_it_shows` lays out every
-Hebrew letter of the catalog and of the language list in all three weights under that strict policy;
-it fails when the Hebrew face is not in the chain.
+Hebrew letter of the catalog and of the language list in all three weights and in monospace under
+that strict policy; it fails when the Hebrew face is not in a family's chain.
 
 **Documents.** Word's Hebrew families David, Frank Ruehl (also FrankRuehl and Narkisim), Miriam,
 Miriam Fixed, Rod, Aharoni, Gisha and Levenim MT are proprietary and are never bundled. A document
@@ -182,9 +208,14 @@ offer the upstream release, which would replace the edition.
   the Hebrew IME and keyboard layouts on each platform, Hebrew calendar dates and gematria date
   formats, and Hebrew hyphenation (no pattern file exists for it).
 - Windows and macOS builds of the edition.
+- Not mirrored yet: the mini toolbar, the results of the title bar's command search (each label
+  and its shortcut), the Date and Time dialog and the previews of Table of Contents, Table of
+  Figures, Index and Define New Multilevel List; most other drop-down lists still start their rows
+  at the left.
 
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
 | 2026-11-26 | major | First version: Hebrew interface language and numbering, Hebrew edition (default language, catalog supplement, fonts, right-to-left new documents, Hebrew proofing through the complex-script language) |
+| 2026-11-27 | minor | Mirrored task panes, balloons, directional icons and lists; Hebrew letters on Bold, Italic, Underline and Spelling; mixed Hebrew and Latin text in order; lengths number first; Hebrew in monospace text |

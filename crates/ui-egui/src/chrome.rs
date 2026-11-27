@@ -623,9 +623,10 @@ fn typing_search(app: &mut WordApp, ui: &mut Ui, control_h: f32, s: &mut TitleSe
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_width(SEARCH_RESULTS_W);
-                // Rows of a list, as a menu's, not a stack of framed buttons.
+                // Rows of a list, as a menu's, not a stack of framed buttons; from the right in a
+                // right-to-left interface.
                 ui.style_mut().visuals.button_frame = false;
-                done = crate::dialogs::search_results(app, ui, &s.query, enter, SEARCH_RESULTS_W);
+                done = crate::rtl::root(ui, |ui| crate::dialogs::search_results(app, ui, &s.query, enter, SEARCH_RESULTS_W));
             });
         });
     s.results = Some(shown.response.rect);
@@ -883,7 +884,7 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     let counted = st(ui, &wtxt);
                     if let Some(counted) = &counted {
                         // Right-click, as Word's status bar offers: choose what the count shows (#2797).
-                        counted.context_menu(|ui| {
+                        crate::rtl::context_menu(counted, |ui| {
                             ui.set_min_width(180.0);
                             for c in crate::StatusCount::ALL {
                                 if ui.selectable_label(app.ui.status_count == c, tl!(c.label())).clicked() {

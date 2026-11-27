@@ -10,6 +10,8 @@ struct Pen<'a> {
     c: Color32,
     a: Color32,
     w: f32,
+    /// Drawn mirrored left to right ([`mirrored`]); letters keep their shape.
+    flip: bool,
 }
 
 impl Pen<'_> {
@@ -19,6 +21,7 @@ impl Pen<'_> {
     fn pt(&self, x: f32, y: f32) -> Pos2 {
         let s = self.s();
         let o = self.r.center() - vec2(10.0 * s, 10.0 * s);
+        let x = if self.flip { 20.0 - x } else { x };
         pos2(o.x + x * s, o.y + y * s)
     }
     fn stroke(&self, c: Color32) -> Stroke {
@@ -40,10 +43,10 @@ impl Pen<'_> {
         self.p.add(Shape::convex_polygon(v, c, Stroke::NONE));
     }
     fn rect(&self, x0: f32, y0: f32, x1: f32, y1: f32, c: Color32) {
-        self.p.rect_stroke(Rect::from_min_max(self.pt(x0, y0), self.pt(x1, y1)), 1.0, self.stroke(c), egui::StrokeKind::Middle);
+        self.p.rect_stroke(Rect::from_two_pos(self.pt(x0, y0), self.pt(x1, y1)), 1.0, self.stroke(c), egui::StrokeKind::Middle);
     }
     fn frect(&self, x0: f32, y0: f32, x1: f32, y1: f32, c: Color32) {
-        self.p.rect_filled(Rect::from_min_max(self.pt(x0, y0), self.pt(x1, y1)), 0.5, c);
+        self.p.rect_filled(Rect::from_two_pos(self.pt(x0, y0), self.pt(x1, y1)), 0.5, c);
     }
     fn circle(&self, x: f32, y: f32, r: f32, c: Color32) {
         self.p.circle_stroke(self.pt(x, y), r * self.s(), self.stroke(c));
@@ -71,9 +74,50 @@ impl Pen<'_> {
     }
 }
 
+/// Icons that point along a line of text or through a sequence: back and forth (previous and
+/// next record, comment and change; the next footnote; moving past a citation), undo and redo, a
+/// list's bullets or numbers and the indent at a line's start, promote and demote. A right-to-left
+/// interface reads the other way, so they are drawn mirrored there. Icons of a fixed side (Align
+/// Left, the text directions, Insert Left), of time (the media player) and the chevrons, whose
+/// callers pick the side, keep their direction.
+const MIRRORED: [&str; 21] = [
+    "previous",
+    "next",
+    "first",
+    "last",
+    "prevComment",
+    "nextComment",
+    "prevChange",
+    "nextChange",
+    "nextFootnote",
+    "pastCitation",
+    "undo",
+    "redo",
+    "bullets",
+    "numbering",
+    "multilevel",
+    "outdent",
+    "indent",
+    "promote",
+    "demote",
+    "outlinePromote",
+    "outlineDemote",
+];
+
+/// Is icon `name` drawn mirrored in this interface ([`MIRRORED`])?
+fn mirrored(name: &str) -> bool {
+    crate::rtl::on() && MIRRORED.contains(&name)
+}
+
+/// The letter an icon writes for a word (`B` for Bold): the interface language's own letter for
+/// it where its catalog has one (context `icon`), else the Latin one.
+fn letter(latin: &'static str) -> &'static str {
+    crate::i18n::get("icon", latin).unwrap_or(latin)
+}
+
 /// Paint icon `name` into `r`. `c` is the line colour; the accent comes from the theme.
 pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
-    let pen = Pen { p, r, c, a: accent, w: 1.25 };
+    let pen = Pen { p, r, c, a: accent, w: 1.25, flip: mirrored(name) };
     if let Some(kind) = name.strip_prefix("shape.")
         && shape(&pen, kind)
     {
@@ -126,10 +170,11 @@ fn paint_clipboard_to_insert(pen: &Pen, name: &str) -> bool {
             pen.frect(8.8, 12.0, 11.2, 18.0, c);
         }
         // Font
-        "bold" => pen.text(10.0, 10.5, 15.0, "B", c, true),
-        "italic" => pen.text(10.0, 10.5, 15.0, "I", c, false),
+        // Bold, Italic and Underline write the first letter of their name.
+        "bold" => pen.text(10.0, 10.5, 15.0, letter("B"), c, true),
+        "italic" => pen.text(10.0, 10.5, 15.0, letter("I"), c, false),
         "underline" => {
-            pen.text(10.0, 9.0, 14.0, "U", c, false);
+            pen.text(10.0, 9.0, 14.0, letter("U"), c, false);
             pen.line(&[(5.0, 17.0), (15.0, 17.0)]);
         }
         "strike" => {
@@ -304,7 +349,8 @@ fn paint_clipboard_to_insert(pen: &Pen, name: &str) -> bool {
             pen.line(&[(10.0, 15.0), (10.0, 18.0)]);
         }
         "editor" | "spelling" => {
-            pen.text(8.0, 7.0, 9.0, "abc", c, true);
+            // The first letters of the alphabet the text is checked in.
+            pen.text(8.0, 7.0, 9.0, letter("abc"), c, true);
             pen.line_c(&[(5.0, 13.0), (8.5, 16.5), (16.0, 9.0)], green);
         }
         "styles" => {
@@ -1783,6 +1829,52 @@ mod tests {
         for (got, (u, v)) in outline.iter().zip(want) {
             let expected = pos2(3.0 + u * 14.0, 5.0 + v * 10.0);
             assert!(got.distance(expected) < 0.01, "{got:?} vs {expected:?}");
+        }
+    }
+
+    /// The mean x of what icon `name` paints in a 20 by 20 box at the origin.
+    fn ink_centre_x(name: &str) -> f32 {
+        let ctx = egui::Context::default();
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui.painter(), Rect::from_min_size(Pos2::ZERO, egui::vec2(20.0, 20.0)), name, Color32::BLACK, Color32::BLUE);
+        });
+        let points: Vec<Pos2> = output
+            .shapes
+            .iter()
+            .flat_map(|s| match &s.shape {
+                Shape::Path(path) => path.points.clone(),
+                Shape::LineSegment { points, .. } => points.to_vec(),
+                Shape::Rect(r) => vec![r.rect.min, r.rect.max],
+                Shape::Circle(c) => vec![c.center],
+                _ => Vec::new(),
+            })
+            .collect();
+        output.drop_without_applying_deltas();
+        points.iter().map(|p| p.x).sum::<f32>() / points.len().max(1) as f32
+    }
+
+    /// In a right-to-left interface the icons that point along a line or through a sequence
+    /// (Undo, Next, bullets) are drawn mirrored, as the reading direction is; Align Left keeps
+    /// its side.
+    #[test]
+    fn directional_icons_are_mirrored_in_a_right_to_left_interface() {
+        struct English;
+        impl Drop for English {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _english = English;
+        let names = ["undo", "next", "bullets", "alignLeft"];
+        let ltr: Vec<f32> = names.iter().map(|n| ink_centre_x(n)).collect();
+        crate::i18n::set_current(crate::i18n::fixture_lang("ar", "\tHome\tالرئيسية\n"));
+        let rtl: Vec<f32> = names.iter().map(|n| ink_centre_x(n)).collect();
+        for ((name, l), r) in names.iter().zip(&ltr).zip(&rtl) {
+            if *name == "alignLeft" {
+                assert!((l - r).abs() < 0.01, "{name} keeps its side: {l} {r}");
+            } else {
+                assert!((l + r - 20.0).abs() < 0.01 && (l - 10.0).abs() > 0.1, "{name} is the mirror image: {l} {r}");
+            }
         }
     }
 

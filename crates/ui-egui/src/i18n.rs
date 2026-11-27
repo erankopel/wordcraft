@@ -431,7 +431,8 @@ pub fn tn(n: u64, one: &str, other: &str) -> String {
         return I18N.trn(craft_i18n::Lang::PSEUDO, n, one, other);
     }
     let lang = current();
-    lang.i18n().trn(lang.lang, n, one, other)
+    let text = lang.i18n().trn(lang.lang, n, one, other);
+    if lang.rtl() && rtl_unready(&text) { rtl_ready(&text) } else { text }
 }
 
 /// `s` in the current language as worded for `context` (`preview`, `template`), falling back to
@@ -447,7 +448,7 @@ pub fn trc<'a>(lang: Lang, context: &str, s: &'a str) -> &'a str {
     if pseudo::on() {
         return I18N.tc(craft_i18n::Lang::PSEUDO, context, s);
     }
-    lang.i18n().tc(lang.lang, context, s)
+    ready(lang, s, lang.i18n().tc(lang.lang, context, s))
 }
 
 /// `s`'s translation for `context` in the current language, with no fallback to the plain row
@@ -460,7 +461,7 @@ pub fn get<'a>(context: &str, s: &'a str) -> Option<&'a str> {
         return I18N.get(craft_i18n::Lang::PSEUDO, context, s);
     }
     let lang = current();
-    lang.i18n().get(lang.lang, context, s)
+    lang.i18n().get(lang.lang, context, s).map(|out| ready(lang, s, out))
 }
 
 /// Lowercase translated interface labels and UI search queries in the current language.
@@ -489,11 +490,133 @@ pub fn tr(lang: Lang, s: &str) -> &str {
     if pseudo::on() {
         return I18N.t(craft_i18n::Lang::PSEUDO, s);
     }
-    lang.i18n().t(lang.lang, s)
+    ready(lang, s, lang.i18n().t(lang.lang, s))
 }
 
 /// Left-to-right mark: it keeps what it touches from joining a right-to-left run next to it.
 const LRM: char = '\u{200E}';
+/// Right-to-left mark: a line that starts with it is laid out right to left.
+const RLM: char = '\u{200F}';
+/// Left-to-right isolate and its end: what is between them reads left to right as one piece.
+const LRI: char = '\u{2066}';
+const PDI: char = '\u{2069}';
+
+/// `out`, the translation of `source` in `lang`, as [`rtl_ready`] makes it for a right-to-left
+/// language. The prepared text is made once per catalog row and kept for the life of the program
+/// (the catalogs are), so the lookup still hands out a borrowed string.
+fn ready<'a>(lang: Lang, source: &'a str, out: &'a str) -> &'a str {
+    // No row: the English source, which needs nothing.
+    if !lang.rtl() || std::ptr::eq(source, out) || !rtl_unready(out) {
+        return out;
+    }
+    static PREPARED: LazyLock<std::sync::Mutex<std::collections::HashMap<(usize, usize), &'static str>>> = LazyLock::new(Default::default);
+    // Keyed by where the row is: the catalogs live as long as the program and are never changed.
+    let key = (out.as_ptr() as usize, out.len());
+    let mut prepared = PREPARED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let text: &'static str = prepared.entry(key).or_insert_with(|| -> &'static str { Box::leak(rtl_ready(out).into_boxed_str()) });
+    text
+}
+
+/// A letter written right to left (Hebrew, Arabic, Syriac, Thaana, N'Ko, Samaritan, Mandaic and
+/// their presentation forms): the strong right-to-left characters of interface text.
+fn rtl_letter(c: char) -> bool {
+    c.is_alphabetic() && matches!(c, '\u{0590}'..='\u{08FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
+}
+
+/// A letter written left to right: every other letter.
+fn ltr_letter(c: char) -> bool {
+    c.is_alphabetic() && !rtl_letter(c)
+}
+
+/// The first strong letter of `line` as the bidi algorithm takes a paragraph's direction from it:
+/// skipping isolates (whose content doesn't count) and `{placeholders}` (which [`fmt`] isolates).
+/// `Some(true)` for right to left; a right-to-left mark counts as right to left.
+fn first_strong_rtl(line: &str) -> Option<bool> {
+    let mut depth = 0usize;
+    let mut placeholder = false;
+    for c in line.chars() {
+        match c {
+            '\u{2066}'..='\u{2068}' => depth += 1,
+            PDI => depth = depth.saturating_sub(1),
+            '{' if depth == 0 => placeholder = true,
+            '}' if placeholder => placeholder = false,
+            _ if depth > 0 || placeholder => {}
+            RLM | '\u{061C}' => return Some(true),
+            LRM => return Some(false),
+            c if rtl_letter(c) => return Some(true),
+            c if ltr_letter(c) => return Some(false),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Does a word of a right-to-left line need to read left to right as one piece: a file pattern
+/// (`(*.png)`), a path (`.local/share/fonts`) or a web address, whose dots, slashes, stars and
+/// brackets the bidi algorithm would otherwise move to the other end of the word?
+fn ltr_piece(word: &str) -> bool {
+    !word.chars().any(rtl_letter) && word.chars().any(|c| c.is_ascii_alphabetic()) && word.contains(['/', '\\', '*'])
+}
+
+/// Whether [`rtl_ready`] changes `text`: it has a right-to-left letter, and a line of it would
+/// start left to right, or it has `code` or a word that must read left to right ([`ltr_piece`]).
+fn rtl_unready(text: &str) -> bool {
+    if !text.chars().any(rtl_letter) {
+        return false;
+    }
+    text.contains('`')
+        || text.split('\n').any(|line| line.chars().any(rtl_letter) && first_strong_rtl(line) != Some(true))
+        || text.split([' ', '\n']).any(|w| ltr_piece(w.trim_end_matches(['.', ',', ';', ':', '!', '?'])))
+}
+
+/// A right-to-left language's interface text made to read right, by direction marks and
+/// isolates (never by moving characters): each line with a right-to-left letter is laid out right
+/// to left even where it starts with a Latin word or a placeholder (`{language}: WordCraft …`,
+/// `Ctrl+H …`), which first-strong detection would lay out left to right; `code`, file patterns,
+/// paths and web addresses read left to right as one piece each, so their punctuation stays put.
+pub(crate) fn rtl_ready(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let mut fixed = String::with_capacity(line.len() + 8);
+        // Backticked code first, as one piece with its spaces; then the words between.
+        let ticks = line.matches('`').count();
+        for (j, part) in line.split('`').enumerate() {
+            if j % 2 == 1 {
+                if j < ticks {
+                    fixed.extend([LRI, '`']);
+                    fixed.push_str(part);
+                    fixed.extend(['`', PDI]);
+                    continue;
+                }
+                // A backtick with no partner stays as it is.
+                fixed.push('`');
+            }
+            for (k, word) in part.split(' ').enumerate() {
+                if k > 0 {
+                    fixed.push(' ');
+                }
+                // Sentence punctuation after the word stays with the sentence.
+                let core = word.trim_end_matches(['.', ',', ';', ':', '!', '?']);
+                if ltr_piece(core) {
+                    fixed.push(LRI);
+                    fixed.push_str(core);
+                    fixed.push(PDI);
+                    fixed.push_str(word.get(core.len()..).unwrap_or_default());
+                } else {
+                    fixed.push_str(word);
+                }
+            }
+        }
+        if fixed.chars().any(rtl_letter) && first_strong_rtl(&fixed) != Some(true) {
+            out.push(RLM);
+        }
+        out.push_str(&fixed);
+    }
+    out
+}
 
 /// `name` with a left-to-right mark before its extension (`ملف 2.docx`), which a right-to-left
 /// line would otherwise draw as `ملف docx.2`.
@@ -511,8 +634,17 @@ fn mark_extension(name: &str) -> String {
 /// `name` (a file or folder name, a document's name) set apart from the right-to-left text around
 /// it, so its own direction and its neutral marks (`(`, `.`, `-`) keep their places. Only in a
 /// right-to-left interface; elsewhere the text as it is. Display only: never for text that is saved.
+///
+/// A name that ends in a right-to-left letter before its extension (`בדיקה.docx`) needs no mark:
+/// its dot already sits between the name and the extension, where a mark would move it to the
+/// far end of the extension (`.docx` drawn left of `בדיקה`).
 pub fn isolate(name: &str) -> String {
-    if current().rtl() { format!("\u{2068}{}\u{2069}", mark_extension(name)) } else { name.to_string() }
+    if !current().rtl() {
+        return name.to_string();
+    }
+    let stem_rtl = name.rsplit_once('.').is_some_and(|(stem, _)| stem.chars().next_back().is_some_and(rtl_letter));
+    let name = if stem_rtl { name.to_string() } else { mark_extension(name) };
+    format!("\u{2068}{name}\u{2069}")
 }
 
 /// [`isolate`] for a path or a web address, which always reads left to right: its folders keep

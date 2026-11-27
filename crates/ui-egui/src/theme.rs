@@ -568,6 +568,13 @@ pub fn set_composition_face(fonts: &mut FontDefinitions, window: u64, face: Opti
     fonts.families.insert(composition_family(window), family);
 }
 
+/// The interface families a script face is added to: every family interface text is drawn in.
+/// Monospace too, after JetBrains Mono, which has no Hebrew, Arabic or CJK letters: the update
+/// window's buttons and Markdown Source are drawn in it.
+fn fallback_families() -> [FontFamily; 4] {
+    [FontFamily::Proportional, FontFamily::Name("medium".into()), FontFamily::Name("semibold".into()), FontFamily::Monospace]
+}
+
 /// Add `faces` after every other font of the interface families.
 pub fn add_fallback_faces(fonts: &mut FontDefinitions, faces: &[Arc<wordcraft_fonts::FontFace>]) {
     for f in faces {
@@ -575,7 +582,7 @@ pub fn add_fallback_faces(fonts: &mut FontDefinitions, faces: &[Arc<wordcraft_fo
         let mut data = FontData::from_owned(f.data().to_vec());
         data.index = f.index();
         fonts.font_data.insert(name.clone(), Arc::new(data));
-        for fam in [FontFamily::Proportional, FontFamily::Name("medium".into()), FontFamily::Name("semibold".into())] {
+        for fam in fallback_families() {
             if let Some(v) = fonts.families.get_mut(&fam) {
                 v.push(name.clone());
             }
@@ -651,7 +658,7 @@ pub fn font_definitions_language_arabic(
     fonts.families.insert(FontFamily::Name("semibold".into()), vec!["InterSemiBold".into(), "Inter".into(), "SourceSans".into()]);
     let add_cjk = |fonts: &mut FontDefinitions, name: String, data: FontData| {
         fonts.font_data.insert(name.clone(), Arc::new(data));
-        for fam in [FontFamily::Proportional, FontFamily::Name("medium".into()), FontFamily::Name("semibold".into())] {
+        for fam in fallback_families() {
             if let Some(v) = fonts.families.get_mut(&fam) {
                 v.push(name.clone());
             }
@@ -1177,8 +1184,9 @@ mod tests {
     }
 
     /// The Hebrew interface draws every Hebrew letter its catalog and the language list use, with
-    /// the strict policy that panics on a missing glyph (the app's own policy draws a box). Inter
-    /// and Source Sans have no Hebrew, so this fails when the Hebrew face is not in the chain.
+    /// the strict policy that panics on a missing glyph (the app's own policy draws a box). Inter,
+    /// Source Sans and JetBrains Mono have no Hebrew, so this fails when the Hebrew face is not in
+    /// a family's chain (monospace text drew boxes: the update window's buttons, Markdown Source).
     #[test]
     fn the_hebrew_interface_has_a_face_for_every_hebrew_letter_it_shows() {
         let Some(he) = crate::i18n::Lang::from_code("he") else {
@@ -1203,8 +1211,9 @@ mod tests {
         ctx.set_fonts(super::font_definitions_language_arabic(false, false, false, false, true));
         let text: String = letters.iter().collect();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            // Labels are drawn in the medium and semibold families too (ribbon group names, tabs).
-            for font in [super::regular(14.0), super::medium(14.0), super::semibold(14.0)] {
+            // Labels are drawn in the medium and semibold families too (ribbon group names, tabs),
+            // and in monospace (the update window's buttons, Markdown Source).
+            for font in [super::regular(14.0), super::medium(14.0), super::semibold(14.0), egui::FontId::monospace(14.0)] {
                 let galley = ui.painter().layout_no_wrap(text.clone(), font.clone(), egui::Color32::WHITE);
                 assert!(galley.rows.first().is_some_and(|r| !r.row.glyphs.is_empty()), "the letters are laid out in {:?}", font.family);
             }

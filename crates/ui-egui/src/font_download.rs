@@ -203,7 +203,7 @@ pub(crate) fn body(app: &mut WordApp, ui: &mut egui::Ui, fonts: &[Row], dont_sho
             let (r, _) = ui.allocate_exact_size(egui::vec2(34.0, 34.0), egui::Sense::hover());
             crate::icons::paint(ui.painter(), r, "fontMissing", t.icon, t.accent);
             ui.add_space(4.0);
-            ui.vertical(|ui| {
+            crate::rtl::vertical(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 3.0;
                 // `fonts` holds only the missing fonts that can be downloaded: the document may
                 // be missing others, so the headline counts downloads, not missing fonts.
@@ -224,7 +224,9 @@ pub(crate) fn body(app: &mut WordApp, ui: &mut egui::Ui, fonts: &[Row], dont_sho
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.vertical(|ui| {
+                        // The names at the reading start, Download at the far end: a plain column
+                        // starts at the left, under Download in a right-to-left window.
+                        crate::rtl::vertical(ui, |ui| {
                             ui.spacing_mut().item_spacing.y = 2.0;
                             // A label to a name: each is the document's own word, not interface text.
                             ui.horizontal_wrapped(|ui| {

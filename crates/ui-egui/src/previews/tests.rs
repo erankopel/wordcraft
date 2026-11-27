@@ -146,6 +146,34 @@ fn a_hanging_indent_style_previews_from_the_tile_edge() {
     assert!(last - first > 40, "the first line is cut off by the tile's left edge (ink {first}..{last})");
 }
 
+/// The part of its preview picture a tile shows: the uv rectangle of the textured mesh painted.
+fn shown_uv(shapes: &[egui::epaint::ClippedShape]) -> Option<Rect> {
+    shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Mesh(m) if m.texture_id != egui::TextureId::default() && !m.vertices.is_empty() => {
+            let min = m.vertices.iter().fold(pos2(f32::INFINITY, f32::INFINITY), |a, v| a.min(v.uv));
+            let max = m.vertices.iter().fold(pos2(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, v| a.max(v.uv));
+            Some(Rect::from_min_max(min, max))
+        }
+        _ => None,
+    })
+}
+
+/// A new document of the Hebrew edition has right-to-left paragraphs, so a style's sample starts
+/// at the right end of its snippet. The tile shows that end: it showed the snippet's blank left
+/// part, and every tile was empty.
+#[test]
+fn a_right_to_left_styles_tile_shows_its_sample() {
+    let mut doc = Document::new();
+    Arc::make_mut(&mut doc.styles).default_para.bidi = Some(true);
+    let (shapes, images) = run_gallery(doc, gallery_style("Sample"));
+    let preview = images.iter().find(|i| (200..300).contains(&i.size[0]) && (20..60).contains(&i.size[1])).expect("the preview is rendered");
+    let uv = shown_uv(&shapes).expect("the tile paints its preview");
+    let [w, h] = preview.size;
+    let columns = ((uv.min.x * w as f32).floor() as usize)..((uv.max.x * w as f32).ceil() as usize).min(w);
+    let inked = columns.clone().any(|x| (0..h).any(|y| preview.pixels.get(y * w + x).is_some_and(|p| p.a() > 0 && p.r() < 160)));
+    assert!(inked, "the tile shows columns {columns:?} of the {w}-pixel preview, and none has the sample in it");
+}
+
 /// #663: gallery previews are dimmed in the dark theme, unless they show Switch Modes' dark
 /// page; the light theme keeps a white page.
 #[test]

@@ -63,3 +63,6 @@
 	Agreeing covers later requests in this run that send a selection. A request that sends the whole document asks again.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו ששולחות טקסט נבחר. בקשה ששולחת את המסמך כולו תבקש אישור מחדש.	wording of the scope of the agreement: it must say what the pane really does
 	Agreeing covers later requests in this run, whether they send a selection or the whole document.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו, בין אם הן שולחות טקסט נבחר ובין אם הן שולחות את המסמך כולו.	wording of the scope of the agreement
 	If you choose to remember the key, it is kept unencrypted in a file in WordCraft's settings folder.	אם תבחרו לזכור את המפתח, הוא יישמר ללא הצפנה בקובץ בתיקיית ההגדרות של WordCraft.	said before the key is kept: it must say that the file is not encrypted
+icon	B	מ	the Bold button draws the first letter of מודגש, as the English one draws B; same idea for נ (נטוי) and ק (קו תחתון)
+icon	abc	אבג	the Spelling button shows the first letters of the alphabet
+crop	T	למעלה	the crop side next to its percentage in Picture Format; עליון / תחתון are the alternatives for T and B

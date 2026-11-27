@@ -426,3 +426,12 @@ spacing	Open	פתוח
 	Agreeing covers later requests in this run, whether they send a selection or the whole document.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו, בין אם הן שולחות טקסט נבחר ובין אם הן שולחות את המסמך כולו.
 	Your instruction (no document text goes with it: the document is empty) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree.	ההוראה שלכם (לא יישלח איתה טקסט מהמסמך: המסמך ריק) תישלח דרך האינטרנט אל {recipient}, כדי שהמודל {model} יקרא אותה. WordCraft לא שומר עותק. דבר לא יישלח עד שתאשרו.
 	The model sent no text, so there is no reply to place.	המודל לא שלח טקסט, ולכן אין תשובה להכניס.
+icon	B	מ
+icon	I	נ
+icon	U	ק
+icon	abc	אבג
+crop	L	שמאל
+crop	T	למעלה
+crop	R	ימין
+crop	B	למטה
+picture	Alt:	טקסט חלופי:

@@ -78,7 +78,7 @@ pub fn templates(app: &mut WordApp, ui: &mut Ui, f: &mut TemplatesForm) -> bool 
     ui.add_space(6.0);
     let organizer = ui.button(tl!("Organizer…")).clicked();
     if !f.message.is_empty() {
-        ui.add(egui::Label::new(egui::RichText::new(f.message.as_str()).small().color(ui.visuals().error_fg_color)).wrap());
+        ui.add(egui::Label::new(egui::RichText::new(crate::i18n::message(&f.message)).small().color(ui.visuals().error_fg_color)).wrap());
     }
     let (ok, cancel) = buttons(ui, tl!("OK"));
     if organizer {
@@ -99,8 +99,8 @@ pub fn templates(app: &mut WordApp, ui: &mut Ui, f: &mut TemplatesForm) -> bool 
 pub struct OrganizerForm {
     /// The other file (empty: none open).
     pub file: String,
-    /// Its styles: (name, type).
-    pub other: Vec<(String, String)>,
+    /// Its styles: (name, type, built in).
+    pub other: Vec<(String, String, bool)>,
     /// Selected style id in this document.
     pub left: String,
     /// Selected style name in the other file.
@@ -138,7 +138,8 @@ impl OrganizerForm {
             Ok(v) => {
                 let list = v.get("file").and_then(|f| f.get("styles")).and_then(Value::as_array).cloned().unwrap_or_default();
                 let s = |x: &Value, k: &str| x.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-                self.other = list.iter().map(|x| (s(x, "name"), s(x, "type"))).collect();
+                let builtin = |x: &Value| x.get("builtIn").and_then(Value::as_bool).unwrap_or(false);
+                self.other = list.iter().map(|x| (s(x, "name"), s(x, "type"), builtin(x))).collect();
                 self.file = path.to_string();
                 self.right.clear();
                 self.message.clear();
@@ -146,6 +147,12 @@ impl OrganizerForm {
             Err(e) => self.message = e.to_string(),
         }
     }
+}
+
+/// A style's name as the lists show it: a built-in style's in the interface language, a style
+/// someone made as they named it. Commands keep the stored name.
+pub(crate) fn shown_style_name(name: &str, builtin: bool) -> String {
+    if builtin { crate::i18n::builtin_style_name(name) } else { name.to_string() }
 }
 
 fn glyph(ty: &str) -> &'static str {
@@ -187,7 +194,9 @@ pub fn organizer(app: &mut WordApp, ui: &mut Ui, f: &mut OrganizerForm) -> bool 
             list_frame(ui, "organizer_mine", &mut |ui| {
                 for st in &mine {
                     let id = s(st, "id");
-                    if ui.selectable_label(f.left == id, format!("{}  {}", glyph(&s(st, "type")), s(st, "name"))).clicked() {
+                    let builtin = st.get("builtIn").and_then(Value::as_bool).unwrap_or(false);
+                    let shown = shown_style_name(&s(st, "name"), builtin);
+                    if ui.selectable_label(f.left == id, format!("{}  {shown}", glyph(&s(st, "type")))).clicked() {
                         f.left = id;
                         f.rename = None;
                     }
@@ -207,8 +216,8 @@ pub fn organizer(app: &mut WordApp, ui: &mut Ui, f: &mut OrganizerForm) -> bool 
             let name = std::path::Path::new(&f.file).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "—".into());
             ui.label(egui::RichText::new(name).font(semibold(12.5))).on_hover_text(f.file.as_str());
             list_frame(ui, "organizer_other", &mut |ui| {
-                for (n, ty) in &f.other {
-                    if ui.selectable_label(f.right == *n, format!("{}  {n}", glyph(ty))).clicked() {
+                for (n, ty, builtin) in &f.other {
+                    if ui.selectable_label(f.right == *n, format!("{}  {}", glyph(ty), shown_style_name(n, *builtin))).clicked() {
                         f.right = n.clone();
                     }
                 }
@@ -245,7 +254,7 @@ pub fn organizer(app: &mut WordApp, ui: &mut Ui, f: &mut OrganizerForm) -> bool 
         f.message = r.err().unwrap_or_default();
     }
     if !f.message.is_empty() {
-        ui.add(egui::Label::new(egui::RichText::new(f.message.as_str()).small().color(ui.visuals().error_fg_color)).wrap());
+        ui.add(egui::Label::new(egui::RichText::new(crate::i18n::message(&f.message)).small().color(ui.visuals().error_fg_color)).wrap());
     }
     // Escape while renaming only stops renaming.
     if f.rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -302,7 +311,7 @@ mod tests {
         assert_eq!(a.session.doc.settings.attached_template.as_deref(), Some(p.as_str()));
 
         let mut org = OrganizerForm::read(&mut a, None);
-        assert!(org.other.iter().any(|(n, _)| n == "Memo"), "{:?}", org.other);
+        assert!(org.other.iter().any(|(n, ..)| n == "Memo"), "{:?}", org.other);
         org.right = "Memo".into();
         let r = a.run("styles.copyFrom", json!({"path": org.file, "styles": [org.right]}));
         assert!(r.is_ok(), "{r:?}");

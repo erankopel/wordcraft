@@ -117,61 +117,57 @@ pub(crate) fn float_rect(v: &Value) -> Option<[f32; 4]> {
 /// others' from `panePlaces`.
 ///
 /// `left` / `right` in the docking API and in saved prefs are **physical** window sides (and the
-/// Dock Left / Dock Right menus mean the same). Only an unset default place is mirrored in a
-/// right-to-left interface, so a pane that has never been docked still opens on the reading-start
-/// side.
+/// Dock Left / Dock Right menus mean the same). The pane host is mirrored in a right-to-left
+/// interface (its `Start` edge is the right, and its title bars read from the right), so a saved
+/// side becomes the edge that is on that side ([`edge_of`]); a pane's default edge is logical
+/// and opens on the reading-start side by itself.
 pub(super) fn pane_state(app: &WordApp, pane: Pane) -> PaneState {
-    let (mut state, explicit) = stored_state(app, pane);
-    if !explicit {
-        state.place = mirror_default(state.place);
-    }
-    state
-}
-
-/// Flip a default dock edge in a right-to-left interface so Start (reading start in LTR) opens on
-/// the physical right. Explicit and saved left/right are never flipped — see [`pane_state`].
-pub(super) fn mirror_default(place: Place) -> Place {
-    match place {
-        Place::Docked(Edge::Start) if crate::rtl::on() => Place::Docked(Edge::End),
-        Place::Docked(Edge::End) if crate::rtl::on() => Place::Docked(Edge::Start),
-        other => other,
-    }
-}
-
-/// Physical place from prefs, and whether that place was explicitly saved (`true`) or is still the
-/// pane's default (`false`).
-fn stored_state(app: &WordApp, pane: Pane) -> (PaneState, bool) {
     if pane == Pane::Styles {
-        return (styles_state(app), true);
+        return styles_state(app);
     }
     let default = pane.default_state();
     let Some(saved) = app.ui.pane_places.get(pane.key()) else {
-        return (default, false);
+        return default;
     };
-    let (place, explicit) = match saved.dock {
-        Some(SavedDock::Left) => (Place::Docked(Edge::Start), true),
-        Some(SavedDock::Right) => (Place::Docked(Edge::End), true),
-        Some(SavedDock::Float) => (Place::Floating, true),
-        None => (default.place, false),
+    let place = match saved.dock {
+        Some(SavedDock::Left) => Place::Docked(edge_of(true)),
+        Some(SavedDock::Right) => Place::Docked(edge_of(false)),
+        Some(SavedDock::Float) => Place::Floating,
+        None => default.place,
     };
-    (PaneState { place, size: saved.width.or(default.size), float_rect: saved.float }, explicit)
+    PaneState { place, size: saved.width.or(default.size), float_rect: saved.float }
+}
+
+/// The host edge on the window's left (`left`) or right side: `Start` is the left in a
+/// left-to-right interface and the right in a right-to-left one, where the host is mirrored.
+pub(super) fn edge_of(left: bool) -> Edge {
+    if left != crate::rtl::on() { Edge::Start } else { Edge::End }
+}
+
+/// The window side (`"left"`, `"right"`) a docked edge is on in this interface; the bottom edge
+/// counts as the right, as the dock command has always reported it.
+pub(super) fn side_of(edge: Edge) -> &'static str {
+    if edge != Edge::Bottom && edge == edge_of(true) { "left" } else { "right" }
 }
 
 /// The Styles pane's place and size, from `view.stylesPaneDock` and the UI preferences (#1756).
 fn styles_state(app: &WordApp) -> PaneState {
     let place = match app.session.view.styles_pane_dock {
-        StylesPaneDock::Right => Place::Docked(Edge::End),
-        StylesPaneDock::Left => Place::Docked(Edge::Start),
+        StylesPaneDock::Right => Place::Docked(edge_of(false)),
+        StylesPaneDock::Left => Place::Docked(edge_of(true)),
         StylesPaneDock::Floating => Place::Floating,
     };
     PaneState { place, size: app.ui.styles_pane_width.or(Pane::Styles.default_state().size), float_rect: app.ui.styles_pane_float }
 }
 
+/// The pane menu's labels. Its first docking item moves the pane to the host's `Start` edge, the
+/// window's right in a right-to-left interface: Dock Right comes first there.
 pub(super) fn labels() -> PaneLabels {
+    let (start, end) = if crate::rtl::on() { (tl!("Dock Right"), tl!("Dock Left")) } else { (tl!("Dock Left"), tl!("Dock Right")) };
     PaneLabels {
         menu: tl!("Pane Options").into(),
-        move_start: tl!("Dock Left").into(),
-        move_end: tl!("Dock Right").into(),
+        move_start: start.into(),
+        move_end: end.into(),
         float: tl!("Float").into(),
         close: tl!("Close").into(),
         move_pane: tl!("Move Pane: {title}").into(),

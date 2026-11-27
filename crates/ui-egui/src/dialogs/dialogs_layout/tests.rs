@@ -1003,3 +1003,18 @@ fn size_dialog_typed_height_then_ok_without_enter_applies_it() {
     assert!(h.state().dialog.is_none(), "Esc cancels the dialog");
     assert_eq!(selected_size(h.state()), (30.0, 15.0), "nothing applied");
 }
+
+/// UWB-18: Envelopes and Labels start on the region's paper: #10 and Letter labels where Letter
+/// is used (the United States), DL and A4 labels in an A4 region such as the Hebrew edition's he-IL.
+#[test]
+fn envelopes_and_labels_start_on_the_regions_paper() {
+    let mut a = app();
+    a.session.prefs.region = Some("en-US".into());
+    let (envelope, labels) = (EnvelopeForm::read(&a), LabelsForm::read(&a));
+    assert_eq!(envelope.params(false)["size"], "Envelope #10");
+    assert!(labels.params()["product"].as_str().is_some_and(|p| p.starts_with("letter-")), "{}", labels.params());
+    a.session.prefs.region = Some("he-IL".into());
+    let (envelope, labels) = (EnvelopeForm::read(&a), LabelsForm::read(&a));
+    assert_eq!(envelope.params(false)["size"], "Envelope DL");
+    assert!(labels.params()["product"].as_str().is_some_and(|p| p.starts_with("a4-")), "{}", labels.params());
+}

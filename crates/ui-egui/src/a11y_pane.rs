@@ -28,9 +28,9 @@ pub fn accessibility(app: &mut WordApp, ui: &mut Ui) {
                 |ui| {
                     for (k, i) in group.into_iter().enumerate() {
                         ui.push_id(k, |ui| {
-                            let text = i["issue"].as_str().unwrap_or("");
+                            let (text, fix) = finding(i);
                             let r = ui.add(egui::Button::new(egui::RichText::new(text).font(regular(12.5))).frame(false).wrap());
-                            if let Some(fix) = i["fix"].as_str() {
+                            if let Some(fix) = fix {
                                 ui.label(egui::RichText::new(fix).small().weak());
                             }
                             if r.clicked() {
@@ -57,6 +57,88 @@ pub fn accessibility(app: &mut WordApp, ui: &mut Ui) {
             let _ = app.run(cmd, a.get("params").cloned().unwrap_or_else(|| json!({})));
         }
     }
+}
+
+/// One rule of the checker as the pane words it. The engine's `issue` and `fix` are English for
+/// scripts, and a fix can name a command (`file.properties {title}`): the pane says what it found
+/// from the rule's id instead, in the interface language, and what to do in words.
+struct Rule {
+    /// The checker's stable `rule` id.
+    id: &'static str,
+    /// The engine's wordings of the finding, with `{name}` where it puts a number. Each is also
+    /// the catalog key of how the pane says it; the numbers are read from the engine's text.
+    issues: &'static [&'static str],
+    /// What to do about it.
+    fix: Option<&'static str>,
+}
+
+const RULES: &[Rule] = &[
+    Rule {
+        id: "headingOrder",
+        issues: &["Heading level skipped (Heading {to} after Heading {from})"],
+        fix: Some("Use the next heading level down, so the outline has no gaps"),
+    },
+    Rule { id: "linkText", issues: &["Link text \"click here\" isn't descriptive"], fix: Some("Use link text that says where the link goes") },
+    Rule { id: "docTitle", issues: &["Document has no title"], fix: Some("Give the document a title in File › Info") },
+    Rule {
+        id: "blankParagraphs",
+        issues: &["{n} empty paragraphs in a row"],
+        fix: Some("Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs"),
+    },
+    Rule {
+        id: "altText",
+        issues: &["Chart or diagram has no alternative text", "Missing alternative text"],
+        fix: Some("Describe it in the Alt Text pane, or mark it decorative"),
+    },
+    Rule {
+        id: "floating",
+        issues: &["Object isn't in line with text, so its reading order is unclear"],
+        fix: Some("Place it in line with text (Layout › Wrap Text)"),
+    },
+    Rule {
+        id: "contrast",
+        issues: &["Text is hard to read: contrast {ratio}:1, {need}:1 needed"],
+        fix: Some("Use a darker or lighter text colour, or change the shading behind it"),
+    },
+    Rule { id: "tableAltText", issues: &["Table has no alternative text"], fix: Some("Give it a title or description in the Alt Text pane") },
+    Rule {
+        id: "tableHeader",
+        issues: &["Table has no header row"],
+        fix: Some("Repeat the first row as a header row (Table Layout › Data › Repeat Header Rows)"),
+    },
+    Rule {
+        id: "blankRow",
+        issues: &["Row {n} of a table is empty: it looks like spacing"],
+        fix: Some("Delete the row and use cell margins or spacing instead"),
+    },
+    Rule {
+        id: "blankColumn",
+        issues: &["Column {n} of a table is empty: it looks like spacing"],
+        fix: Some("Delete the column and use cell margins instead"),
+    },
+    Rule {
+        id: "mergedCells",
+        issues: &["Table has merged cells, which screen readers can lose track of"],
+        fix: Some("Split the merged cells (Table Layout › Merge)"),
+    },
+];
+
+/// What the pane says for a finding: the finding and what to do about it, from its rule, in the
+/// interface language. Never a command id: a rule this window doesn't know shows the engine's
+/// finding (translated where the catalog knows it) and no fix.
+pub(crate) fn finding(issue: &Value) -> (String, Option<String>) {
+    let said = issue["issue"].as_str().unwrap_or("");
+    let Some(rule) = RULES.iter().find(|r| issue["rule"].as_str() == Some(r.id)) else {
+        return (crate::i18n::message(said), None);
+    };
+    let fix = rule.fix.map(|f| tl!(f).to_string());
+    let text = rule.issues.iter().find_map(|template| {
+        let values = if *template == said { Vec::new() } else { crate::i18n::captures(template, said)? };
+        let args: Vec<(&str, &str)> = values.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
+        Some(crate::i18n::fmt(tl!(template), &args))
+    });
+    // Wording the engine has changed: its own finding, still with no command in sight.
+    (text.unwrap_or_else(|| crate::i18n::message(said)), fix)
 }
 
 /// The checker's findings, kept until the document changes.
@@ -178,6 +260,62 @@ mod tests {
         );
         h.run_steps(4);
         h
+    }
+
+    /// A word such as `file.properties` or `table.altText`: a command id.
+    fn names_a_command(word: &str) -> bool {
+        word.split_once('.').is_some_and(|(a, b)| {
+            !a.is_empty() && !b.is_empty() && a.chars().all(|c| c.is_ascii_lowercase()) && b.chars().all(|c| c.is_ascii_alphabetic())
+        })
+    }
+
+    /// UW-02: every finding of the checker is worded from its rule, with the engine's numbers, and
+    /// what to do about it never names a command (the engine's own fixes do, for scripts). In
+    /// English the finding is the engine's sentence; in Hebrew the catalog's, numbers kept.
+    #[test]
+    fn findings_are_worded_from_their_rule_without_command_ids() {
+        let mut s = wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Intro"));
+        s.run("select.all", &json!({})).unwrap();
+        s.run("format.color", &json!({"color": "BBBBBB"})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        for _ in 0..4 {
+            s.run("text.newParagraph", &json!({})).unwrap();
+        }
+        s.run("insert.table", &json!({"rows": 3, "cols": 2})).unwrap();
+        s.run("text.insert", &json!({"text": "Year"})).unwrap();
+        let issues = wordcraft_engine::cmd::accessibility::check(&s.doc);
+        let rules: Vec<&str> = issues.iter().filter_map(|i| i["rule"].as_str()).collect();
+        for want in ["docTitle", "contrast", "blankParagraphs", "tableHeader", "tableAltText", "blankRow"] {
+            assert!(rules.contains(&want), "{want} in {rules:?}");
+        }
+        assert!(
+            issues.iter().filter_map(|i| i["fix"].as_str()).any(|f| f.split_whitespace().any(names_a_command)),
+            "the engine's fixes name commands, which the pane must not show"
+        );
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        for i in &issues {
+            let (text, fix) = finding(i);
+            assert_eq!(text, i["issue"].as_str().unwrap_or(""), "English: the engine's own finding");
+            let fix = fix.unwrap_or_default();
+            assert!(!fix.split(|c: char| c.is_whitespace() || "(){}".contains(c)).any(names_a_command), "{fix}");
+        }
+        let he = crate::i18n::fixture_lang(
+            "he",
+            concat!(
+                "\tText is hard to read: contrast {ratio}:1, {need}:1 needed\tקשה לקרוא את הטקסט: ניגודיות {ratio}:1, נדרשת {need}:1\n",
+                "\tGive the document a title in File › Info\tיש לתת למסמך כותרת בקובץ ‹ מידע\n",
+                "\tDocument has no title\tלמסמך אין כותרת\n",
+            ),
+        );
+        crate::i18n::set_current(he);
+        let contrast = issues.iter().find(|i| i["rule"] == "contrast").map(finding);
+        let title = issues.iter().find(|i| i["rule"] == "docTitle").map(finding);
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        let plain = |t: &str| t.chars().filter(|c| !matches!(c, '\u{2066}'..='\u{2069}' | '\u{200E}' | '\u{200F}')).collect::<String>();
+        let (contrast, _) = contrast.unwrap_or_default();
+        assert!(plain(&contrast).starts_with("קשה לקרוא את הטקסט: ניגודיות "), "{contrast}");
+        assert!(plain(&contrast).ends_with(", נדרשת 4.5:1"), "the engine's numbers: {contrast}");
+        assert_eq!(title, Some(("למסמך אין כותרת".to_string(), Some("יש לתת למסמך כותרת בקובץ ‹ מידע".to_string()))));
     }
 
     #[test]

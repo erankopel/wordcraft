@@ -17,20 +17,23 @@ impl WordApp {
     /// whatever handed it over (the command line, a macOS open event, a drop). Returns the message.
     pub fn report_open_failure(&mut self, path: &str, error: &str) -> String {
         log::warn!("{path}: {error}");
-        let msg = crate::i18n::fmt(crate::tl!("Couldn't open {path}: {error}"), &[("path", &crate::i18n::isolate_path(path)), ("error", error)]);
+        let error = i18n::message(error);
+        let msg = crate::i18n::fmt(crate::tl!("Couldn't open {path}: {error}"), &[("path", &crate::i18n::isolate_path(path)), ("error", &error)]);
         self.status(msg.clone());
         msg
     }
 
-    /// Sets a temporary status message in the bottom status bar.
+    /// Sets a temporary status message in the bottom status bar. A message from the engine or a
+    /// library (English, which scripts read) is shown in the interface language where the catalog
+    /// knows it ([`i18n::message`]); one the window wrote is in it already.
     pub fn status(&mut self, s: impl Into<String>) {
-        self.status_msg = Some((s.into(), now_ms()));
+        self.status_msg = Some((i18n::message(&s.into()), now_ms()));
     }
 
     /// A status message that stays [`STATUS_LONG_MS`] instead of the usual six seconds: the bar
     /// shows a message until six seconds after its time, so its time is set that much later.
     pub fn status_long(&mut self, s: impl Into<String>) {
-        self.status_msg = Some((s.into(), now_ms() + STATUS_LONG_MS - STATUS_MS));
+        self.status_msg = Some((i18n::message(&s.into()), now_ms() + STATUS_LONG_MS - STATUS_MS));
     }
 
     /// Write the current preferences out through the host's hook, if it has one (#2716). The

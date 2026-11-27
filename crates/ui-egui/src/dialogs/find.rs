@@ -249,7 +249,7 @@ pub(super) fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, tar
     if let Some(params) = go {
         match app.run("edit.goto", params) {
             Ok(_) => message.clear(),
-            Err(e) => *message = e,
+            Err(e) => *message = crate::i18n::message(&e),
         }
     }
     close

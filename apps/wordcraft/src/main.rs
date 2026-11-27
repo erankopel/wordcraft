@@ -34,7 +34,17 @@ mod traffic_lights;
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{
     Services, UiState, WordApp,
+    updates_ui::UpdatesOff,
     window_geometry::{RawWindowState, WindowGeometry, reachable, take_rescue},
+};
+
+/// The desktop's name for this program: the Wayland app id and X11 window class, which desktops
+/// match to the menu entry `<APP_ID>.desktop` and its icon. An edition is built with its own
+/// (`WORDCRAFT_APP_ID`; the Hebrew edition's is `ai.storyteller.wordcraft.hebrew`), so that it and
+/// a stock install each keep their menu entry, icon, taskbar button and default-app association.
+pub(crate) const APP_ID: &str = match option_env!("WORDCRAFT_APP_ID") {
+    Some(id) => id,
+    None => "ai.storyteller.wordcraft",
 };
 
 /// The app, the restored window geometry (or, with none, the default: no position) until the
@@ -647,7 +657,7 @@ fn main() -> eframe::Result {
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("WordCraft")
-            .with_app_id("ai.storyteller.wordcraft")
+            .with_app_id(APP_ID)
             .with_inner_size([1440.0, 920.0])
             .with_min_inner_size(wordcraft_ui_egui::window_geometry::MIN_SIZE)
             .with_drag_and_drop(true)
@@ -715,9 +725,10 @@ fn main() -> eframe::Result {
             let mut session = Session::new(doc);
             session.system_region = region;
             let mut app = WordApp::new(session, services(file_dialog, cancel_file_dialog, &cc.egui_ctx));
-            // An edition (the Hebrew one) is not updated from the upstream releases: they are
-            // English, and an accepted update would replace this program.
-            app.set_startup_update_check(wordcraft_ui_egui::i18n::EDITION_LANGUAGE.is_none());
+            // An edition (the Hebrew one) never updates itself: the releases are the stock English
+            // ones, and an accepted update would replace this program (`UpdatesOff`, below).
+            let updates_off = UpdatesOff::of(wordcraft_ui_egui::i18n::EDITION_LANGUAGE, updates_unsafe);
+            app.set_startup_update_check(updates_off.is_none());
             load_prefs(&mut app);
             // The AI pane keeps the person's API key in the settings folder, when they ask it to. A run
             // without preferences neither reads nor writes that file either: it has no folder, so the pane
@@ -727,9 +738,9 @@ fn main() -> eframe::Result {
             {
                 app.use_saved_assistant_key(&folder);
             }
-            // After the preferences, so the reason it gives is in the interface language.
-            if updates_unsafe {
-                app.disable_self_update();
+            // Help › Check for Updates gives the reason, worded when it is asked.
+            if let Some(why) = updates_off {
+                app.disable_self_update(why);
             }
             // Language packs from the suite's font store; an Install click is the person's own.
             wordcraft_engine::packs::use_font_store(true);

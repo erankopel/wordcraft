@@ -14,15 +14,31 @@
 # glibc 2.35) so the binaries run on newer ones. Optional: desktop-file-validate, appstreamcli,
 # zsyncmake (the zsync package) for the AppImage's .zsync.
 #
-# Environment, all optional: WORDCRAFT_EXTRA_FONTS_DIR (folders of .ttf/.otf files, each with its
-# OFL.txt, staged to usr/share/wordcraft/fonts), WORDCRAFT_EDITION_REGION (the AppImage starts with
-# this WORDCRAFT_REGION unless the person sets one), WORDCRAFT_NO_UPDATE_INFO (no AppImage update
-# information). packaging/hebrew/build-appimage.sh sets them for the Hebrew edition.
+# Environment, all optional, for an edition (packaging/hebrew/build-appimage.sh sets them for the
+# Hebrew one, which is built as an AppImage only):
+#   WORDCRAFT_APP_ID           its desktop id (default ai.storyteller.wordcraft): the name of the
+#                              desktop entry, the AppStream file and the icons; the binaries must be
+#                              built with the same WORDCRAFT_APP_ID
+#   WORDCRAFT_DESKTOP_ENTRY    its desktop entry, WORDCRAFT_METAINFO its AppStream template
+#   WORDCRAFT_PACKAGE_NAME     the start of the file names (default wordcraft)
+#   WORDCRAFT_EXTRA_FONTS_DIR  folders of .ttf/.otf files, each with its OFL.txt, staged to
+#                              usr/share/wordcraft/fonts
+#   WORDCRAFT_EXTRA_DOCS       files, separated by colons, copied to usr/share/doc/wordcraft
+#   WORDCRAFT_GLIBC_FLOOR      the oldest glibc the programs must start on (2.35 is Ubuntu 22.04's):
+#                              glibc-floor.py drops what only weak symbols need, else the build fails
+#   WORDCRAFT_APPRUN           the AppImage's AppRun script, with @APP_ID@, @NAME@ (the entry's Name),
+#                              @REGION@ (WORDCRAFT_EDITION_REGION), @VERSION@ and @GLIBC@ filled in
+#   WORDCRAFT_NO_UPDATE_INFO   no AppImage update information (and no .zsync)
 set -euo pipefail
 # shellcheck source=../env.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../env.sh"
 HERE="$ROOT/packaging/linux"
-APP_ID=ai.storyteller.wordcraft
+# The stock id names the files in this folder and in assets/app-icon; an edition's replaces it in
+# the package.
+STOCK_ID=ai.storyteller.wordcraft
+APP_ID="${WORDCRAFT_APP_ID:-$STOCK_ID}"
+DESKTOP_ENTRY="${WORDCRAFT_DESKTOP_ENTRY:-$HERE/$STOCK_ID.desktop}"
+METAINFO="${WORDCRAFT_METAINFO:-$HERE/$STOCK_ID.metainfo.xml.in}"
 
 SKIP_BUILD=0
 FORMATS="appimage deb rpm tar"
@@ -30,7 +46,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1; shift ;;
     --formats) FORMATS="$2"; shift 2 ;;
-    -h | --help) sed -n '2,17p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,31p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -43,7 +59,12 @@ case "$ARCH" in
   *) echo "unsupported architecture $ARCH" >&2; exit 2 ;;
 esac
 export WORDCRAFT_MAINTAINER="${WORDCRAFT_MAINTAINER:-WordCraft maintainers <wordcraft@storyteller.ai>}"
-BASENAME="wordcraft-$VERSION-linux-$ARCH"
+BASENAME="${WORDCRAFT_PACKAGE_NAME:-wordcraft}-$VERSION-linux-$ARCH"
+if [[ "$APP_ID" != "$STOCK_ID" ]] && [[ " $FORMATS " = *" deb "* || " $FORMATS " = *" rpm "* ]]; then
+  # nfpm.yaml installs the stock id's files.
+  echo "error: an edition with its own WORDCRAFT_APP_ID is packaged as an AppImage or a tar only" >&2
+  exit 2
+fi
 
 echo "==> WordCraft $VERSION for Linux $ARCH ($FORMATS)"
 
@@ -63,15 +84,27 @@ rm -rf "$WORK"
 install -Dm755 "$BIN/wordcraft" "$STAGE/usr/bin/wordcraft"
 install -Dm755 "$BIN/wordcraft-cli" "$STAGE/usr/bin/wordcraft-cli"
 "${CROSS_COMPILE:-}strip" "$STAGE/usr/bin/wordcraft" "$STAGE/usr/bin/wordcraft-cli" 2>/dev/null || true
-install -Dm644 "$HERE/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.desktop"
-install -Dm644 "$HERE/$APP_ID.mime.xml" "$STAGE/usr/share/mime/packages/$APP_ID.xml"
+if [[ -n "${WORDCRAFT_GLIBC_FLOOR:-}" ]]; then
+  # Built on a newer system than the oldest it is for (packaging/linux/glibc-floor.py says why).
+  python3 "$HERE/glibc-floor.py" "$WORDCRAFT_GLIBC_FLOOR" "$STAGE/usr/bin/wordcraft" "$STAGE/usr/bin/wordcraft-cli"
+fi
+install -Dm644 "$DESKTOP_ENTRY" "$STAGE/usr/share/applications/$APP_ID.desktop"
+install -Dm644 "$HERE/$STOCK_ID.mime.xml" "$STAGE/usr/share/mime/packages/$APP_ID.xml"
 mkdir -p "$STAGE/usr/share/metainfo"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$WORDCRAFT_BUILD_DATE/g" \
-  "$HERE/$APP_ID.metainfo.xml.in" >"$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
+  "$METAINFO" >"$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
 mkdir -p "$STAGE/usr/share/icons"
 cp -R "$ROOT/assets/app-icon/hicolor" "$STAGE/usr/share/icons/"
+if [[ "$APP_ID" != "$STOCK_ID" ]]; then
+  for f in "$STAGE"/usr/share/icons/hicolor/*/apps/"$STOCK_ID".*; do mv "$f" "${f%/*}/$APP_ID.${f##*.}"; done
+fi
 mkdir -p "$STAGE/usr/share/doc/wordcraft"
 copy_docs "$STAGE/usr/share/doc/wordcraft"
+IFS=: read -r -a extra_docs <<<"${WORDCRAFT_EXTRA_DOCS:-}"
+for f in "${extra_docs[@]}"; do
+  [[ -n "$f" ]] || continue
+  cp "$f" "$STAGE/usr/share/doc/wordcraft/" || { echo "error: WORDCRAFT_EXTRA_DOCS: can't copy $f" >&2; exit 1; }
+done
 
 # Extra fonts: a build input like CRAFT_FONTS_DIR, never committed. The .ttf and .otf files under
 # $WORDCRAFT_EXTRA_FONTS_DIR go to usr/share/wordcraft/fonts, which the app scans beside its binary
@@ -159,24 +192,27 @@ if has appimage; then
   }
   APPDIR="$WORK/WordCraft.AppDir"
   cp -R "$STAGE" "$APPDIR"
-  if [[ -n "${WORDCRAFT_EDITION_REGION:-}" ]]; then
-    # An edition (packaging/hebrew) starts with its region's paper size and units, which the app
-    # otherwise takes from the system: an en_US session would start Letter pages. A value the person
-    # already set in the environment wins. AppRun is a script, not a link, so it applies to every
-    # way of starting the AppImage.
-    cat >"$APPDIR/AppRun" <<APPRUN
-#!/bin/sh
-HERE="\$(dirname "\$(readlink -f "\$0")")"
-: "\${WORDCRAFT_REGION:=$WORDCRAFT_EDITION_REGION}"
-export WORDCRAFT_REGION
-exec "\$HERE/usr/bin/wordcraft" "\$@"
-APPRUN
+  if [[ -n "${WORDCRAFT_APPRUN:-}" ]]; then
+    # An edition's AppRun (packaging/hebrew/AppRun.in): a script, so it applies to every way of
+    # starting the AppImage.
+    : "${WORDCRAFT_EDITION_REGION:?WORDCRAFT_APPRUN needs WORDCRAFT_EDITION_REGION}"
+    : "${WORDCRAFT_GLIBC_FLOOR:?WORDCRAFT_APPRUN needs WORDCRAFT_GLIBC_FLOOR}"
+    # A value for sed's replacement text: \, & and the delimiter | taken literally.
+    sed_value() { printf '%s' "$1" | sed -e 's/[\\|&]/\\&/g'; }
+    NAME="$(sed -n 's/^Name=//p' "$DESKTOP_ENTRY" | head -n 1)"
+    sed -e "s|@APP_ID@|$(sed_value "$APP_ID")|g" -e "s|@NAME@|$(sed_value "$NAME")|g" \
+      -e "s|@REGION@|$(sed_value "$WORDCRAFT_EDITION_REGION")|g" -e "s|@VERSION@|$(sed_value "$VERSION")|g" \
+      -e "s|@GLIBC@|$(sed_value "$WORDCRAFT_GLIBC_FLOOR")|g" "$WORDCRAFT_APPRUN" >"$APPDIR/AppRun"
+    if grep -n '@[A-Z_]*@' "$APPDIR/AppRun"; then
+      echo "error: $WORDCRAFT_APPRUN has a placeholder package.sh doesn't fill in" >&2
+      exit 1
+    fi
     chmod 755 "$APPDIR/AppRun"
   else
     ln -s usr/bin/wordcraft "$APPDIR/AppRun"
   fi
-  cp "$HERE/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
-  cp "$ROOT/assets/app-icon/hicolor/256x256/apps/$APP_ID.png" "$APPDIR/$APP_ID.png"
+  cp "$DESKTOP_ENTRY" "$APPDIR/$APP_ID.desktop"
+  cp "$ROOT/assets/app-icon/hicolor/256x256/apps/$STOCK_ID.png" "$APPDIR/$APP_ID.png"
   ln -s "$APP_ID.png" "$APPDIR/.DirIcon"
 
   TOOL="${APPIMAGETOOL:-$(command -v appimagetool || true)}"
@@ -218,7 +254,7 @@ APPRUN
   echo "wrote $OUT"
   if [[ -s "$OUT.zsync" ]]; then
     echo "wrote $OUT.zsync"
-  else
+  elif [[ -z "${WORDCRAFT_NO_UPDATE_INFO:-}" ]]; then
     warn "zsyncmake not found, so $OUT.zsync was not written; AppImage delta updates need it"
   fi
 fi

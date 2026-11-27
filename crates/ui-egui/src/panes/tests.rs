@@ -450,35 +450,82 @@ fn pane_dock_command_docks_floats_and_reads_each_pane() {
     assert_eq!(super::pane_state(&app, Pane::Navigation).place, Place::Floating, "junk changed nothing");
 }
 
-/// Explicit `left` / `right` stay on the physical window sides in an Arabic (RTL) interface;
-/// defaults still flip to the reading-start side. Covers `ui.paneDock` and `view.stylesPaneDock`.
+/// A right-to-left interface mirrors the task panes like the rest of the window: a pane that was
+/// never docked opens on the right, where reading starts, and its title bar reads from the right
+/// (the title first, its ▾ and × at the left end), as it reads from the left in a left-to-right
+/// one. Left and right stay the window's sides: Dock Left in the pane's menu, `ui.paneDock` and
+/// `view.stylesPaneDock` put a pane on the left, and it is saved and reported as `left`.
 #[test]
-fn pane_dock_left_and_right_are_physical_in_rtl() {
-    use craft_ui::panes::{Edge, Place};
+#[cfg(not(target_arch = "wasm32"))]
+fn panes_read_from_the_right_in_rtl_and_left_and_right_stay_the_window_sides() {
+    use egui_kittest::kittest::Queryable;
     use serde_json::json;
+    type H = egui_kittest::Harness<'static, crate::WordApp>;
+    // The language is thread-local: put English back even when an assertion fails.
+    struct English;
+    impl Drop for English {
+        fn drop(&mut self) {
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        }
+    }
+    let _english = English;
+    const WIDTH: f32 = 1200.0;
+    let harness = |lang: crate::i18n::Lang| -> H {
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+        app.run("view.navigationPane", json!({"value": true})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(WIDTH, 700.0)).build_ui_state(
+            move |ui, app: &mut crate::WordApp| {
+                crate::i18n::set_current(lang);
+                crate::rtl::sync(ui.ctx());
+                super::show(app, ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        h
+    };
+    // The centre x of `pane`'s title bar, and of the menu button on its row.
+    let title = |h: &H, pane: Pane| -> (f32, f32) {
+        let bar = h.get_by_label(&format!("Move Pane: {}", pane.title())).rect();
+        let on_row = |r: egui::Rect| r.center().y > bar.top() && r.center().y < bar.bottom();
+        let menu = h.get_all_by_label("Pane Options").map(|n| n.rect()).find(|r| on_row(*r)).expect("the pane's menu button");
+        (bar.center().x, menu.center().x)
+    };
+
+    let ltr = harness(crate::i18n::Lang::EN);
+    let (bar, menu) = title(&ltr, Pane::Navigation);
+    assert!(bar < WIDTH / 2.0 && menu > bar, "left to right: Navigation on the left, its menu right of its title (bar {bar}, menu {menu})");
+    drop(ltr);
+
     let arabic = crate::i18n::fixture_lang("ar", "\tHome\tالرئيسية\n");
-    crate::i18n::set_current(arabic);
-    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
-    // Defaults: Navigation's Start opens on the physical right (reading start) until set.
-    assert_eq!(super::pane_state(&app, Pane::Navigation).place, Place::Docked(Edge::End));
-    assert_eq!(app.run("ui.paneDock", json!({"pane": "navigation"})).unwrap()["dock"], "right");
-    // Explicit left stays physical left and is reported as left.
-    assert_eq!(app.run("ui.paneDock", json!({"pane": "navigation", "dock": "left"})).unwrap()["dock"], "left");
-    assert_eq!(super::pane_state(&app, Pane::Navigation).place, Place::Docked(Edge::Start));
-    assert_eq!(app.run("ui.paneDock", json!({"pane": "navigation"})).unwrap()["dock"], "left");
-    assert_eq!(app.run("ui.paneDock", json!({"pane": "comments", "dock": "right"})).unwrap()["dock"], "right");
-    assert_eq!(super::pane_state(&app, Pane::Comments).place, Place::Docked(Edge::End));
-    // Styles through view.stylesPaneDock — same physical contract.
-    assert_eq!(app.run("view.stylesPaneDock", json!({"dock": "left"})).unwrap()["dock"], "left");
-    assert_eq!(super::pane_state(&app, Pane::Styles).place, Place::Docked(Edge::Start));
-    assert_eq!(app.run("view.stylesPaneDock", json!({})).unwrap()["dock"], "left");
-    assert_eq!(app.run("view.stylesPaneDock", json!({"dock": "right"})).unwrap()["dock"], "right");
-    assert_eq!(super::pane_state(&app, Pane::Styles).place, Place::Docked(Edge::End));
-    // A host Place request (Dock Left menu / drag) saves physical left without flipping.
-    super::apply(&mut app, craft_ui::panes::PaneRequest::Place(Pane::Clipboard, Place::Docked(Edge::Start)));
-    assert_eq!(app.ui.pane_places.get("clipboard").and_then(|p| p.dock), Some(super::SavedDock::Left));
-    assert_eq!(super::pane_state(&app, Pane::Clipboard).place, Place::Docked(Edge::Start));
-    crate::i18n::set_current(crate::i18n::Lang::EN);
+    let mut h = harness(arabic);
+    let (bar, menu) = title(&h, Pane::Navigation);
+    assert!(bar > WIDTH / 2.0 && menu < bar, "right to left: Navigation on the right, its menu left of its title (bar {bar}, menu {menu})");
+    assert_eq!(h.state_mut().run("ui.paneDock", json!({"pane": "navigation"})).unwrap()["dock"], "right");
+
+    // The pane's own menu: Dock Left moves it to the window's left, and that is what is saved.
+    let bar = h.get_by_label("Move Pane: Navigation").rect();
+    let on_row = |r: egui::Rect| r.center().y > bar.top() && r.center().y < bar.bottom();
+    h.get_all_by_label("Pane Options").find(|n| on_row(n.rect())).expect("the menu button beside the title bar").click();
+    h.run_steps(2);
+    h.get_by_label("Dock Left").click();
+    h.run_steps(3);
+    let (bar, menu) = title(&h, Pane::Navigation);
+    assert!(bar < WIDTH / 2.0 && menu < bar, "Dock Left: on the left, still read from the right (bar {bar}, menu {menu})");
+    assert_eq!(h.state().ui.pane_places.get("navigation").and_then(|p| p.dock), Some(super::SavedDock::Left));
+    assert_eq!(h.state_mut().run("ui.paneDock", json!({"pane": "navigation"})).unwrap()["dock"], "left");
+    assert_eq!(h.state_mut().run("ui.paneDock", json!({"pane": "navigation", "dock": "right"})).unwrap()["dock"], "right");
+    h.run_steps(3);
+    assert!(title(&h, Pane::Navigation).0 > WIDTH / 2.0, "ui.paneDock right: on the right");
+
+    // Styles keeps its side in the view state, with the same meaning.
+    h.state_mut().run("view.stylesPane", json!({"value": true})).unwrap();
+    for (dock, left) in [("left", true), ("right", false)] {
+        assert_eq!(h.state_mut().run("view.stylesPaneDock", json!({"dock": dock})).unwrap()["dock"], dock);
+        h.run_steps(3);
+        let (bar, _) = title(&h, Pane::Styles);
+        assert_eq!(bar < WIDTH / 2.0, left, "view.stylesPaneDock {dock}: the Styles pane at {bar}");
+    }
 }
 
 /// #3032: Delete is greyed out for built-in styles in the Styles pane (the engine refuses

@@ -387,7 +387,8 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                         // The room left of the account button and its space, less the spaces between the
                         // three controls and a gap from the Quick Access Toolbar.
                         let room = ui.available_width() - control_h - 8.0 - 3.0 * ui.spacing().item_spacing.x - 8.0;
-                        let fit = TitleBarFit::new(room, app.ui.show_discord, control_h);
+                        let discord = app.ui.show_discord && crate::links_to_artcraft();
+                        let fit = TitleBarFit::new(room, discord, control_h);
                         // Account / community.
                         let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
                         ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
@@ -398,7 +399,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                             let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
                         }
                         ui.add_space(8.0);
-                        if app.ui.show_discord {
+                        if discord {
                             let (r, resp) = ui.allocate_exact_size(vec2(if fit.discord_label { 84.0 } else { 22.0 }, 22.0), Sense::click());
                             ui.painter().rect_filled(r, 11.0, if resp.hovered() { t.accent_text } else { t.accent });
                             let icon_x = if fit.discord_label { 13.0 } else { 11.0 };
@@ -623,9 +624,10 @@ fn typing_search(app: &mut WordApp, ui: &mut Ui, control_h: f32, s: &mut TitleSe
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_width(SEARCH_RESULTS_W);
-                // Rows of a list, as a menu's, not a stack of framed buttons.
+                // Rows of a list, as a menu's, not a stack of framed buttons; from the right in a
+                // right-to-left interface.
                 ui.style_mut().visuals.button_frame = false;
-                done = crate::dialogs::search_results(app, ui, &s.query, enter, SEARCH_RESULTS_W);
+                done = crate::rtl::root(ui, |ui| crate::dialogs::search_results(app, ui, &s.query, enter, SEARCH_RESULTS_W));
             });
         });
     s.results = Some(shown.response.rect);
@@ -883,7 +885,7 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     let counted = st(ui, &wtxt);
                     if let Some(counted) = &counted {
                         // Right-click, as Word's status bar offers: choose what the count shows (#2797).
-                        counted.context_menu(|ui| {
+                        crate::rtl::context_menu(counted, |ui| {
                             ui.set_min_width(180.0);
                             for c in crate::StatusCount::ALL {
                                 if ui.selectable_label(app.ui.status_count == c, tl!(c.label())).clicked() {
@@ -906,7 +908,8 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     }
                     // The language at the caret; a click sets the proofing language (Review › Language).
                     let lang = crate::ribbon::caret_language(app);
-                    let missing = crate::ribbon::caret_missing_dictionary(app);
+                    // Before the list of packs is known, a language the pack bar offers has none either.
+                    let missing = crate::ribbon::caret_missing_dictionary(app).or_else(|| crate::language_packs::caret_dictionary_to_get(app));
                     let unreadable = crate::ribbon::caret_unreadable_dictionary(app);
                     let shown = if unreadable.is_some() {
                         crate::i18n::fmt(tl!("{language} (dictionary unreadable)"), &[("language", &lang)])

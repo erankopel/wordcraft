@@ -108,13 +108,13 @@ pub(super) fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, cat
             category.clear();
         }
         for c in Category::ALL {
-            if ui.selectable_label(*category == c.name(), tl!(c.name())).clicked() {
+            if ui.selectable_label(*category == c.name(), crate::i18n::tc("icons", c.name())).clicked() {
                 *category = c.name().to_string();
             }
         }
     });
     ui.add_space(4.0);
-    let hits = icon_lib::search(query, Category::parse(category));
+    let hits = icon_search(query, Category::parse(category));
     let mut insert = false;
     egui::ScrollArea::vertical().max_height(300.0).min_scrolled_height(300.0).auto_shrink([true, false]).show(ui, |ui| {
         if hits.is_empty() {
@@ -135,7 +135,9 @@ pub(super) fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, cat
                 let edge = if on { egui::Stroke::new(1.5, t.accent) } else { egui::Stroke::new(1.0, t.border) };
                 ui.painter().rect(rect, 4.0, fill, edge, egui::StrokeKind::Inside);
                 crate::icons::library(ui.painter(), rect.shrink(12.0), icon, t.text);
-                let resp = resp.on_hover_text(icon.name);
+                let name = crate::i18n::tc("icons", icon.name);
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
+                let resp = resp.on_hover_text(name);
                 if resp.clicked() {
                     *selected = icon.id.to_string();
                 }
@@ -146,7 +148,7 @@ pub(super) fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, cat
             }
         });
     });
-    let name = icon_lib::find(selected).map(|i| i.name).unwrap_or("");
+    let name = icon_lib::find(selected).map(|i| crate::i18n::tc("icons", i.name)).unwrap_or("");
     ui.add_space(4.0);
     ui.label(egui::RichText::new(name).color(t.text_dim));
     let (ok, cancel) = buttons(ui, tl!("Insert"));
@@ -155,6 +157,27 @@ pub(super) fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, cat
         return true;
     }
     cancel
+}
+
+/// The library's icons that match every word of `query` (in `category`, when given): by the
+/// library's English (its ids, names, keywords and categories), or by an icon's name or category
+/// as the interface shows them, so `ענן` finds Cloud in Hebrew.
+pub(super) fn icon_search(query: &str, category: Option<wordcraft_render::icon_lib::Category>) -> Vec<&'static wordcraft_render::icon_lib::Icon> {
+    use wordcraft_render::icon_lib;
+    let words: Vec<String> = query.split_whitespace().map(crate::i18n::lowercase).collect();
+    // The ids each word finds in English, once per word.
+    let english: Vec<Vec<&'static str>> = words.iter().map(|w| icon_lib::search(w, category).iter().map(|i| i.id).collect()).collect();
+    icon_lib::ICONS
+        .iter()
+        .filter(|i| category.is_none_or(|c| i.category == c))
+        .filter(|i| {
+            words.iter().zip(&english).all(|(w, found)| {
+                found.contains(&i.id)
+                    || crate::i18n::lowercase(crate::i18n::tc("icons", i.name)).contains(w.as_str())
+                    || crate::i18n::lowercase(crate::i18n::tc("icons", i.category.name())).contains(w.as_str())
+            })
+        })
+        .collect()
 }
 
 /// Enclose Characters' preview: the text in the chosen shape, shrunk or with the shape enlarged
@@ -257,4 +280,32 @@ pub(super) fn macros(app: &mut WordApp, ui: &mut Ui, name: &mut String) -> bool 
         });
     });
     close
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::i18n::{Lang, fixture_lang, set_current};
+
+    fn ids(icons: &[&wordcraft_render::icon_lib::Icon]) -> Vec<&'static str> {
+        icons.iter().map(|i| i.id).collect()
+    }
+
+    /// UWB-13: Insert › Icons finds an icon by its name or category as the interface shows them
+    /// (Hebrew `ענן` finds Cloud), and by the library's English as before.
+    #[test]
+    fn icons_are_found_by_their_name_in_the_interface_language() {
+        use wordcraft_render::icon_lib::Category;
+        set_current(fixture_lang("he", "icons\tCloud\tענן\nicons\tWeather\tמזג אוויר\nicons\tOffice\tמשרד\n"));
+        let cloud = ids(&super::icon_search("ענן", None));
+        let weather = ids(&super::icon_search("מזג", None));
+        let english = ids(&super::icon_search("cloud", None));
+        let office = ids(&super::icon_search("משרד", Some(Category::Office)));
+        let nowhere = super::icon_search("ענן", Some(Category::Office));
+        set_current(Lang::EN);
+        assert_eq!(cloud, ["cloud"]);
+        assert!(weather.contains(&"cloud") && weather.contains(&"sun") && !weather.contains(&"car"), "{weather:?}");
+        assert_eq!(english, ["cloud"], "the library's English still works");
+        assert!(office.contains(&"folder") && office.len() == super::icon_search("", Some(Category::Office)).len(), "{office:?}");
+        assert!(nowhere.is_empty(), "the category still narrows");
+    }
 }

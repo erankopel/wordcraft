@@ -452,7 +452,9 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         ctx.data_mut(|m| m.insert_temp(open_flag_id(), false));
         return;
     };
-    let resp = egui::Modal::new(Id::unique("wordcraft.colorsDialog")).show(ctx, |ui| body(ui, &mut d));
+    // Mirrored in a right-to-left interface, like every other dialog: the title and tabs at the
+    // right, the swatches before the preview, OK and Cancel at the far (left) end.
+    let resp = egui::Modal::new(Id::unique("wordcraft.colorsDialog")).show(ctx, |ui| crate::rtl::root(ui, |ui| body(ui, &mut d)));
     // egui's Modal blocks the window behind it, but not the document's keyboard.
     crate::dialogs::release_keyboard(app, ctx);
     crate::dialogs::drag_by_title_bar(ctx, &resp.backdrop_response, resp.response.rect);

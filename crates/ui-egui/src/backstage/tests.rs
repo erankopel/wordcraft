@@ -901,6 +901,42 @@ fn templates_and_recent_documents_are_named_buttons() {
     assert!(!h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).is_empty(), "with the template's text");
 }
 
+/// Where new documents start right to left (the Hebrew interface), the File view's templates open
+/// in their right-to-left Hebrew versions, as a blank document then starts right to left; where
+/// they don't, in English, left to right.
+#[test]
+fn templates_open_right_to_left_where_new_documents_do() {
+    use egui::accesskit::Role;
+    for rtl in [true, false] {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        // An English interface, so the tiles keep their English captions in any build.
+        a.ui.language = "en".into();
+        a.run("ui.backstage", json!({"value": true, "page": "new"})).unwrap();
+        // The Hebrew letter's text may reach the interface (its style samples), with or without a
+        // Hebrew interface font in this build.
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).allow_missing_glyphs().build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        // As a Hebrew interface sets it (the frames so far set the English interface's).
+        h.state_mut().session.set_new_documents_rtl(rtl);
+        h.run_steps(2);
+        h.get_by_role_and_label(Role::Button, "Letter").click();
+        h.run_steps(4);
+        let doc = &h.state().session.doc;
+        let reads_rtl = doc.styles.resolve_para(&wordcraft_doc::props::ParaProps::default()).bidi;
+        let text = doc.plain_text(wordcraft_doc::StoryRef::Body);
+        assert!(!h.state().ui.backstage && !text.is_empty(), "the letter opened");
+        assert_eq!(reads_rtl, rtl, "right to left where new documents are");
+        assert_eq!(text.chars().any(|c| ('\u{05D0}'..='\u{05EA}').contains(&c)), rtl, "in Hebrew where they read right to left: {text:?}");
+    }
+}
+
 /// Clicking the back arrow closes the File page and gives the keyboard back to the page,
 /// without naming as focused a widget the frame didn't draw: with accessibility on (a screen
 /// reader, or any UI Automation client on Windows) AccessKit ends the program over that, and

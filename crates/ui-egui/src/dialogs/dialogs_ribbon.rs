@@ -82,6 +82,15 @@ fn change(app: &mut WordApp, f: &mut RibbonForm, params: Value) -> Option<Value>
     }
 }
 
+/// The name the engine gives a new tab's first group (`crates/engine/src/ribbon.rs`).
+const FIRST_GROUP: &str = "New Group";
+
+/// The name New Tab or New Group gives what it makes: `english` in the interface language, as it
+/// is saved with the ribbon (without the marks interface text gets).
+fn new_name(english: &str) -> String {
+    crate::i18n::fmt_plain(tl!(english), &[])
+}
+
 fn label_of(app: &WordApp, id: &str) -> String {
     app.session.registry.get(id).map_or_else(|| id.to_string(), |s| tl!(s.label).to_string())
 }
@@ -258,14 +267,24 @@ fn ribbon_page(app: &mut WordApp, ui: &mut Ui, f: &mut RibbonForm, h: f32) {
             });
         });
         ui.horizontal(|ui| {
+            // What they make is named in the interface language (the engine keeps the name it is
+            // given); the new tab's first group too, which the engine names in English.
             if ui.button(tl!("New Tab")).clicked()
-                && let Some(v) = change(app, f, json!({"newTab": {"after": sel.tab}}))
+                && let Some(v) = change(app, f, json!({"newTab": {"name": new_name("New Tab"), "after": sel.tab}}))
                 && let Some(tab) = v.get("tab").and_then(Value::as_str)
             {
-                f.selected = TreeItem { tab: tab.to_string(), group: Some("New Group".into()), command: None };
+                let wanted = new_name(FIRST_GROUP);
+                let group = if wanted == FIRST_GROUP {
+                    wanted
+                } else {
+                    change(app, f, json!({"rename": {"tab": tab, "group": FIRST_GROUP, "to": wanted}}))
+                        .and_then(|v| v.get("name").and_then(Value::as_str).map(str::to_string))
+                        .unwrap_or_else(|| FIRST_GROUP.to_string())
+                };
+                f.selected = TreeItem { tab: tab.to_string(), group: Some(group), command: None };
             }
             if ui.button(tl!("New Group")).clicked()
-                && let Some(v) = change(app, f, json!({"newGroup": {"tab": sel.tab}}))
+                && let Some(v) = change(app, f, json!({"newGroup": {"tab": sel.tab, "name": new_name("New Group")}}))
                 && let Some(g) = v.get("group").and_then(Value::as_str)
             {
                 f.selected = TreeItem { tab: sel.tab.clone(), group: Some(g.to_string()), command: None };
@@ -553,5 +572,47 @@ mod tests {
         h.get_by_label("Show Quick Access Toolbar").click();
         h.run_steps(2);
         assert!(h.state().ui.quick_access_toolbar, "ticking shows it again");
+    }
+
+    /// New Tab and New Group name what they make in the interface language (the engine keeps the
+    /// name it is given): the tab, its first group (which the engine names in English) and a group
+    /// added to it, which is then the one picked in the tree.
+    #[test]
+    fn new_tabs_and_groups_are_named_in_the_interface_language() {
+        use crate::i18n::{Lang, fixture_lang, set_current};
+        use egui_kittest::kittest::Queryable;
+        set_current(fixture_lang("he", "\tNew Tab\tכרטיסייה חדשה\n\tNew Group\tקבוצה חדשה\n"));
+        let mut a = app();
+        super::open(&mut a, super::Page::Ribbon);
+        // The dialog alone, in the fixture's language (the app's frame would set its own). The
+        // tree's show/hide boxes have no accessible names yet, so kittest's check is off, as in
+        // `tests_dialog_tabs`.
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1000.0, 700.0))
+            .allow_missing_glyphs()
+            .with_accessibility_check(false)
+            .build_ui_state(
+                |ui, app: &mut WordApp| {
+                    if let Some(Dialog::CustomizeRibbon { mut form }) = app.dialog.take() {
+                        super::customize_ribbon(app, ui, &mut form);
+                        app.dialog = Some(Dialog::CustomizeRibbon { form });
+                    }
+                },
+                a,
+            );
+        h.run_steps(3);
+        h.get_by_label("כרטיסייה חדשה").click();
+        h.run_steps(3);
+        h.get_by_label("קבוצה חדשה").click();
+        h.run_steps(3);
+        set_current(Lang::EN);
+        let a = h.state();
+        let tabs = a.session.ribbon.tabs();
+        let tab = tabs.iter().find(|t| t.custom).expect("a new tab");
+        let groups: Vec<&str> = tab.groups.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(tab.name, "כרטיסייה חדשה");
+        assert!(groups.len() == 2 && groups.iter().all(|g| g.starts_with("קבוצה חדשה")), "{groups:?}");
+        let Some(Dialog::CustomizeRibbon { form }) = &a.dialog else { panic!("the dialog closed") };
+        assert_eq!(form.selected.group.as_deref(), groups.last().copied(), "the group added is picked");
     }
 }

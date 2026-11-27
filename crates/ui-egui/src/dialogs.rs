@@ -731,11 +731,13 @@ impl Dialog {
                     suffix: app.session.find.match_suffix,
                     ignore_punct: app.session.find.ignore_punct,
                     ignore_space: app.session.find.ignore_space,
+                    diacritics: app.session.find.match_diacritics,
                     more: app.session.find.wildcards
                         || app.session.find.match_prefix
                         || app.session.find.match_suffix
                         || app.session.find.ignore_punct
-                        || app.session.find.ignore_space,
+                        || app.session.find.ignore_space
+                        || app.session.find.match_diacritics,
                     to_replace: false,
                 },
                 tab: match name {
@@ -801,7 +803,7 @@ impl Dialog {
                     focus: true,
                 }
             }
-            "newStyle" => Dialog::NewStyle { name: "Style1".into(), based_on: "Normal".into(), back: false },
+            "newStyle" => Dialog::NewStyle { name: styles::new_style_name(app), based_on: "Normal".into(), back: false },
             "manageStyles" => Dialog::ManageStyles { alphabetical: false, selected: s("style") },
             "newTableStyle" | "modifyTableStyle" => crate::dialogs_table_style::open(app, name)?,
             "commands" => Dialog::Commands { query: String::new(), swallow: true },

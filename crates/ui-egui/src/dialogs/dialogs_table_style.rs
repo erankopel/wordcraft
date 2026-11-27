@@ -635,7 +635,11 @@ pub fn open(app: &WordApp, name: &str) -> Option<Dialog> {
     let (id, name, based_on, regions) = if name == "newTableStyle" {
         let based_on = current.unwrap_or_else(|| "TableGrid".into());
         let styles = &app.session.doc.styles;
-        let name = (1..1000).map(|i| format!("Table Style {i}")).find(|n| styles.find(n).is_none()).unwrap_or_default();
+        // A name in the interface language that no style has yet; it is the style's name in the document.
+        let name = (1..1000)
+            .map(|i| crate::i18n::fmt_plain(tl!("Table Style {n}"), &[("n", &i.to_string())]))
+            .find(|n| styles.find(n).is_none())
+            .unwrap_or_default();
         let regions = table_regions(app, &based_on);
         (None, name, based_on, regions)
     } else {

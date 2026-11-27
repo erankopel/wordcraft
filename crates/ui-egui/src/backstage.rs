@@ -232,6 +232,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// The name the engine stores for the recovery copy of a document that has no file
+/// (`crates/engine/src/recovery/desktop.rs`).
+const UNTITLED_DRAFT: &str = "Untitled draft";
+
+/// A recovery copy's name as File › Recover shows it: its file's name, set apart from
+/// right-to-left text around it, or for a document never saved, the interface's name for an
+/// untitled draft (the copy keeps the English one).
+pub(crate) fn recovery_name(name: &str) -> String {
+    if name == UNTITLED_DRAFT { tl!("Untitled draft").to_string() } else { crate::i18n::isolate(name) }
+}
+
 /// Recovery is a separate copy. Leaving this page never discards it.
 fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "Recover documents");
@@ -266,7 +277,7 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
         }
         for doc in documents {
             rows.row(|r| {
-                r.cell(|ui| column(ui, crate::i18n::isolate(&doc.name).into()));
+                r.cell(|ui| column(ui, recovery_name(&doc.name).into()));
                 r.cell(|ui| column(ui, doc.saved_at.as_str().into()));
                 r.cell(|ui| {
                     ui.add_enabled_ui(!busy, |ui| {
@@ -362,13 +373,14 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
             egui::StrokeKind::Inside,
         );
         let ppp = ui.ctx().pixels_per_point();
-        let key = format!("tpl:{template}:{ppp}");
+        let params = template_params(app, template);
+        let key = format!("tpl:{template}:{}:{ppp}", app.session.new_documents_rtl);
         let region = app.session.region();
         let tex = ui.ctx().data(|d| d.get_temp::<egui::TextureHandle>(egui::Id::unique(&key))).or_else(|| {
             let mut s = wordcraft_engine::Session::new(wordcraft_doc::Document::new());
             // The blank tile shows the region's paper (#838).
             s.system_region = region;
-            let _ = s.run("file.new", &json!({"template": template}));
+            let _ = s.run("file.new", &params);
             let l = s.export_layout();
             let page = l.pages.first()?;
             let img = wordcraft_render::render_page(&s.doc, page, 150.0 / page.w * ppp, &crate::canvas::screen_render_options());
@@ -387,11 +399,19 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
         let x = if flows { r.max.x - galley.size().x } else { r.min.x };
         ui.painter().galley(pos2(x, r.max.y), galley, ui.visuals().text_color());
         if resp.clicked() {
-            let _ = app.run("file.new", json!({"template": template}));
+            let _ = app.run("file.new", params);
             app.ui.backstage = false;
             app.canvas.want_focus = true;
         }
     });
+}
+
+/// `file.new`'s parameters for the built-in template `template`: its right-to-left Hebrew version
+/// where new documents start right to left (the Hebrew interface,
+/// [`wordcraft_engine::Session::new_documents_rtl`]), as a blank document then does; the
+/// English one otherwise.
+fn template_params(app: &WordApp, template: &str) -> serde_json::Value {
+    if app.session.new_documents_rtl { json!({"template": template, "direction": "rtl"}) } else { json!({"template": template}) }
 }
 
 /// The built-in templates in gallery order: display label and the `file.new` template id.

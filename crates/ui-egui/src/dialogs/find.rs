@@ -9,6 +9,9 @@ pub struct FindExtra {
     pub suffix: bool,
     pub ignore_punct: bool,
     pub ignore_space: bool,
+    /// Match diacritics: Hebrew points and cantillation marks must match too (`matchDiacritics`
+    /// of `edit.find` and the other searches).
+    pub diacritics: bool,
     /// The search options are shown.
     pub more: bool,
     /// Special ▾ inserts into Replace with (it last had the focus), not Find what.

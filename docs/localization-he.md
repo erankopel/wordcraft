@@ -1,6 +1,6 @@
 # Hebrew interface and the Hebrew edition
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (installing on Ubuntu, updates, licences, reproducible builds) · **Target:** WordCraft 0.19.1
+> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (templates, names of new things, Ignore Once, watermarks) · **Target:** WordCraft 0.19.1
 
 WordCraft has a Hebrew (`he`) interface language, mirrored right to left like the Arabic one, and a
 Hebrew edition: a build of the same program that starts in Hebrew, starts new documents right to
@@ -99,6 +99,16 @@ Hebrew catalog as the build embeds it, supplement and corrections included.
   Unicode subsets (context `unicode`), Insert › Icons' names and categories (context `icons`;
   searching finds an icon by its Hebrew name or category as well as by the library's English) and
   About › Language data's titles.
+- **Names the interface gives new things** are in the interface language and are kept as given:
+  New Style offers `סגנון 1`, `סגנון 2`… (the first name no style has yet; it was always `Style1`,
+  which a second new style couldn't take), New Table Style `סגנון טבלה 1`…, and Customize Ribbon's
+  New Tab and New Group make `כרטיסייה חדשה` and `קבוצה חדשה` (the engine names a new tab's first
+  group in English; the dialog renames it). File › Recover names the copy of a document that was
+  never saved `טיוטה ללא שם` (the copy itself keeps the engine's English name, which the Discard
+  question in `dialogs/dispatch.rs` still shows). The columns of a new mail-merge address list stay
+  English: Address Block and Greeting Line find a name and an address by those English column
+  names (`address_map` in `crates/engine/src/cmd/mailings/merge.rs`), so Hebrew ones would leave
+  them empty until the engine knows the Hebrew names too.
 
 - **Review:** no native Hebrew speaker has read the catalog or the supplement. The rows were
   written from the plain meaning of the English, like the rest of the catalog. The 84 rows least
@@ -156,8 +166,11 @@ complex-script font (`w:rFonts/@w:cs`). The caret starts at the right margin, a 
 begins with Latin letters does not flip, a table inserted from Insert › Table is mirrored, and the
 direction survives a save and a reopen. The text language is left as it was, so Latin words keep
 English. This applies to the first blank document, File › New, an empty file and the blank document
-left after the last one is closed. It does not change templates, files that are opened, documents
-that already have text or history, or any headless session (CLI, MCP and the tests stay left to
+left after the last one is closed. The File view's templates (on Home and, through More templates,
+on New) then open in their Hebrew versions, right to left (`file.new` with `{"template": …,
+"direction": "rtl"}`); their thumbnails show those versions. It does not change files that are
+opened, documents that already have text or history, a script's `file.new` with a template and no
+direction (the English template), or any headless session (CLI, MCP and the tests stay left to
 right): `file.new` takes `{"direction": "rtl" | "ltr"}` for a blank document whatever the setting.
 One paragraph can be switched with Home › Paragraph. A page number asked for on the right stays on
 the right in a right-to-left document.
@@ -188,6 +201,10 @@ in English. A run already in Hebrew is unchanged. The old code `iw` finds the `h
 document makes the bar offer the pack. With no pack installed Hebrew shows no marks, as before. The
 status bar names Hebrew while the caret is in Hebrew text (or in an empty right-to-left paragraph) and
 the text language, English, while it is in Latin text.
+
+The Spelling and Grammar pane's Ignore Once (התעלמות חד-פעמית) runs `review.ignoreOnce`: the word it
+shows is left unmarked, that occurrence only, until its paragraph changes, and checking again doesn't
+bring it back. It adds nothing to a dictionary.
 
 ## The AI assistant in the edition
 
@@ -416,6 +433,20 @@ source and Cargo home folders are the same too: the binaries carry some of their
   bar's source link is the pack's archive until the engine reads the index's `source`.
 - A Hebrew Markdown or text file opens left to right: these formats carry no direction, and only new
   blank documents take the edition's right-to-left default.
+- Watermarks in Hebrew text: Design › Watermark's words and Custom Watermark's `CONFIDENTIAL` are
+  still written in English, even where the menu shows them in Hebrew, because a Hebrew watermark is
+  not drawn right yet. Its text is shaped in the watermark's own font with no fallback
+  (`watermark_run` in `crates/layout/src/missing.rs`), and the default watermark font, Aptos, is
+  drawn with its stand-in Carlito (craft-fonts), which has no Hebrew letters, so they show as
+  boxes; and the page, PNG and PDF
+  (`crates/render`, `crates/pdf`) draw its letters in typing order, so with a font that has them a
+  Hebrew word reads backwards (סודי comes out as ידוס). A Hebrew watermark typed into Custom
+  Watermark shows the same. Once those draw Hebrew right, the gallery and the dialog can write the
+  words in the language of the text at the caret, as the engine does for its own words.
+- Find and Replace's Match diacritics: the searches take `matchDiacritics` and the dialog keeps the
+  option (`FindExtra::diacritics`, read from the last search), but its check box in Search Options
+  and the option's place in the dialog's searches are in `dialogs/dispatch.rs` and not there yet; the
+  catalog row (התאמת ניקוד וטעמים) is in the supplement.
 
 ## Revision history
 
@@ -426,3 +457,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-27 | minor | Engine messages through the catalog (rows and `@msg` templates); supplement rows correct published ones; Accessibility pane from rule ids; translated style, style set, Unicode subset, icon and Language data names; Language pack licence, confirmation and network failures; WordCraft's own file browser by default in the edition; Mailings on the region's paper |
 | 2026-11-27 | minor | Installing on Ubuntu (`--install`, `--uninstall`, `--cli`), the edition's own desktop id, Hebrew menu entry and AppStream text; no self-update and no Check for Updates button; the licence of every font in the AppImage; pinned and checked build inputs, `BUILD-INFO.txt`, `test-appimage.sh`; programs held to glibc 2.35 (Ubuntu 22.04) |
 | 2026-11-27 | minor | `--install` and `--uninstall` leave an entry they didn't write and its icons; the extracted folder's `--install` ignores another program's `APPIMAGE`; `--version` names the edition, which `test-appimage.sh` and `build-appimage.sh --skip-build` check; no stock README in the AppImage; Add Font… takes several files in WordCraft's own browser; the edition's About page (`credits::about_ui`), not yet in the window |
+| 2026-11-27 | minor | The File view's templates open in Hebrew, right to left, where new documents do; New Style, New Table Style and Customize Ribbon name what they make in the interface language (New Style no longer offers a taken name); untitled recovery copies named in it; the pane's Ignore Once leaves the word until its paragraph changes; why watermarks stay English in Hebrew text; the Find dialog keeps Match diacritics |

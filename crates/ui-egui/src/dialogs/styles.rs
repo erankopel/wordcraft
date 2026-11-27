@@ -96,7 +96,7 @@ pub(super) fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut b
             app.dialog = Some(Dialog::ModifyStyle { back: true, resume: None, id, name, font, size, bold, italic, color, before, after });
         }
         if ui.button(tl!("New Style…")).clicked() {
-            app.dialog = Some(Dialog::NewStyle { name: "Style1".into(), based_on: str_of(&cur, "name"), back: true });
+            app.dialog = Some(Dialog::NewStyle { name: new_style_name(app), based_on: str_of(&cur, "name"), back: true });
         }
         let del = ui.add_enabled(!builtin, egui::Button::new(tl!("Delete")));
         let del = if builtin { del.on_disabled_hover_text(tl!("Built-in styles can't be deleted.")) } else { del };
@@ -106,6 +106,14 @@ pub(super) fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut b
         }
     });
     (app.dialog.is_some() || close_button(ui)) && leave(ui)
+}
+
+/// The name New Style offers for the style it makes: the first of `Style1`, `Style2`… that no
+/// style has yet (a taken name is refused), in the interface language. It is the style's name in
+/// the document, and can be changed before OK.
+pub(super) fn new_style_name(app: &WordApp) -> String {
+    let styles = &app.session.doc.styles;
+    (1..1000).map(|n| crate::i18n::fmt_plain(tl!("Style{n}"), &[("n", &n.to_string())])).find(|name| styles.find(name).is_none()).unwrap_or_default()
 }
 
 /// A `styles.manage` entry's name as the list shows it: a built-in style's in the interface
@@ -210,5 +218,34 @@ mod tests {
         assert!(!top.iter().any(|t| t.ends_with("  Normal") || t.ends_with("  Heading 1")), "{top:?}");
         assert!(own.iter().any(|t| t.ends_with("  Normal notes")), "a style someone made keeps its name: {own:?}");
         assert!(own.iter().any(|t| t.contains("מבוסס על: כותרת 1")), "{own:?}");
+    }
+
+    /// New Style and New Table Style offer a name in the interface language (it becomes the
+    /// style's name in the document, so with no direction marks) that no style has: a second New
+    /// Style doesn't offer the name the first one took, which the engine would refuse.
+    #[test]
+    fn new_styles_are_offered_free_names_in_the_interface_language() {
+        use crate::dialogs::Dialog;
+        let offered = |app: &mut WordApp, dialog: &str| match Dialog::open(dialog, app) {
+            Some(Dialog::NewStyle { name, .. } | Dialog::TableStyle { name, .. }) => name,
+            other => panic!("{dialog}: {other:?}"),
+        };
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Words")), Services::default());
+        set_current(fixture_lang("he", "\tStyle{n}\tסגנון {n}\n\tTable Style {n}\tסגנון טבלה {n}\n"));
+        let first = offered(&mut app, "newStyle");
+        app.run("styles.create", json!({"name": first, "fromSelection": false})).unwrap();
+        let second = offered(&mut app, "newStyle");
+        let table = offered(&mut app, "newTableStyle");
+        set_current(Lang::EN);
+        let english = offered(&mut app, "newStyle");
+        for name in [&first, &second] {
+            assert!(name.starts_with("סגנון ") && !name.starts_with("סגנון טבלה"), "{name:?}");
+        }
+        assert_ne!(first, second, "a name a style has is not offered again");
+        assert!(table.starts_with("סגנון טבלה "), "{table:?}");
+        assert!(english.starts_with("Style"), "an English interface offers English: {english:?}");
+        for name in [&first, &second, &table] {
+            assert!(!name.chars().any(|c| matches!(c, '\u{200E}' | '\u{200F}' | '\u{2066}'..='\u{2069}')), "{name:?}");
+        }
     }
 }

@@ -2981,8 +2981,11 @@ fn backspace_on_one_selected_cell_of_a_one_row_or_one_column_table_clears_it() {
 }
 
 /// #1670: smart quotes in Hebrew follow the characters around the quote in logical order, as
-/// Word does (Word for Mac 16.113.4): an opening “ after a space or at the start, a closing ”
-/// after a letter, and ” inside an acronym (צה"ל), not gershayim; ' after a letter is ’.
+/// Word does (Word for Mac 16.113.4): an opening “ after a space or at the start, and a closing ”
+/// after the letter that ends a quotation, whatever the display direction. Right after a Hebrew
+/// letter with no quote open, the Hebrew edition writes the mark Hebrew writes there (SE-2): a
+/// gershayim in an acronym (צה״ל) and a geresh in a borrowed sound (ג׳ירפה), where Word for Mac
+/// writes ” and ’.
 #[test]
 fn smart_quotes_in_hebrew_use_logical_order() {
     let bidi = |s: &Session| s.doc.body.iter().filter_map(|b| b.as_para()).next().and_then(|p| p.props.bidi);
@@ -2992,9 +2995,33 @@ fn smart_quotes_in_hebrew_use_logical_order() {
     let s = typed("\"שלום\"");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "“שלום”");
     let s = typed("צה\"ל ");
-    assert_eq!(s.doc.plain_text(StoryRef::Body), "צה”ל ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "צה\u{05F4}ל ");
     let s = typed("ג'ירפה 'כן'");
-    assert_eq!(s.doc.plain_text(StoryRef::Body), "ג’ירפה ‘כן’");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "ג\u{05F3}ירפה ‘כן’");
+}
+
+/// SE-2: `"` and `'` typed right after a Hebrew letter are gershayim (U+05F4) and geresh (U+05F3),
+/// also after a letter with points, so acronyms and borrowed sounds are written as Hebrew writes
+/// them and the Hebrew spelling check reads them as its `"` and `'`. A quote that is open is
+/// closed instead (so an acronym typed inside a quotation keeps ”), one closed earlier leaves the
+/// next acronym its gershayim, a ” or ’ between two letters (an acronym's, an apostrophe) closes
+/// no quote, and after a Latin letter nothing changes.
+#[test]
+fn gershayim_and_geresh_follow_a_hebrew_letter() {
+    let text = |keys: &str| typed(keys).doc.plain_text(StoryRef::Body);
+    assert_eq!(text("עו\"ד ומנכ\"ל צ'יפס"), "עו\u{05F4}ד ומנכ\u{05F4}ל צ\u{05F3}יפס");
+    // A letter with points: tsadi with qamats, then he with patah.
+    assert_eq!(text("\u{05E6}\u{05B8}\u{05D4}\u{05B7}\"ל"), "\u{05E6}\u{05B8}\u{05D4}\u{05B7}\u{05F4}ל");
+    assert_eq!(text("אמר: \"שירתי בצה\"ל\" "), "אמר: “שירתי בצה”ל” ", "an open quote is closed");
+    assert_eq!(text("\"כן\" בצה\"ל"), "“כן” בצה\u{05F4}ל", "the quote was closed before the acronym");
+    assert_eq!(text("\"צה\"ל אמר\""), "“צה”ל אמר”", "the ” inside the acronym closes no quote");
+    assert_eq!(text("'כן' ג'ירפה"), "‘כן’ ג\u{05F3}ירפה");
+    assert_eq!(text("It's \"ok\""), "It’s “ok”", "Latin text as before");
+    // AutoCorrect's smart quotes off: the keyboard's marks stay.
+    let mut s = s();
+    run(&mut s, "tools.autocorrect", json!({"smartQuotes": false}));
+    typ(&mut s, "צה\"ל צ'יפס");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "צה\"ל צ'יפס");
 }
 
 /// #1923: Turkish and Azerbaijani case mapping (i↔İ, ı↔I) in AutoCorrect, checked against Word
@@ -3100,6 +3127,28 @@ fn squiggles(s: &mut Session, i: usize) -> Vec<String> {
 fn reported(s: &mut Session) -> Vec<String> {
     let issues = s.run("review.issues", &json!({})).unwrap();
     issues.as_array().unwrap().iter().filter(|i| i["kind"] == "spelling").map(|i| i["text"].as_str().unwrap().to_string()).collect()
+}
+
+/// SE-9: Ignore Once leaves the occurrence Spelling & Grammar selected unmarked, in the issue list
+/// and on the page, and the same word elsewhere marked; once its paragraph changes it is checked
+/// again. With nothing to ignore at the selection the command says so.
+#[test]
+fn ignore_once_unmarks_one_occurrence_until_its_paragraph_changes() {
+    let mut s = typed("The helo said helo. ");
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "review.spelling", json!({}));
+    assert_eq!(s.selected_text(), "helo");
+    let first = s.sel.ordered().0.off;
+    run(&mut s, "review.ignoreOnce", json!({}));
+    assert_eq!(reported(&mut s), ["helo"], "the other occurrence is still reported");
+    assert_eq!(squiggles(&mut s, 0), ["helo"]);
+    let issues = s.run("review.issues", &json!({})).unwrap();
+    assert!(issues[0]["start"]["off"].as_u64().is_some_and(|o| o as usize > first), "{issues}");
+    run(&mut s, "caret.docEnd", json!({}));
+    typ(&mut s, "Ok");
+    assert_eq!(reported(&mut s), ["helo", "helo"], "the paragraph changed");
+    run(&mut s, "caret.docStart", json!({}));
+    assert!(s.run("review.ignoreOnce", &json!({})).is_err(), "nothing at the caret to ignore");
 }
 
 #[test]

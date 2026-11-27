@@ -9924,13 +9924,11 @@ const PORTUGUESE_TEST_AFF: &str =
     "SET UTF-8\nFLAG UTF-8\nFORBIDDENWORD F\nTRY aeiousrntmdlcpvgqbzfhjxçãõáéíóúâêô\nMAP 2\nMAP aáã\nMAP eé\nREP 1\nREP seje seja\n";
 const PORTUGUESE_TEST_DIC: &str = "11\nsaudade\ncoração\ne\nele\ndisse\nnão\né\nque\nseja\nfrequencia/F\nmuito\n";
 
-/// #1063: File › Options › Language › Dictionaries folder. A folder of Hunspell files is saved,
-/// searched first and reported per language; a missing folder or a relative path is refused and
-/// changes nothing. The folder holds the same test dictionaries the other tests install, so tests
-/// running meanwhile see the same words; it stays set for the rest of the run for that reason.
-#[test]
-fn dictionaries_folder_option_is_saved_searched_and_reported() {
-    let _turn = dictionaries_turn();
+/// The folder of test dictionaries for this run, written afresh: the dictionaries the tests
+/// install, so that setting it as the dictionaries folder (which reloads every language) while
+/// other tests run keeps their words, and the Hebrew one only text tagged `he-ZZ` reads
+/// ([`hebrew::HEBREW_TEST_DIC`]). Call it holding [`dictionaries_turn`].
+fn test_dictionaries_folder() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("wc-engine-dictionaries-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     for (name, aff, dic) in [
@@ -9946,10 +9944,24 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
         // would otherwise force a reload that finds no cs_CZ here and empties it mid-test. Same
         // fixture content either way keeps such a race harmless, as it already does for Polish.
         ("cs_CZ", czech_test_dict::AFF, czech_test_dict::DIC),
+        // Hebrew under the private-use region ZZ: text tagged he-IL (other tests' Hebrew) finds no
+        // dictionary here, as those tests expect.
+        ("he_ZZ", hebrew::HEBREW_TEST_AFF, hebrew::HEBREW_TEST_DIC),
     ] {
         std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
         std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
     }
+    dir
+}
+
+/// #1063: File › Options › Language › Dictionaries folder. A folder of Hunspell files is saved,
+/// searched first and reported per language; a missing folder or a relative path is refused and
+/// changes nothing. The folder holds the same test dictionaries the other tests install, so tests
+/// running meanwhile see the same words; it stays set for the rest of the run for that reason.
+#[test]
+fn dictionaries_folder_option_is_saved_searched_and_reported() {
+    let _turn = dictionaries_turn();
+    let dir = test_dictionaries_folder();
     let mut s = s();
     let missing = dir.join("no-such-folder");
     assert!(s.run("file.options", &json!({"dictionariesFolder": missing.to_string_lossy()})).is_err());

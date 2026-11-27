@@ -43,7 +43,7 @@ pub use model::{CellText, ClKind, Cluster, Enclosed, Glyph, Label, LabelRun, Lin
 pub use paragraph::layout_para;
 #[cfg(test)]
 pub(crate) use paragraph::word_widths;
-pub use proof::{ProofRun, is_list_item, paragraph_issues, proof_runs, proof_text};
+pub use proof::{ProofRun, dictionary_form, ignore_once, is_list_item, paragraph_issues, proof_runs, proof_text, spelling_suggestions};
 
 /// A laid-out paragraph.
 #[derive(Clone, Debug)]

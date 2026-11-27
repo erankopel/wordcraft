@@ -44,6 +44,12 @@ pub fn is_hebrew_point(c: char) -> bool {
     matches!(u32::from(c), 0x0591..=0x05BD | 0x05BF | 0x05C1 | 0x05C2 | 0x05C4 | 0x05C5 | 0x05C7)
 }
 
+/// A Hebrew letter: the alphabet, the Yiddish ligatures and the presentation forms (letters with
+/// a point among them).
+pub fn is_hebrew_letter(c: char) -> bool {
+    matches!(u32::from(c), 0x05D0..=0x05EA | 0x05EF..=0x05F2 | 0xFB1D | 0xFB1F..=0xFB28 | 0xFB2A..=0xFB4F)
+}
+
 /// A language tag (`he-IL`, `yi`, `ar-EG`, `fa-IR`, `pa-Arab`…) of a language written right to
 /// left: text in it is complex-script text, whose language Word keeps in `w:lang/@w:bidi`
 /// (ECMA-376 Part 1 §17.3.2.20) rather than in `w:lang/@w:val`.

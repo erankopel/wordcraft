@@ -1,10 +1,14 @@
 //! File › Options (#485): the settings agents can read and change without the window — user
-//! name and initials, typing (replace selection, overtype), measurement units, formatting marks
-//! and proofing. The Options page in the app sets them through the same command.
+//! name and initials, typing (replace selection, overtype), the paragraph direction keys and
+//! cursor movement in bidirectional text, measurement units, formatting marks and proofing. The
+//! Options page in the app sets them through the same command.
 
 use serde_json::{Value, json};
 
 use crate::{CmdError, CmdResult, CommandSpec, Prefs, Session, p};
+
+/// The `cursorMovement` setting's values (File › Options › Advanced › Cursor movement).
+pub use crate::prefs::CursorMovement;
 
 /// Options panes, in the order the page lists them (the `pane` param of `file.options`).
 pub const PANES: [&str; 8] = ["general", "display", "proofing", "save", "language", "accessibility", "advanced", "agents"];
@@ -22,7 +26,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("file.options", "Options", "File", options)
             .params(
-                r#"{"pane"?: "general|display|proofing|save|language|accessibility|advanced|agents", "author"?: string, "initials"?: string, "units"?: "inches|centimeters|millimeters|points|picas|auto" (auto: the region's), "region"?: string (a locale tag like pl-PL, saved: the paper File › New starts on, the default units and the decimal separator; auto: the system's), "typingReplacesSelection"?: bool, "insertKeyOvertype"?: bool, "overtype"?: bool, "marks"?: {"tabs"?: bool, "spaces"?: bool, "paragraphs"?: bool, "hidden"?: bool}, "checkSpelling"?: bool, "markGrammar"?: bool, "ignoreUppercase"?: bool, "ignoreNumbers"?: bool, "ignoreInternet"?: bool, "dictionariesFolder"?: string (a folder of Hunspell .aff/.dic files searched first, saved; auto: clear the configured folder), "userTemplatesFolder"?: string (the folder File › New lists personal templates from, saved; auto: the app's own Templates folder; not a network folder), "addWords"?: [string], "removeWords"?: [string]} — with any setting it changes them and opens nothing; without, it opens File › Options (at `pane`). Returns the settings."#,
+                r#"{"pane"?: "general|display|proofing|save|language|accessibility|advanced|agents", "author"?: string, "initials"?: string, "units"?: "inches|centimeters|millimeters|points|picas|auto" (auto: the region's), "region"?: string (a locale tag like pl-PL, saved: the paper File › New starts on, the default units and the decimal separator; auto: the system's), "typingReplacesSelection"?: bool, "insertKeyOvertype"?: bool, "overtype"?: bool, "directionKeys"?: bool (Ctrl+Right Shift and Ctrl+Left Shift make the paragraph right to left and left to right; off where Ctrl+Shift switches the keyboard layout), "cursorMovement"?: "visual|logical" (Left and Right in text mixing right-to-left and left-to-right writing: across the screen, or through the characters in the order they were typed), "marks"?: {"tabs"?: bool, "spaces"?: bool, "paragraphs"?: bool, "hidden"?: bool}, "checkSpelling"?: bool, "markGrammar"?: bool, "ignoreUppercase"?: bool, "ignoreNumbers"?: bool, "ignoreInternet"?: bool, "dictionariesFolder"?: string (a folder of Hunspell .aff/.dic files searched first, saved; auto: clear the configured folder), "userTemplatesFolder"?: string (the folder File › New lists personal templates from, saved; auto: the app's own Templates folder; not a network folder), "addWords"?: [string], "removeWords"?: [string]} — with any setting it changes them and opens nothing; without, it opens File › Options (at `pane`). Returns the settings."#,
             )
             .pure(),
         CommandSpec::new("text.overtype", "Overtype", "File › Options › Advanced", |s, v| {
@@ -35,11 +39,12 @@ pub fn specs() -> Vec<CommandSpec> {
 }
 
 /// The on/off settings by their `file.options` name.
-fn flags() -> [(&'static str, fn(&mut Prefs) -> &mut bool); 7] {
+fn flags() -> [(&'static str, fn(&mut Prefs) -> &mut bool); 8] {
     [
         ("typingReplacesSelection", |p| &mut p.typing_replaces_selection),
         ("insertKeyOvertype", |p| &mut p.insert_key_overtype),
         ("overtype", |p| &mut p.overtype),
+        ("directionKeys", |p| &mut p.direction_keys),
         ("markGrammar", |p| &mut p.mark_grammar),
         ("ignoreUppercase", |p| &mut p.ignore_uppercase),
         ("ignoreNumbers", |p| &mut p.ignore_numbers),
@@ -145,6 +150,13 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
         Some(_) => return Err(CmdError::Params("`marks` must be an object of true/false".into())),
     }
     let check_spelling = bool_param(v, "checkSpelling")?;
+    let cursor_movement = match v.get("cursorMovement") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(m)) => Some(CursorMovement::from_name(m).ok_or_else(|| {
+            CmdError::Params(format!("unknown `cursorMovement` `{}`; one of visual, logical", m.chars().take(40).collect::<String>()))
+        })?),
+        Some(_) => return Err(CmdError::Params("`cursorMovement` is visual or logical".into())),
+    };
     let add = words_param(v, "addWords")?;
     let remove = words_param(v, "removeWords")?;
 
@@ -157,6 +169,7 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
         || !flag_values.is_empty()
         || !mark_values.is_empty()
         || check_spelling.is_some()
+        || cursor_movement.is_some()
         || !add.is_empty()
         || !remove.is_empty();
     if let Some(name) = author {
@@ -187,6 +200,9 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(b) = check_spelling {
         s.view.proofing = b;
         s.prefs.check_spelling = b;
+    }
+    if let Some(m) = cursor_movement {
+        s.prefs.cursor_movement = m;
     }
     for w in &add {
         wordcraft_proof::add_word(w);
@@ -224,6 +240,8 @@ pub fn current(s: &Session) -> Value {
         "typingReplacesSelection": pr.typing_replaces_selection,
         "insertKeyOvertype": pr.insert_key_overtype,
         "overtype": pr.overtype,
+        "directionKeys": pr.direction_keys,
+        "cursorMovement": pr.cursor_movement.name(),
         "marks": pr.marks,
         "checkSpelling": s.view.proofing,
         "markGrammar": pr.mark_grammar,

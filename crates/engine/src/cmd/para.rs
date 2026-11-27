@@ -55,9 +55,14 @@ pub fn specs() -> Vec<CommandSpec> {
             set_align(s, a)
         })
         .params(r#"{"value": "left|center|right|justify|distribute (as seen on the page) | start|end (reading direction)"}"#),
+        // Ctrl and one Shift, pressed and released with nothing else: the canvas recognises the
+        // chord itself (a key list can't hold a modifier on its own), unless File › Options ›
+        // Advanced turns it off (`directionKeys`).
         CommandSpec::new("para.rtl", "Right-to-Left Text Direction", "Home › Paragraph", |s, v| direction(s, v, true))
+            .key("Ctrl+Right Shift")
             .params(r#"{"value"?: bool (false = left to right)}"#),
         CommandSpec::new("para.ltr", "Left-to-Right Text Direction", "Home › Paragraph", |s, v| direction(s, v, false))
+            .key("Ctrl+Left Shift")
             .params(r#"{"value"?: bool (false = right to left)}"#),
         CommandSpec::new("para.indent", "Increase Indent", "Home › Paragraph", indent).key("Mod+M"),
         CommandSpec::new("para.outdent", "Decrease Indent", "Home › Paragraph", outdent).key("Mod+Shift+M"),

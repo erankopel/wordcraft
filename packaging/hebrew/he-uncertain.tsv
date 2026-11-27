@@ -69,3 +69,6 @@
 	Table of Authorities	רשימת אסמכתאות	not a catalog row: the title written above a table of authorities in Hebrew text (crates/doc/src/words.rs), the heading Israeli legal documents use; the interface names the feature "טבלת מקורות משפטיים"
 	Index	אינדקס	not a catalog row: an index's title in Hebrew text (crates/doc/src/words.rs), matching the interface's "הוספת אינדקס"; "מפתח" is the traditional book term
 	Type an equation	הקלידו משוואה	not a catalog row: the grey prompt an empty equation shows in Hebrew text (crates/doc/src/words.rs), screen only
+	Use Ctrl+Right Shift and Ctrl+Left Shift to set the paragraph direction	שימוש ב-Ctrl+Shift ימני וב-Ctrl+Shift שמאלי לקביעת כיוון הפסקה	File › Options › Advanced checkbox for the direction keys (file.options directionKeys); 'Shift ימני' names the right-hand Shift key as Hebrew keyboard guides do; the Options page row is still to be added by its owner
+	Logical	לוגית	Cursor movement: Logical (file.options cursorMovement); feminine to agree with 'תנועת הסמן'; a bare row, so it would also translate another 'Logical' of the interface
+	Visual	חזותית	Cursor movement: Visual; feminine to agree with 'תנועת הסמן'; a bare row, so it would also translate another 'Visual' of the interface

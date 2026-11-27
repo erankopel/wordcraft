@@ -106,7 +106,10 @@ fn bidi_para(s: &Session) -> bool {
     s.doc.para_at(&s.sel.focus).is_some_and(|p| wordcraft_doc::bidi::has_rtl(&p.text) || s.doc.styles.resolve_para(&p.props).bidi)
 }
 
-/// Left/Right: with a selection and no Shift, collapse to its edge.
+/// Left/Right: with a selection and no Shift, collapse to its edge. In bidirectional text the
+/// caret moves across the screen, or, with logical cursor movement (File › Options › Advanced),
+/// through the characters in the order they were typed: Left is forward in a right-to-left
+/// paragraph and back in a left-to-right one.
 fn lr(s: &mut Session, v: &Value, is_left: bool) -> CmdResult {
     if !extend(v) && !s.sel.is_collapsed() {
         let (a, b) = s.sel.ordered();
@@ -115,6 +118,10 @@ fn lr(s: &mut Session, v: &Value, is_left: bool) -> CmdResult {
         s.sel = Selection::caret(if to_start { a } else { b });
         s.goal_x = None;
         return sel_result(s);
+    }
+    if s.prefs.cursor_movement == crate::prefs::CursorMovement::Logical {
+        let back = is_left != rtl_para(s);
+        return mv(s, v, if back { left } else { right });
     }
     if bidi_para(s) {
         return visual_lr(s, v, is_left);

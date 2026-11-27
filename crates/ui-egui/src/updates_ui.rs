@@ -17,6 +17,9 @@ pub(crate) struct Runtime {
     startup_check: bool,
     #[cfg(not(target_arch = "wasm32"))]
     check_requested: bool,
+    /// Why this process doesn't update itself, if it doesn't ([`WordApp::disable_self_update`]).
+    #[cfg(not(target_arch = "wasm32"))]
+    off: Option<UpdatesOff>,
     /// The context of the last frame, to wake the UI when a check is queued from a menu callback.
     #[cfg(not(target_arch = "wasm32"))]
     repaint: Option<egui::Context>,
@@ -36,6 +39,8 @@ impl Default for Runtime {
             startup_check: false,
             #[cfg(not(target_arch = "wasm32"))]
             check_requested: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            off: None,
             #[cfg(not(target_arch = "wasm32"))]
             repaint: None,
             manual_window_open: false,
@@ -59,14 +64,25 @@ impl WordApp {
         self.updates_rt.startup_check = on;
     }
 
-    /// Turns the self-update off for the rest of this process: no update is offered, and Help ▸
-    /// Check for Updates says `why`. Call it after the preferences are read, so the reason is in
-    /// the interface language.
+    /// Turns the self-update off for the rest of this process: no update is offered, nothing is
+    /// fetched, and checking for updates says `why`, in the interface language of the moment it
+    /// is asked. An edition ([`UpdatesOff::Edition`]) has no Help ▸ Check for Updates at all
+    /// ([`WordApp::offers_update_check`]): craft-update's window would name the stock app's maker
+    /// and releases.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn disable_self_update(&mut self, why: UpdatesOff) {
         let rt = &mut self.updates_rt;
         rt.startup_check = false;
-        rt.updater = Updater::new(&crate::UPDATE_APP, env!("CARGO_PKG_VERSION")).with_translator(translate).with_source(refused_check(why));
+        rt.off = Some(why);
+        rt.updater = refusing_updater(why);
+    }
+
+    /// Whether Help ▸ Check for Updates is offered: not in an edition, which never updates itself.
+    pub(crate) fn offers_update_check(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.updates_rt.off != Some(UpdatesOff::Edition);
+        #[cfg(target_arch = "wasm32")]
+        return true;
     }
 
     /// Starts the helper of an update that is ready, so that it installs once the process has
@@ -106,7 +122,7 @@ impl UpdatesOff {
         }
     }
 
-    /// The reason Help ▸ Check for Updates gives, in English (the catalog key).
+    /// The reason a check for updates gives, in English (the catalog key).
     fn reason(self) -> &'static str {
         match self {
             UpdatesOff::ForeignAppImage => {
@@ -119,17 +135,28 @@ impl UpdatesOff {
     }
 }
 
-/// A check for updates that never finds one and gives `why` as its error, which Help ▸ Check for
-/// Updates shows. Nothing is fetched.
+/// An updater whose check never finds an update and gives `why` as its error, in the current
+/// interface language, which Help ▸ Check for Updates shows. Nothing is fetched. The check runs
+/// on another thread, where the interface language isn't known, so the reason is worded here.
 #[cfg(not(target_arch = "wasm32"))]
-fn refused_check(why: UpdatesOff) -> craft_update::updater::CheckSource {
+fn refusing_updater(why: UpdatesOff) -> Updater {
     let why = tl!(why.reason()).to_string();
-    std::sync::Arc::new(move || Err(why.clone()))
+    let check: craft_update::updater::CheckSource = std::sync::Arc::new(move || Err(why.clone()));
+    Updater::new(&crate::UPDATE_APP, env!("CARGO_PKG_VERSION")).with_translator(translate).with_source(check)
 }
 
-pub(crate) fn check(app: &mut WordApp) {
+/// Help ▸ Check for Updates: checks now and shows the result. In an edition, nothing: the reason,
+/// in English for scripts, as the error (the status bar translates it).
+pub(crate) fn check(app: &mut WordApp) -> Result<(), String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        match app.updates_rt.off {
+            Some(UpdatesOff::Edition) => return Err(UpdatesOff::Edition.reason().to_string()),
+            // The reason in the interface language the window is in now: the self-update is
+            // turned off before the first frame, which is when the app first sets the language.
+            Some(why) => app.updates_rt.updater = refusing_updater(why),
+            None => {}
+        }
         app.updates_rt.check_requested = true;
         app.updates_rt.manual_window_open = true;
         if let Some(ctx) = &app.updates_rt.repaint {
@@ -141,6 +168,7 @@ pub(crate) fn check(app: &mut WordApp) {
         app.updates_rt.manual_window_open = true;
         app.updates_rt.status_message = Some(tl!("Update check is not supported in the web browser.").to_string());
     }
+    Ok(())
 }
 
 pub(crate) fn tick(app: &mut WordApp, ctx: &egui::Context) {
@@ -229,29 +257,69 @@ mod tests {
     use craft_update::updater::Status;
 
     /// With the self-update off, a startup check is never made, and Help ▸ Check for Updates (the
-    /// command's own path) ends in the reason instead of a release to install: in a window that
-    /// carries another program's AppImage variables (#5653), and always in an edition, whose
-    /// update would install the stock English release over it.
+    /// command's own path) ends in the reason instead of a release to install (#5653).
     #[test]
     fn with_the_self_update_off_a_check_finds_nothing_and_says_why() {
-        use super::UpdatesOff;
-        for (why, says) in [(UpdatesOff::ForeignAppImage, "another program's AppImage"), (UpdatesOff::Edition, "English releases")] {
-            let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
-            app.set_startup_update_check(true);
-            app.disable_self_update(why);
-            assert!(!app.updates_rt.startup_check, "{why:?}: no check at start");
-            let ctx = egui::Context::default();
-            super::check(&mut app);
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-            while !matches!(app.updates_rt.updater.status(), Status::Failed(_)) {
-                assert!(std::time::Instant::now() < deadline, "{why:?}: the check never ended: {:?}", app.updates_rt.updater.status());
-                super::tick(&mut app, &ctx);
-                std::thread::sleep(std::time::Duration::from_millis(5));
-            }
-            let status = app.updates_rt.updater.status();
-            assert!(matches!(status, Status::Failed(reason) if reason.contains(says)), "{why:?}: {status:?}");
-            assert!(!app.updates_rt.updater.prompt_open(), "{why:?}: no update offered");
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.set_startup_update_check(true);
+        app.disable_self_update(super::UpdatesOff::ForeignAppImage);
+        assert!(!app.updates_rt.startup_check, "no check at start");
+        let ctx = egui::Context::default();
+        super::check(&mut app).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !matches!(app.updates_rt.updater.status(), Status::Failed(_)) {
+            assert!(std::time::Instant::now() < deadline, "the check never ended: {:?}", app.updates_rt.updater.status());
+            super::tick(&mut app, &ctx);
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
+        let status = app.updates_rt.updater.status();
+        assert!(matches!(status, Status::Failed(why) if why.contains("another program's AppImage")), "{status:?}");
+        assert!(!app.updates_rt.updater.prompt_open(), "no update offered");
+    }
+
+    /// An edition never updates itself: the stock releases it would find are English and would
+    /// replace it. No check at start, no Help ▸ Check for Updates, and asking for one anyway (the
+    /// command search, a script) says why on the status line and to the caller, starts nothing and
+    /// opens no window.
+    #[test]
+    fn an_edition_never_checks_for_updates() {
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.set_startup_update_check(true);
+        app.disable_self_update(super::UpdatesOff::Edition);
+        assert!(!app.offers_update_check());
+        let why = app.run("ui.checkForUpdates", serde_json::json!({})).unwrap_err();
+        assert!(why.contains("English releases"), "{why}");
+        assert_eq!(app.status_msg.as_ref().map(|(shown, _)| shown.as_str()), Some(why.as_str()), "the status line says it too");
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            super::tick(&mut app, &ctx);
+        }
+        assert_eq!(app.updates_rt.updater.status(), &Status::Idle, "nothing checked");
+        assert!(!app.updates_rt.manual_window_open, "no update window");
+    }
+
+    /// The self-update is turned off before the first frame sets the interface language; Help ▸
+    /// Check for Updates gives the reason in the language the window is in when it is asked.
+    #[test]
+    fn the_reason_is_in_the_interface_language_of_the_check() {
+        use super::UpdatesOff;
+        use crate::i18n::{Lang, fixture_lang, set_current};
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        set_current(Lang::EN);
+        app.disable_self_update(UpdatesOff::ForeignAppImage);
+        let row: &'static str = Box::leak(format!("\t{}\tהעדכונים כבויים\n", UpdatesOff::ForeignAppImage.reason()).into_boxed_str());
+        set_current(fixture_lang("he", row));
+        let checked = super::check(&mut app);
+        set_current(Lang::EN);
+        checked.unwrap();
+        let ctx = egui::Context::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !matches!(app.updates_rt.updater.status(), Status::Failed(_)) {
+            assert!(std::time::Instant::now() < deadline, "the check never ended: {:?}", app.updates_rt.updater.status());
+            super::tick(&mut app, &ctx);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(app.updates_rt.updater.status(), &Status::Failed("העדכונים כבויים".into()));
     }
 
     /// Help ▸ Check for Updates runs while the ribbon draws, after the frame's `tick`: the result
@@ -266,7 +334,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             super::tick(&mut app, ui.ctx());
-            super::check(&mut app);
+            super::check(&mut app).unwrap();
             super::show(&mut app, ui.ctx());
         });
         out.textures_delta.clear();

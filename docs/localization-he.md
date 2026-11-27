@@ -273,12 +273,14 @@ entries, taskbar buttons and default-app choices. They share the settings folder
 `~/.config/wordcraft`: a language, a region or a saved AI key chosen in one applies in the other.
 
 **Updates:** the edition never updates itself. The releases WordCraft's updater reads are the stock
-English ones, and installing one would replace the edition with them, so it doesn't check at start,
-and Help › Check for Updates… (בדיקת עדכונים…) says why instead of checking: no request is sent. The
-AppImage carries no update information, so AppImageUpdate and AppImageLauncher can't fetch the
-stock release either; README's line that the AppImage updates itself with AppImageUpdate does not
-apply to the edition. To update, replace the file with a newer build of the edition and run
-`--install` again if its name changed.
+English ones, and installing one would replace the edition with them, so it doesn't check at start
+and its Help tab has no Check for Updates… button (the updater's window would also name the stock
+program's maker and point at its releases). Asked for anyway (`ui.checkForUpdates`, from the
+command search or a script), the check answers with the reason, which the status bar shows in
+Hebrew, and sends no request. The AppImage carries no update information, so AppImageUpdate and
+AppImageLauncher can't fetch the stock release either; README's line that the AppImage updates
+itself with AppImageUpdate does not apply to the edition. To update, replace the file with a newer
+build of the edition and run `--install` again if its name changed.
 
 **What is in the AppImage besides the programs** (`usr/share/doc/wordcraft`): `NOTICE-hebrew-edition.txt`
 (what the edition is and the licence of every font it bundles or embeds), the licence files it names
@@ -403,4 +405,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-26 | major | First version: Hebrew interface language and numbering, Hebrew edition (default language, catalog supplement, fonts, right-to-left new documents, Hebrew proofing through the complex-script language) |
 | 2026-11-27 | minor | Mirrored task panes, balloons, directional icons and lists; Hebrew letters on Bold, Italic, Underline and Spelling; mixed Hebrew and Latin text in order; lengths number first; Hebrew in monospace text |
 | 2026-11-27 | minor | Engine messages through the catalog (rows and `@msg` templates); supplement rows correct published ones; Accessibility pane from rule ids; translated style, style set, Unicode subset, icon and Language data names; Language pack licence, confirmation and network failures; WordCraft's own file browser by default in the edition; Mailings on the region's paper |
-| 2026-11-27 | minor | Installing on Ubuntu (`--install`, `--uninstall`, `--cli`), the edition's own desktop id, Hebrew menu entry and AppStream text; no self-update (Help › Check for Updates says why); the licence of every font in the AppImage; pinned and checked build inputs, `BUILD-INFO.txt`, `test-appimage.sh`; programs held to glibc 2.35 (Ubuntu 22.04) |
+| 2026-11-27 | minor | Installing on Ubuntu (`--install`, `--uninstall`, `--cli`), the edition's own desktop id, Hebrew menu entry and AppStream text; no self-update and no Check for Updates button; the licence of every font in the AppImage; pinned and checked build inputs, `BUILD-INFO.txt`, `test-appimage.sh`; programs held to glibc 2.35 (Ubuntu 22.04) |

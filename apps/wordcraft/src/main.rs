@@ -738,7 +738,7 @@ fn main() -> eframe::Result {
             {
                 app.use_saved_assistant_key(&folder);
             }
-            // After the preferences, so the reason it gives is in the interface language.
+            // Help › Check for Updates gives the reason, worded when it is asked.
             if let Some(why) = updates_off {
                 app.disable_self_update(why);
             }

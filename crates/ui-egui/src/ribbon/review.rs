@@ -178,7 +178,9 @@ pub(super) fn developer(app: &mut WordApp, ui: &mut Ui) {
 pub(super) fn help(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Help", None, app, |ui, app| {
         big(ui, app, "help", "Help", "ui.dialog", json!({"name": "about"}), false);
-        big(ui, app, "checkForUpdates", "Check for\nUpdates…", "ui.checkForUpdates", json!({}), false);
+        if app.offers_update_check() {
+            big(ui, app, "checkForUpdates", "Check for\nUpdates…", "ui.checkForUpdates", json!({}), false);
+        }
         if crate::links_to_artcraft() {
             big(ui, app, "discord", "Community\nDiscord", "ui.discord", json!({}), false);
         }

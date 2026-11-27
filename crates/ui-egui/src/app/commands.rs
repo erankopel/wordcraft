@@ -552,7 +552,11 @@ impl WordApp {
         let s = |k: &str| p.get(k).and_then(Value::as_str);
         Some(Ok(match id {
             "ui.checkForUpdates" | "help.checkForUpdates" => {
-                crate::updates_ui::check(self);
+                // An edition has no such button; the command search or a script still asks.
+                if let Err(why) = crate::updates_ui::check(self) {
+                    self.status(why.clone());
+                    return Some(Err(why));
+                }
                 Value::Null
             }
             "ui.tab" => {

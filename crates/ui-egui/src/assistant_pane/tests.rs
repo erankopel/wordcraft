@@ -9,7 +9,7 @@ use wordcraft_assistant::agent::{Step, StepStop, ToolRequest};
 use wordcraft_assistant::{Disclosure, Error, MAX_CONTEXT_BYTES, Provider, Reply, Request, Scope, Stop, Usage};
 use wordcraft_doc::StoryRef;
 
-use super::{Act, WordApp};
+use super::{Act, Agreed, WordApp};
 
 /// What the scripted provider answers and whether its text leaves the machine, and what it was asked.
 #[derive(Clone)]
@@ -73,7 +73,7 @@ fn reply(text: &str) -> Reply {
     Reply {
         text: text.into(),
         stop: Stop::End,
-        usage: Usage { input_tokens: 10, output_tokens: 3 },
+        usage: Usage { input_tokens: 10, output_tokens: 3, ..Usage::default() },
         model: "test-model".into(),
         fallback_used: false,
     }
@@ -91,6 +91,11 @@ fn script(remote: bool, result: Result<Reply, Error>) -> Script {
     }
 }
 
+/// What agreeing to the scripted provider that leaves the machine records.
+fn test_agreement() -> Agreed {
+    Agreed { recipient: "example.test".into(), model: "test-model".into() }
+}
+
 /// A script for a request that changes the document: the model's turns, in order.
 fn edit_script(remote: bool, turns: Vec<Result<Step, Error>>) -> Script {
     let s = script(remote, Err(Error::Network("text mode is not used here".into())));
@@ -105,14 +110,14 @@ fn app(text: &str, script: Option<Script>) -> (WordApp, Arc<Mutex<Vec<Request>>>
     NEXT.with(|next| *next.borrow_mut() = script);
     let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text(text)), crate::Services::default());
     app.assistant.factory = scripted;
-    app.assistant.edits = false;
+    app.assistant_run.choices.edits = false;
     (app, sent)
 }
 
 /// An app whose assistant changes the document itself, following `script`.
 fn edit_app(text: &str, script: Script) -> WordApp {
     let (mut app, _) = app(text, Some(script));
-    app.assistant.edits = true;
+    app.assistant_run.choices.edits = true;
     app
 }
 
@@ -165,8 +170,8 @@ fn a_provider_that_leaves_the_machine_waits_for_agreement_and_is_asked_once() {
     app.assistant_act(Act::Agree, &ctx);
     settle(&mut app, &ctx);
     assert_eq!(sent.lock().unwrap().len(), 1);
-    assert_eq!(app.assistant_run.agreed, Some(Scope::Selection));
-    // Agreed once for this run: the next request, sharing no more, is not asked about again.
+    assert_eq!(app.assistant_run.choices.agreed, Some(test_agreement()));
+    // Agreed once: the next request is not asked about again.
     ask(&mut app, &ctx, "Shorter");
     assert!(app.assistant.ready.is_none(), "no second question");
     settle(&mut app, &ctx);
@@ -181,7 +186,7 @@ fn declining_sends_nothing_and_agrees_to_nothing() {
     ask(&mut app, &ctx, "Summarise");
     app.assistant_act(Act::Cancel, &ctx);
     assert!(app.assistant.ready.is_none() && app.assistant.waiting.is_none());
-    assert_eq!(app.assistant_run.agreed, None);
+    assert_eq!(app.assistant_run.choices.agreed, None);
     assert!(sent.lock().unwrap().is_empty());
     // Asking again still asks.
     ask(&mut app, &ctx, "Summarise");
@@ -223,7 +228,7 @@ fn an_empty_or_oversized_request_is_refused_before_any_agreement() {
     assert_eq!(app.assistant.error, Some(Error::EmptyInstruction));
     assert!(app.assistant.ready.is_none());
     let (mut big, sent_big) = self::app(&"x".repeat(MAX_CONTEXT_BYTES + 1), Some(script(true, Ok(reply("Reply")))));
-    big.assistant.document_scope = true;
+    big.assistant_run.choices.whole_document = true;
     ask(&mut big, &ctx, "Summarise");
     assert!(matches!(big.assistant.error, Some(Error::TooLarge { .. })), "{:?}", big.assistant.error);
     assert!(big.assistant.ready.is_none(), "the person is not asked to agree to what cannot be sent");
@@ -235,7 +240,7 @@ fn the_whole_document_is_shared_only_when_chosen() {
     let ctx = egui::Context::default();
     let (mut app, sent) = app("First paragraph\nSecond paragraph", Some(script(false, Ok(reply("ok")))));
     app.run("select.text", json!({"text": "First"})).unwrap();
-    app.assistant.document_scope = true;
+    app.assistant_run.choices.whole_document = true;
     ask(&mut app, &ctx, "Check spelling");
     settle(&mut app, &ctx);
     assert_eq!(sent.lock().unwrap()[0].context, "First paragraph\nSecond paragraph");
@@ -255,7 +260,7 @@ fn a_chat_carries_its_earlier_turns_and_a_new_chat_drops_them() {
     assert_eq!(history, [("User".to_owned(), "First question".to_owned()), ("Assistant".to_owned(), "First answer".to_owned())]);
     app.assistant_act(Act::NewChat, &ctx);
     assert!(app.assistant.history.is_empty() && app.assistant.reply.is_none());
-    assert_eq!(app.assistant_run.agreed, Some(Scope::Selection), "what was agreed this run stays agreed");
+    assert!(app.assistant_run.choices.agreed.is_some(), "what was agreed stays agreed");
     ask(&mut app, &ctx, "Third question");
     settle(&mut app, &ctx);
     assert!(sent.lock().unwrap()[2].history.is_empty(), "a new chat starts empty");
@@ -313,7 +318,7 @@ fn a_new_document_starts_a_new_chat_but_keeps_what_was_agreed() {
     settle(&mut app, &ctx);
     let fresh = super::AssistantState::fresh_for_document(&app.assistant);
     assert!(fresh.history.is_empty() && fresh.reply.is_none() && fresh.prompt.is_empty());
-    assert!(app.assistant_run.agreed.is_some(), "the agreement is the run's, not the chat's");
+    assert!(app.assistant_run.choices.agreed.is_some(), "the agreement is not the chat's");
 }
 
 /// The pane opens from its command and draws its controls. (Its layout in the right-to-left interfaces is checked
@@ -344,37 +349,41 @@ fn the_pane_opens_with_its_command_and_shows_its_controls() {
     assert!(!crate::panes::open(h.state()).contains(&crate::panes::Pane::Assistant), "the command closes it");
 }
 
-/// Agreeing to the selection says nothing about the whole document: a wider request asks again, and
-/// agreeing to the document covers the selection too.
+/// One agreement covers every later request: a selection, the whole document, and changes made by the
+/// assistant; each still goes only when the person presses Send.
 #[test]
-fn agreeing_to_the_selection_does_not_cover_the_whole_document() {
+fn one_agreement_covers_every_later_request() {
     let ctx = egui::Context::default();
-    let (mut app, sent) = app("First paragraph\nSecond paragraph", Some(script(true, Ok(reply("Reply")))));
+    let script = script(true, Ok(reply("Reply")));
+    *script.turns.lock().unwrap() = vec![Ok(Step::text("Nothing to change."))].into();
+    let tool_requests = script.tool_requests.clone();
+    let (mut app, sent) = app("First paragraph\nSecond paragraph", Some(script));
     app.run("select.text", json!({"text": "First"})).unwrap();
     ask(&mut app, &ctx, "One");
+    assert!(app.assistant.ready.is_some(), "the first request asks");
     app.assistant_act(Act::Agree, &ctx);
     settle(&mut app, &ctx);
-    assert_eq!(app.assistant_run.agreed, Some(Scope::Selection));
-    // The same amount again: no question.
+    app.assistant_run.choices.whole_document = true;
     ask(&mut app, &ctx, "Two");
-    assert!(app.assistant.ready.is_none());
+    assert!(app.assistant.ready.is_none(), "the whole document is covered");
     settle(&mut app, &ctx);
     assert_eq!(sent.lock().unwrap().len(), 2);
-    // More text: the question comes back, and nothing is sent until it is answered.
-    app.assistant.document_scope = true;
+    app.assistant_run.choices.edits = true;
     ask(&mut app, &ctx, "Three");
-    assert!(app.assistant.ready.is_some(), "the whole document was not agreed to");
-    assert_eq!(sent.lock().unwrap().len(), 2, "nothing is sent while it waits");
-    app.assistant_act(Act::Agree, &ctx);
+    assert!(app.assistant.ready.is_none(), "so are changes made by the assistant");
     settle(&mut app, &ctx);
-    assert_eq!(app.assistant_run.agreed, Some(Scope::Document));
-    assert_eq!(sent.lock().unwrap().len(), 3);
-    // Having agreed to the document covers the selection too.
-    app.assistant.document_scope = false;
-    ask(&mut app, &ctx, "Four");
-    assert!(app.assistant.ready.is_none());
-    settle(&mut app, &ctx);
-    assert_eq!(sent.lock().unwrap().len(), 4);
+    assert_eq!(*tool_requests.lock().unwrap(), 1);
+}
+
+/// An agreement names the recipient and the model: a request to another model asks again.
+#[test]
+fn an_agreement_for_another_model_asks_again() {
+    let ctx = egui::Context::default();
+    let (mut app, sent) = app("Some text", Some(script(true, Ok(reply("Reply")))));
+    app.assistant_run.choices.agreed = Some(Agreed { recipient: "example.test".into(), model: "an-older-model".into() });
+    app.run("select.all", json!({})).unwrap();
+    ask(&mut app, &ctx, "Summarise");
+    assert!(app.assistant.ready.is_some() && sent.lock().unwrap().is_empty());
 }
 
 /// The key the person types goes to the provider (blank means: look in the environment), is never
@@ -493,7 +502,7 @@ fn a_reply_to_a_selection_is_not_placed_in_other_text() {
 fn a_reply_to_the_whole_document_can_be_placed_at_any_selection() {
     let ctx = egui::Context::default();
     let (mut app, _) = app("First paragraph\nSecond paragraph", Some(script(false, Ok(reply("Summary")))));
-    app.assistant.document_scope = true;
+    app.assistant_run.choices.whole_document = true;
     ask(&mut app, &ctx, "Summarise");
     settle(&mut app, &ctx);
     app.run("select.text", json!({"text": "Second"})).unwrap();
@@ -521,7 +530,7 @@ fn a_new_document_in_the_window_starts_a_new_chat_and_keeps_the_run_s_agreement(
     app.run("file.new", json!({})).unwrap();
     frame(&mut app);
     assert!(app.assistant.history.is_empty() && app.assistant.reply.is_none(), "the chat of the other document is gone");
-    assert_eq!(app.assistant_run.agreed, Some(Scope::Selection), "what was agreed this run stays agreed");
+    assert!(app.assistant_run.choices.agreed.is_some(), "what was agreed stays agreed");
     assert_eq!(app.assistant_run.typed_key(), Some("sk-ant-typed-key"), "and so does the key");
 }
 
@@ -622,9 +631,10 @@ fn the_assistant_changes_the_document_and_one_undo_takes_it_back() {
     assert_eq!(app.assistant.want_focus, super::Focus::Send, "the keyboard leaves the button that is gone");
 }
 
-/// A request that changes the document asks once for the whole document, and the agreement covers later ones.
+/// A request that changes the document asks first, describing the whole document, and the agreement covers
+/// later ones.
 #[test]
-fn changing_the_document_needs_agreement_for_the_whole_document_once() {
+fn changing_the_document_asks_for_the_agreement_once() {
     let ctx = egui::Context::default();
     let turns = vec![Ok(Step::text("Nothing to change.")), Ok(Step::text("Still nothing."))];
     let mut app = edit_app("First paragraph\nSecond paragraph", edit_script(true, turns));
@@ -634,7 +644,7 @@ fn changing_the_document_needs_agreement_for_the_whole_document_once() {
     assert_eq!((ready.request.scope, ready.chars), (Scope::Document, "First paragraph\nSecond paragraph".chars().count()), "the whole document");
     app.assistant_act(Act::Agree, &ctx);
     settle(&mut app, &ctx);
-    assert!(app.assistant_run.agreed_edits.contains(&app.session.document_id()));
+    assert_eq!(app.assistant_run.choices.agreed, Some(test_agreement()));
     ask(&mut app, &ctx, "Check it again");
     assert!(app.assistant.ready.is_none(), "agreed once for the run");
     settle(&mut app, &ctx);
@@ -776,9 +786,9 @@ fn undo_these_changes_undoes_only_the_last_request_s_own_step() {
     assert_eq!(app.session.undo_depth(), depth, "the first request's changes stay");
 }
 
-/// Agreeing that the assistant may read and change a document covers that document: another one asks again.
+/// The agreement covers other documents too: a new one does not ask again.
 #[test]
-fn the_agreement_to_change_a_document_covers_that_document_only() {
+fn the_agreement_covers_other_documents_too() {
     let ctx = egui::Context::default();
     let turns = vec![Ok(Step::text("Nothing to change.")), Ok(Step::text("Nothing here either."))];
     let mut app = edit_app("A draft", edit_script(true, turns));
@@ -793,15 +803,9 @@ fn the_agreement_to_change_a_document_covers_that_document_only() {
     frame(&mut app);
     // The new document's window state starts with the app's own provider: the test's again.
     app.assistant.factory = scripted;
-    let first = app.assistant_run.agreed_edits.clone();
     ask(&mut app, &ctx, "Check this one");
-    assert!(
-        app.assistant.ready.is_some(),
-        "a new document asks again: agreed for {first:?}, now in {}, error {:?}, waiting {}",
-        app.session.document_id(),
-        app.assistant.error,
-        app.assistant.waiting.is_some()
-    );
+    assert!(app.assistant.ready.is_none(), "a new document does not ask again");
+    settle(&mut app, &ctx);
 }
 
 /// The model is told the selection the assistant starts from: a selection changed before Agree is the one it
@@ -889,6 +893,44 @@ fn undoing_with_no_instruction_hands_the_keyboard_to_the_instruction_box() {
     assert_eq!(app.assistant.want_focus, super::Focus::Prompt);
 }
 
+/// The service accepting the key finishes the setup, a refused key brings it back, and another failure the
+/// service answered with still means the key works.
+#[test]
+fn a_refused_key_brings_the_setup_back() {
+    let ctx = egui::Context::default();
+    let (mut app, _) = app("Some text", Some(script(false, Ok(reply("ok")))));
+    assert!(!app.assistant_run.setup_done(), "nothing agreed or answered yet");
+    ask(&mut app, &ctx, "One");
+    settle(&mut app, &ctx);
+    assert!(app.assistant_run.setup_done(), "the service answered");
+    let refused = Error::Http { status: 401, kind: "authentication_error".into(), message: "invalid x-api-key".into() };
+    NEXT.with(|next| *next.borrow_mut() = Some(script(false, Err(refused))));
+    ask(&mut app, &ctx, "Two");
+    settle(&mut app, &ctx);
+    assert!(!app.assistant_run.setup_done(), "a refused key shows the setup again");
+    let busy = Error::Http { status: 529, kind: "overloaded_error".into(), message: "busy".into() };
+    NEXT.with(|next| *next.borrow_mut() = Some(script(false, Err(busy))));
+    ask(&mut app, &ctx, "Three");
+    settle(&mut app, &ctx);
+    assert!(app.assistant_run.setup_done(), "a busy service still accepted the key");
+}
+
+/// A follow-up about the same selection sends the first instruction again with its text, and that text once.
+#[test]
+fn a_follow_up_about_the_same_selection_does_not_send_it_again() {
+    let ctx = egui::Context::default();
+    let (mut app, sent) = app("Hello brave world", Some(script(false, Ok(reply("Hello kind world")))));
+    app.run("select.text", json!({"text": "brave"})).unwrap();
+    ask(&mut app, &ctx, "A gentler word");
+    settle(&mut app, &ctx);
+    ask(&mut app, &ctx, "Another one");
+    settle(&mut app, &ctx);
+    let second = sent.lock().unwrap()[1].clone();
+    assert_eq!(second.history[0].shared.as_ref().map(|s| s.text.as_str()), Some("brave"), "the first instruction keeps its text");
+    let body = wordcraft_assistant::build_body(&second, "m").unwrap();
+    assert_eq!(body.matches("brave").count(), 1, "the text goes once: {body}");
+}
+
 /// Keeping the key on this computer: only when asked, only once the key has worked, in a file of its own that
 /// the next run reads, and gone when the person forgets it.
 #[cfg(not(target_arch = "wasm32"))]
@@ -925,6 +967,11 @@ mod saved_key {
 
     fn typed(app: &mut WordApp, key: &str) {
         app.assistant_run.key = wordcraft_engine::Password::new(key);
+    }
+
+    /// The choices an earlier run kept in `folder`: text answers, which these tests are about.
+    fn chose_text_answers(folder: &Folder) {
+        std::fs::write(folder.0.join(crate::assistant_pane::saved::FILE_NAME), r#"{"edits": false}"#).unwrap();
     }
 
     #[test]
@@ -1109,6 +1156,93 @@ mod saved_key {
         use egui_kittest::kittest::Queryable;
         assert!(h.query_all_by_label_contains("other users can read").count() >= 1, "the pane says why");
     }
+
+    /// The agreement is kept for later runs, which send without asking, until the person withdraws it; then the
+    /// next request asks again, in this run and the next.
+    #[test]
+    fn the_agreement_is_kept_for_later_runs_until_it_is_withdrawn() {
+        let ctx = egui::Context::default();
+        let folder = Folder::new();
+        chose_text_answers(&folder);
+        let (mut app, _) = app("Some text", Some(script(true, Ok(reply("ok")))));
+        app.use_saved_assistant_key(&folder.0);
+        app.run("select.all", json!({})).unwrap();
+        ask(&mut app, &ctx, "One");
+        app.assistant_act(Act::Agree, &ctx);
+        settle(&mut app, &ctx);
+        let (mut later, sent) = self::app("Other text", Some(script(true, Ok(reply("ok")))));
+        later.use_saved_assistant_key(&folder.0);
+        later.run("select.all", json!({})).unwrap();
+        ask(&mut later, &ctx, "Two");
+        assert!(later.assistant.ready.is_none(), "a later run does not ask again");
+        settle(&mut later, &ctx);
+        assert_eq!(sent.lock().unwrap().len(), 1);
+        later.assistant_act(Act::Withdraw, &ctx);
+        assert!(later.assistant.said.contains("withdrawn"), "{:?}", later.assistant.said);
+        ask(&mut later, &ctx, "Three");
+        assert!(later.assistant.ready.is_some(), "withdrawn: the next request asks");
+        let (mut next, _) = self::app("Text", None);
+        next.use_saved_assistant_key(&folder.0);
+        assert_eq!(next.assistant_run.choices.agreed, None, "and so does the next run");
+    }
+
+    /// An agreement withdrawn in another WordCraft process holds in this one, which read it when it started:
+    /// the next request asks again, and nothing more is sent.
+    #[test]
+    fn an_agreement_withdrawn_in_another_process_holds_here_too() {
+        let ctx = egui::Context::default();
+        let folder = Folder::new();
+        chose_text_answers(&folder);
+        let (mut this, sent) = app("Some text", Some(script(true, Ok(reply("ok")))));
+        this.use_saved_assistant_key(&folder.0);
+        this.run("select.all", json!({})).unwrap();
+        ask(&mut this, &ctx, "One");
+        this.assistant_act(Act::Agree, &ctx);
+        settle(&mut this, &ctx);
+        let (mut other, sent_later) = self::app("Other text", Some(script(true, Ok(reply("ok")))));
+        other.use_saved_assistant_key(&folder.0);
+        assert_eq!(other.assistant_run.choices.agreed, Some(test_agreement()), "the other process starts agreed");
+        other.assistant_act(Act::Withdraw, &ctx);
+        ask(&mut this, &ctx, "Two");
+        assert!(this.assistant.ready.is_some(), "this process asks again");
+        assert_eq!(sent.lock().unwrap().len() + sent_later.lock().unwrap().len(), 1, "nothing more was sent");
+    }
+
+    /// The choices that wait under Settings are kept for later runs.
+    #[test]
+    fn the_choices_are_kept_for_later_runs() {
+        use egui_kittest::kittest::Queryable;
+        let folder = Folder::new();
+        let (mut app, _) = app("Some text", None);
+        app.use_saved_assistant_key(&folder.0);
+        // As a first run starts: the assistant makes the changes.
+        app.assistant_run.choices = super::super::saved::Choices::default();
+        let mut h = super::drawn::open(app);
+        h.get_by_label("Let the assistant make changes in the document").click();
+        h.run_steps(2);
+        h.get_by_label("Use the whole document instead of the selection").click();
+        h.run_steps(2);
+        let (mut later, _) = self::app("Other text", None);
+        later.assistant_run.choices = super::super::saved::Choices::default();
+        later.use_saved_assistant_key(&folder.0);
+        assert!(later.assistant_run.choices.whole_document, "the whole document stays chosen");
+        assert!(!later.assistant_run.choices.edits, "and so do text answers");
+    }
+
+    /// A saved key and an agreement from an earlier run: the pane opens set up, its setup under Settings.
+    #[test]
+    fn a_saved_key_and_an_agreement_open_the_pane_set_up() {
+        use egui_kittest::kittest::Queryable;
+        let folder = Folder::new();
+        folder.file().save(KEY).unwrap();
+        std::fs::write(folder.0.join(crate::assistant_pane::saved::FILE_NAME), r#"{"agreed": {"recipient": "example.test", "model": "test-model"}}"#)
+            .unwrap();
+        let (mut app, _) = app("Some text", None);
+        app.use_saved_assistant_key(&folder.0);
+        let h = super::drawn::open(app);
+        assert!(h.query_by_label("API key:").is_none() && h.query_by_label_contains("Ask for a change").is_none(), "no setup");
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Settings");
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1150,21 +1284,23 @@ mod drawn {
         let ctx = egui::Context::default();
         let (mut app, sent) = app("First paragraph\nSecond paragraph", Some(script(true, Ok(reply("Reply")))));
         app.run("select.text", json!({"text": "First"})).unwrap();
-        app.assistant.document_scope = true;
+        app.assistant_run.choices.whole_document = true;
         ask(&mut app, &ctx, "Summarise");
         assert_eq!(app.assistant.ready.as_ref().map(|r| r.request.scope), Some(Scope::Document));
         let mut h = open(app);
-        assert!(h.query_by_label_contains("the whole document (").is_some(), "the agreement names the whole document");
+        let (whole, selected) =
+            ("This request sends your instruction and the whole document (", "This request sends your instruction and the selected text");
+        assert!(h.query_by_label_contains(whole).is_some(), "the agreement names the whole document");
         assert!(h.query_by_label_contains("The text starts: First paragraph Second paragraph").is_some(), "and shows how the text starts");
         assert!(h.query_by_label_contains("another of its models").is_some(), "and says another model may read it if the first declines");
-        assert!(h.query_by_label_contains("whether they send a selection or the whole document").is_some(), "and what agreeing covers");
+        assert!(h.query_by_label_contains("later requests, in any document").is_some(), "and what agreeing covers");
         for label in ["Use the whole document instead of the selection", "Instruction:", "API key:"] {
             assert!(h.get_by_label(label).accesskit_node().is_disabled(), "{label} cannot change while the agreement waits");
         }
         // Were the setting changed behind the pane's back, the agreement still says what would be sent.
-        h.state_mut().assistant.document_scope = false;
+        h.state_mut().assistant_run.choices.whole_document = false;
         h.run_steps(2);
-        assert!(h.query_by_label_contains("the whole document (").is_some() && h.query_by_label_contains("the selected text").is_none());
+        assert!(h.query_by_label_contains(whole).is_some() && h.query_by_label_contains(selected).is_none());
         h.state_mut().assistant_act(Act::Agree, &ctx);
         settle(h.state_mut(), &ctx);
         let seen = sent.lock().unwrap().clone();
@@ -1179,9 +1315,9 @@ mod drawn {
         app.run("caret.docStart", json!({})).unwrap();
         ask(&mut app, &ctx, "Write a haiku");
         let h = open(app);
-        assert!(h.query_by_label_contains("no document text goes with it: nothing is selected").is_some());
+        assert!(h.query_by_label_contains("only your instruction: nothing is selected").is_some());
         assert!(h.query_by_label_contains("The text starts").is_none());
-        assert!(h.query_by_label_contains("A request that sends the whole document asks again").is_some(), "a selection does not cover the document");
+        assert!(h.query_by_label_contains("or the whole document when you choose that").is_some(), "the agreement covers the whole document too");
     }
 
     /// An empty document says it is empty, not that nothing is selected.
@@ -1189,7 +1325,7 @@ mod drawn {
     fn the_agreement_names_an_empty_document_as_empty() {
         let ctx = egui::Context::default();
         let (mut app, _) = app("", Some(script(true, Ok(reply("Reply")))));
-        app.assistant.document_scope = true;
+        app.assistant_run.choices.whole_document = true;
         ask(&mut app, &ctx, "Write a haiku");
         let h = open(app);
         assert!(h.query_by_label_contains("the document is empty").is_some());
@@ -1259,10 +1395,10 @@ mod drawn {
         }
     }
 
-    /// In a right-to-left interface the pane docks at the left (the end edge, like Comments) and its rows read
-    /// from the right.
+    /// In a right-to-left interface the pane docks at the window's right, as in every interface, and its rows
+    /// read from the right.
     #[test]
-    fn in_a_right_to_left_interface_the_pane_docks_at_the_left_and_its_buttons_start_on_the_right() {
+    fn in_a_right_to_left_interface_the_pane_docks_at_the_right_and_its_buttons_start_on_the_right() {
         let ctx = egui::Context::default();
         let (mut app, _) = app("Some text", Some(script(true, Ok(reply("Reply")))));
         app.run("select.all", json!({})).unwrap();
@@ -1272,7 +1408,7 @@ mod drawn {
         let agree = h.get_by_role_and_label(egui::accesskit::Role::Button, agree).rect();
         let cancel = h.get_by_role_and_label(egui::accesskit::Role::Button, cancel).rect();
         assert!(agree.min.x > cancel.min.x, "the first button of the row is the rightmost: {agree:?} {cancel:?}");
-        assert!(agree.center().x < 1440.0 / 2.0, "the pane is at the end edge, which is the left: {agree:?}");
+        assert!(agree.center().x > 1440.0 / 2.0, "the pane is at the window's right: {agree:?}");
         assert!(agree.max.x <= 1440.0 && cancel.min.x >= 0.0, "and stays inside the window");
     }
 
@@ -1331,5 +1467,211 @@ mod drawn {
         assert!(live, "the agreement is a live region");
         let agree = h.get_by_role_and_label(egui::accesskit::Role::Button, "Agree and Send");
         assert!(agree.is_focused(), "the focus is on the button that decides");
+    }
+
+    /// Each char of the text `text` as the last frame drew it: the char, its left and right screen x, and its row.
+    fn drawn_chars(h: &egui_kittest::Harness<'static, WordApp>, text: &str) -> Vec<(char, f32, f32, usize)> {
+        fn collect(shape: &egui::Shape, text: &str, out: &mut Vec<(char, f32, f32, usize)>) {
+            match shape {
+                egui::Shape::Text(t) if t.galley.text() == text => {
+                    for (i, row) in t.galley.rows.iter().enumerate() {
+                        for glyph in &row.glyphs {
+                            let x = t.pos.x + row.pos.x + glyph.pos.x;
+                            out.push((glyph.chr, x, x + glyph.advance_width, i));
+                        }
+                    }
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, text, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in &h.output().shapes {
+            collect(&clipped.shape, text, &mut out);
+        }
+        assert!(!out.is_empty(), "{text:?} is drawn");
+        out
+    }
+
+    /// The middle of the first `c` drawn on `row`.
+    fn x_of(chars: &[(char, f32, f32, usize)], c: char, row: usize) -> f32 {
+        chars.iter().find(|g| g.0 == c && g.3 == row).map(|g| (g.1 + g.2) / 2.0).unwrap_or(f32::NAN)
+    }
+
+    /// The leftmost and rightmost ink of `row`'s letters.
+    fn row_span(chars: &[(char, f32, f32, usize)], row: usize) -> (f32, f32) {
+        let letters = chars.iter().filter(|g| g.3 == row && !g.0.is_whitespace());
+        letters.fold((f32::MAX, f32::MIN), |(l, r), g| (l.min(g.1), r.max(g.2)))
+    }
+
+    /// The AI pane opens at the window's right in an English and in a Hebrew interface, and a place the person
+    /// chose stays chosen; a pane that was only resized has chosen none.
+    #[test]
+    fn the_pane_opens_on_the_right_and_keeps_a_place_the_person_chose() {
+        let send =
+            |h: &egui_kittest::Harness<'static, WordApp>| h.get_by_role_and_label(egui::accesskit::Role::Button, tl!("Send")).rect().center().x;
+        let (english, _) = app("Some text", None);
+        assert!(send(&open(english)) > 720.0, "the right in English");
+        let (mut resized, _) = app("Some text", None);
+        resized.ui.pane_places.entry("assistant".into()).or_default().width = Some(300.0);
+        let mut h = open_in(resized, Some("he"));
+        assert!(send(&h) > 720.0, "the right in Hebrew, also after a resize");
+        h.state_mut().run("ui.paneDock", json!({"pane": "assistant", "dock": "left"})).unwrap();
+        h.run_steps(3);
+        assert!(send(&h) < 720.0, "where the person docked it");
+    }
+
+    /// Once the service has accepted the key, the pane shows the conversation and a Settings button, collapsed;
+    /// the button shows the key and the options in place and says it is expanded.
+    #[test]
+    fn once_set_up_the_pane_shows_the_conversation_and_a_settings_button() {
+        use egui::accesskit::Role;
+        let ctx = egui::Context::default();
+        let (mut app, _) = app("Some text", Some(script(false, Ok(reply("Done")))));
+        ask(&mut app, &ctx, "Anything");
+        settle(&mut app, &ctx);
+        let mut h = open(app);
+        let setup = ["API key:", "Let the assistant make changes in the document", "Use the whole document instead of the selection"];
+        for gone in setup {
+            assert!(h.query_by_label(gone).is_none(), "{gone} waits under Settings");
+        }
+        assert!(h.query_by_label_contains("Ask for a change").is_none(), "no introduction");
+        for shown in ["Instruction:", "Send", "New Chat", "Done"] {
+            h.get_by_label(shown);
+        }
+        let settings = h.get_by_role_and_label(Role::Button, "Settings");
+        assert_eq!(settings.accesskit_node().data().is_expanded(), Some(false));
+        settings.click();
+        h.run_steps(2);
+        assert_eq!(h.get_by_role_and_label(Role::Button, "Settings").accesskit_node().data().is_expanded(), Some(true));
+        for shown in setup {
+            h.get_by_label(shown);
+        }
+    }
+
+    /// When the setup goes at the end of a request, the keyboard stays with the person (Send, after Stop Waiting
+    /// held it), and the status line, a live region, says where the setup went.
+    #[test]
+    fn when_the_setup_goes_the_keyboard_stays_and_a_screen_reader_is_told() {
+        use egui::accesskit::Role;
+        let ctx = egui::Context::default();
+        let held = script(false, Ok(reply("Done")));
+        held.hold.store(true, std::sync::atomic::Ordering::SeqCst);
+        let hold = held.hold.clone();
+        let (mut app, _) = app("Some text", Some(held));
+        app.run("select.all", json!({})).unwrap();
+        let mut h = open(app);
+        assert!(h.query_by_label("API key:").is_some(), "the setup shows first");
+        h.state_mut().assistant.prompt = "Shorter".into();
+        h.state_mut().assistant_act(Act::Send, &ctx);
+        h.run_steps(6);
+        assert!(h.get_by_role_and_label(Role::Button, "Stop Waiting").is_focused());
+        hold.store(false, std::sync::atomic::Ordering::SeqCst);
+        let until = Instant::now() + Duration::from_secs(10);
+        while h.state().assistant.waiting.is_some() && Instant::now() < until {
+            h.run_steps(1);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        h.run_steps(4);
+        assert!(h.query_by_label("API key:").is_none(), "the setup went");
+        assert!(h.get_by_role_and_label(Role::Button, "Send").is_focused(), "the keyboard is on Send");
+        let told = h.query_all(By::new().role(Role::Status)).any(|n| n.accesskit_node().label().is_some_and(|l| l.contains("The setup is done")));
+        assert!(told, "the change is said");
+    }
+
+    /// A control of the setup that held the keyboard when the setup went hands it to the instruction box.
+    #[test]
+    fn a_setup_control_that_held_the_keyboard_hands_it_to_the_instruction_box() {
+        let (app, _) = app("Some text", None);
+        let mut h = open(app);
+        let label = "Let the assistant make changes in the document";
+        h.get_by_label(label).focus();
+        h.run_steps(2);
+        assert!(h.get_by_label(label).is_focused());
+        // As when the service accepts the key at the end of a request.
+        h.state_mut().assistant_run.accepted = true;
+        h.run_steps(4);
+        assert!(h.query_by_label(label).is_none(), "the setup went");
+        assert!(h.get_by_label("Instruction:").is_focused(), "the keyboard went to the instruction box");
+    }
+
+    /// In the Hebrew interface the instruction box reads from the right: its hint, a short line and a line that
+    /// starts with an English word all end at the box's right edge, and that line is right to left, the English
+    /// word first, at the right.
+    #[test]
+    fn in_the_hebrew_interface_the_instruction_box_reads_from_the_right() {
+        let (app, _) = app("Some text", None);
+        let mut h = open_in(app, Some("he"));
+        let field = h.get_by_label(tl!("Instruction:")).rect();
+        let hint = drawn_chars(&h, tl!("For example: make this paragraph shorter"));
+        let (left, right) = row_span(&hint, 0);
+        assert!(field.max.x - right < 16.0 && left > field.center().x - 40.0, "the hint at the right: {left}..{right} in {field:?}");
+        for text in ["שלום", "Word היא תוכנה"] {
+            h.state_mut().assistant.prompt = text.into();
+            h.run_steps(2);
+            let chars = drawn_chars(&h, text);
+            let (_, right) = row_span(&chars, 0);
+            assert!(field.max.x - right < 16.0 && right <= field.max.x, "{text:?} ends at the right edge: {right} in {field:?}");
+        }
+        let chars = drawn_chars(&h, "Word היא תוכנה");
+        let (word, hebrew, last) = (x_of(&chars, 'W', 0), x_of(&chars, 'י', 0), x_of(&chars, 'ת', 0));
+        assert!(word > hebrew && hebrew > last, "right to left, the English word first: {word} {hebrew} {last}");
+    }
+
+    /// In an English interface each line of the instruction box starts at its own side: an English line at the
+    /// left, a Hebrew one at the right edge, also when short.
+    #[test]
+    fn in_an_english_interface_each_line_of_the_instruction_box_starts_at_its_own_side() {
+        let (app, _) = app("Some text", None);
+        let mut h = open(app);
+        let field = h.get_by_label("Instruction:").rect();
+        let text = "Hello there\nשלום עולם";
+        h.state_mut().assistant.prompt = text.into();
+        h.run_steps(2);
+        let chars = drawn_chars(&h, text);
+        let (english, _) = row_span(&chars, 0);
+        let (_, hebrew) = row_span(&chars, 1);
+        assert!(english - field.min.x < 16.0, "the English line at the left: {english} in {field:?}");
+        assert!(field.max.x - hebrew < 16.0 && hebrew <= field.max.x, "the Hebrew line at the right: {hebrew} in {field:?}");
+    }
+
+    /// A reply is laid out paragraph by paragraph in each one's own direction, in the Hebrew interface too: a
+    /// paragraph that starts in Hebrew ends at the right edge and reads right to left, and one that starts in
+    /// English starts at the left.
+    #[test]
+    fn a_reply_lays_out_each_paragraph_in_its_own_direction() {
+        let ctx = egui::Context::default();
+        let text = "שלום Word עולם\nWord is a program";
+        let (mut app, _) = app("Some text", Some(script(false, Ok(reply(text)))));
+        ask(&mut app, &ctx, "Anything");
+        settle(&mut app, &ctx);
+        let h = open_in(app, Some("he"));
+        let field = h.get_by_label(tl!("Instruction:")).rect();
+        let chars = drawn_chars(&h, text);
+        let (_, right) = row_span(&chars, 0);
+        assert!(field.max.x - right < 16.0 && right <= field.max.x + 1.0, "the Hebrew paragraph at the right: {right} in {field:?}");
+        let (shalom, word, olam) = (x_of(&chars, 'ש', 0), x_of(&chars, 'W', 0), x_of(&chars, 'ע', 0));
+        assert!(shalom > word && word > olam, "right to left: {shalom} {word} {olam}");
+        let (left, _) = row_span(&chars, 1);
+        assert!(left - field.min.x < 16.0 && left >= field.min.x - 1.0, "the English paragraph at the left: {left} in {field:?}");
+    }
+
+    /// Settings shows the last request's token use: the tokens in, what the cache served and took of them, and
+    /// the tokens out.
+    #[test]
+    fn settings_shows_the_last_request_s_token_use() {
+        let ctx = egui::Context::default();
+        let used =
+            Reply { usage: Usage { input_tokens: 1234, cache_read_tokens: 1000, cache_write_tokens: 200, output_tokens: 56 }, ..reply("Done") };
+        let (mut app, _) = app("Some text", Some(script(false, Ok(used))));
+        ask(&mut app, &ctx, "Anything");
+        settle(&mut app, &ctx);
+        let mut h = open(app);
+        assert!(h.query_by_label_contains("1234 tokens in").is_none(), "it waits under Settings");
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Settings").click();
+        h.run_steps(2);
+        // A label's text is its accessibility value.
+        let line = h.get_by_label_contains("1234 tokens in").accesskit_node().value().unwrap_or_default();
+        assert!(line.contains("1000 were read from the cache") && line.contains("200 were written") && line.contains("56 tokens out"), "{line}");
     }
 }

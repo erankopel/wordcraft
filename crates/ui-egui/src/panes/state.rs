@@ -120,7 +120,10 @@ pub(crate) fn float_rect(v: &Value) -> Option<[f32; 4]> {
 /// Dock Left / Dock Right menus mean the same). The pane host is mirrored in a right-to-left
 /// interface (its `Start` edge is the right, and its title bars read from the right), so a saved
 /// side becomes the edge that is on that side ([`edge_of`]); a pane's default edge is logical
-/// and opens on the reading-start side by itself.
+/// and opens on the reading-start side by itself, except the AI pane's, which is the window's right.
+/// Only a place the person chose is saved (`dock`, from Dock Left, Dock Right, Float or a drag to
+/// another edge; a resize or a floating rect leaves it unset), so a pane they never moved follows
+/// its default, also when the default changes.
 pub(super) fn pane_state(app: &WordApp, pane: Pane) -> PaneState {
     if pane == Pane::Styles {
         return styles_state(app);

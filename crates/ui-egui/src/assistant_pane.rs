@@ -2,13 +2,18 @@
 //! either makes the changes itself with WordCraft's commands (all of one request's changes apply together, and
 //! one Undo reverts them; see [`wordcraft_engine::agent`]), or answers with text the person places.
 //!
-//! Text leaves the machine only through a provider, and only after the person agrees here: before a
-//! request that would send more than has been agreed to in this run the pane says who receives the text,
-//! which model reads it, how many characters go and how the text starts. No command and no setting can give
-//! that agreement; only the button in the pane can. A reply is placed with `assistant.apply`, so it is one
-//! undo step and tracked when Track Changes is on. Reading what would be shared (`assistant.context`) and
-//! placing a reply (`assistant.apply`) are engine commands; sending is this pane's alone, because an agent
-//! that drives WordCraft brings its own model. See `docs/assistant.md`.
+//! Text leaves the machine only through a provider, and only after the person agrees here, once: before the
+//! first request the pane says who receives the text, which model reads it, everything a request may send in
+//! either way of working, how many characters this one sends and how its text starts. The agreement is kept
+//! with the pane's choices ([`saved`]), so later requests, documents and runs send without asking, each on the
+//! person's own Send, until the person withdraws it under Settings. No command and no setting can give it; only
+//! the button in the pane can. A reply is placed with `assistant.apply`, so it is one undo step and tracked
+//! when Track Changes is on. Reading what would be shared (`assistant.context`) and placing a reply
+//! (`assistant.apply`) are engine commands; sending is this pane's alone, because an agent that drives
+//! WordCraft brings its own model. See `docs/assistant.md`.
+//!
+//! Until the one-time setup is done (a key and the agreement) the pane shows it: an introduction, the key and
+//! the options. Then it shows only the conversation and a Settings button, which shows that part in place.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,7 +25,8 @@ use egui::{Frame, Margin, RichText, Stroke, TextEdit, Ui};
 use serde_json::{Value, json};
 use wordcraft_assistant::agent as conversation;
 use wordcraft_assistant::{
-    DEFAULT_MODEL, Disclosure, Error, MAX_INSTRUCTION_BYTES, Provider, Reply, Request, Role as Speaker, Scope, Stop, Turn, build_body,
+    DEFAULT_MODEL, Disclosure, Error, MAX_HISTORY_TURNS, MAX_INSTRUCTION_BYTES, Provider, Reply, Request, Scope, Shared, Stop, Turn, Usage,
+    build_body,
 };
 use wordcraft_engine::Password;
 use wordcraft_engine::agent as workspace;
@@ -28,6 +34,9 @@ use wordcraft_engine::agent as workspace;
 use crate::WordApp;
 use crate::i18n::fmt;
 use crate::theme::semibold;
+
+mod saved;
+use saved::{Agreed, Choice, Choices};
 
 /// Whether this build can send a request at all: the browser version cannot.
 const CAN_SEND: bool = cfg!(not(target_arch = "wasm32"));
@@ -142,6 +151,8 @@ impl conversation::ToolHost for Host<'_> {
 struct Waiting {
     rx: Receiver<Msg>,
     instruction: String,
+    /// For a text request: the document text that went with the instruction, which the chat sends with it again.
+    shared: Option<Shared>,
     basis: Option<Basis>,
     key: Option<Password>,
     /// Set when the request is let go (Stop Waiting, New Chat, another document): its worker stops before its
@@ -172,6 +183,8 @@ enum Focus {
     Key,
     /// The instruction box.
     Prompt,
+    /// The Settings button.
+    Settings,
 }
 
 /// How strongly a notice speaks, and so how it is drawn and announced.
@@ -182,17 +195,26 @@ enum Tone {
     Bad,
 }
 
-/// What the person agreed to and typed for the whole run of the program, in every window: a second window
-/// does not ask again, and the key is not typed again. The key is kept on this computer only when the person
+/// What the person chose, agreed to and typed, for the whole run of the program, in every window: a second
+/// window does not ask again, and the key is not typed again. The choices and the agreement are kept between
+/// runs when the app gives a settings folder ([`saved`]); the key is kept on this computer only when the person
 /// asks for that, in a file only they can read ([`wordcraft_assistant::key_store`]).
 #[derive(Default)]
 pub(crate) struct AssistantRun {
-    /// The widest scope the person agreed to send to a provider that leaves the machine: `None` until they
-    /// agree. Agreeing to the document covers the selection too. Never saved.
-    agreed: Option<Scope>,
-    /// The documents (by id) the person agreed the assistant may read whole and change, for this run: each
-    /// document asks once. Never saved.
-    agreed_edits: Vec<u64>,
+    /// How the assistant works, and what the person agreed to.
+    choices: Choices,
+    /// Where the choices are kept. `None`: nowhere, so they last for the run.
+    #[cfg(not(target_arch = "wasm32"))]
+    choices_file: Option<std::path::PathBuf>,
+    /// The choices could not be written: they last for the run.
+    choices_unsaved: bool,
+    /// The service answered a request made in this run (an answer that is not an authentication error), so
+    /// the key works.
+    accepted: bool,
+    /// The service refused the key (an authentication error): the setup shows again.
+    rejected: bool,
+    /// The key in memory was read from the saved file, or saved there in this run: it needs no typing.
+    from_file: bool,
     /// The key the person typed or that was saved: kept in memory, wiped when dropped, never shown.
     key: Password,
     /// Where a key can be kept. `None`: nowhere (the browser, or before the app has chosen a folder).
@@ -215,6 +237,67 @@ impl AssistantRun {
         Some(self.key.as_str().trim()).filter(|k| !k.is_empty())
     }
 
+    /// Is the one-time setup done, so the pane shows the conversation and keeps the rest under Settings? It is
+    /// when a key needs no typing (a saved key that could be read, or `ANTHROPIC_API_KEY`) and the person has
+    /// agreed, and once the service has accepted the key in this run. A refused key, or a saved key file with
+    /// a problem, brings the setup back with its message.
+    fn setup_done(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.file_problem.is_some() {
+            return false;
+        }
+        !self.rejected && (self.accepted || (self.choices.agreed.is_some() && (self.from_file || env_key())))
+    }
+
+    /// What an ended request said about the key: an answer, even an error other than an authentication error,
+    /// means the service accepted it; an authentication error means it refused it. A request that got no
+    /// answer says nothing.
+    fn note_answer(&mut self, result: Result<(), &Error>) {
+        let accepted = match result {
+            Ok(()) => true,
+            Err(Error::Http { status: 401, .. }) => false,
+            Err(Error::Http { kind, .. }) if kind == "authentication_error" => false,
+            Err(Error::Http { .. }) => true,
+            Err(_) => return,
+        };
+        self.accepted = accepted;
+        self.rejected = !accepted;
+    }
+
+    /// Keep `which` of the choices where the app said, if it said, over what is kept there now: a failure is
+    /// reported in Settings, and the choices last for the run.
+    fn save_choices(&mut self, which: Choice) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(path) = &self.choices_file {
+            self.choices_unsaved = saved::save(path, &self.choices, which).is_err();
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = which;
+    }
+
+    /// Read the agreement again where the choices are kept: another WordCraft process may have given or
+    /// withdrawn it since this one read it. Choices this run could not save stay as they are in memory.
+    fn refresh_agreement(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(path) = &self.choices_file
+            && !self.choices_unsaved
+            && let Some(kept) = saved::load(path)
+        {
+            self.choices.agreed = kept.agreed;
+        }
+    }
+
+    /// Are the choices kept between runs?
+    #[cfg(not(target_arch = "wasm32"))]
+    fn choices_kept(&self) -> bool {
+        self.choices_file.is_some() && !self.choices_unsaved
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn choices_kept(&self) -> bool {
+        false
+    }
+
     /// Can a key be kept on this computer?
     #[cfg(not(target_arch = "wasm32"))]
     fn can_keep(&self) -> bool {
@@ -235,6 +318,7 @@ impl AssistantRun {
             Ok(()) => {
                 self.on_disk = Some(Password::new(key));
                 self.file_problem = None;
+                self.from_file = true;
                 true
             }
             Err(e) => {
@@ -271,11 +355,25 @@ impl AssistantRun {
             self.on_disk = None;
             self.remember = false;
             if also_typed {
+                // The key that worked is gone: the setup shows again, unless the environment has one.
                 self.key = Password::default();
+                self.from_file = false;
+                self.accepted = false;
             }
         }
         removed
     }
+}
+
+/// Is there a key in `ANTHROPIC_API_KEY`? The key itself is not read out. The browser version has none.
+#[cfg(not(target_arch = "wasm32"))]
+fn env_key() -> bool {
+    wordcraft_assistant::claude::Claude::key_present()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn env_key() -> bool {
+    false
 }
 
 /// The key box has one id in every window, because the key it edits is the run's, not a window's: what it
@@ -296,11 +394,17 @@ fn wipe_key_history(ctx: &egui::Context) {
 
 /// What the pane remembers for one window.
 pub(crate) struct AssistantState {
-    /// The assistant makes the changes itself, with WordCraft's commands, instead of answering with text.
-    edits: bool,
-    /// Share the whole document, not the selection (for a text answer).
-    document_scope: bool,
     prompt: String,
+    /// Settings (the key and the options, once the setup is done) is open.
+    settings_open: bool,
+    /// Whether the setup showed when the pane was last drawn: `None` before it was drawn.
+    shown_setup: Option<bool>,
+    /// The controls of the setup part drawn last: a keyboard focus on one of them when it goes moves on.
+    setup_ids: Vec<egui::Id>,
+    /// Whether the keyboard focus was on the Settings button when it was last drawn.
+    settings_focused: bool,
+    /// The last request's token use, and the model that answered it, for Settings.
+    last_usage: Option<(String, Usage)>,
     /// The earlier turns of this chat, oldest first.
     history: Vec<Turn>,
     reply: Option<Reply>,
@@ -338,9 +442,12 @@ pub(crate) struct AssistantState {
 impl Default for AssistantState {
     fn default() -> AssistantState {
         AssistantState {
-            edits: true,
-            document_scope: false,
             prompt: String::new(),
+            settings_open: false,
+            shown_setup: None,
+            setup_ids: Vec::new(),
+            settings_focused: false,
+            last_usage: None,
             history: Vec::new(),
             reply: None,
             edit_result: false,
@@ -364,10 +471,26 @@ impl Default for AssistantState {
 }
 
 impl AssistantState {
-    /// A new chat for a new document: what the person chose stays, the conversation goes. (What they agreed to
-    /// and typed as the key is [`AssistantRun`]'s, so it stays anyway.)
+    /// A new chat for a new document: the conversation goes, and how the pane shows stays. (What the person
+    /// chose, agreed to and typed as the key is [`AssistantRun`]'s, so it stays anyway.)
     pub(crate) fn fresh_for_document(old: &AssistantState) -> AssistantState {
-        AssistantState { edits: old.edits, document_scope: old.document_scope, factory: old.factory, ..AssistantState::default() }
+        AssistantState {
+            factory: old.factory,
+            settings_open: old.settings_open,
+            shown_setup: old.shown_setup,
+            last_usage: old.last_usage.clone(),
+            ..AssistantState::default()
+        }
+    }
+
+    /// Add an instruction and its reply to the chat. Only the newest [`MAX_HISTORY_TURNS`] turns can go with a
+    /// request, so older ones are let go, whole exchanges at a time: with the document text an instruction
+    /// carried, they would only take memory.
+    fn add_exchange(&mut self, instruction: Turn, reply: Turn) {
+        self.history.push(instruction);
+        self.history.push(reply);
+        let over = self.history.len().saturating_sub(MAX_HISTORY_TURNS).next_multiple_of(2).min(self.history.len());
+        self.history.drain(..over);
     }
 
     /// Ask for the keyboard focus on a control for the next few frames.
@@ -381,9 +504,12 @@ impl AssistantState {
     fn say(&mut self, text: String) {
         self.said = if text == self.said.trim_end_matches('\u{200b}') && !self.said.ends_with('\u{200b}') { format!("{text}\u{200b}") } else { text };
     }
+}
 
+impl Choices {
+    /// How much of the document a text answer shares.
     fn scope(&self) -> Scope {
-        if self.document_scope { Scope::Document } else { Scope::Selection }
+        if self.whole_document { Scope::Document } else { Scope::Selection }
     }
 }
 
@@ -394,10 +520,10 @@ impl WordApp {
     }
 }
 
-/// Must the person agree before a request sharing `scope` goes to a provider? Only when the provider leaves
-/// the machine, and they have not agreed already to that much or more in this run.
-fn needs_agreement(agreed: Option<Scope>, scope: Scope, leaves_machine: bool) -> bool {
-    leaves_machine && !agreed.is_some_and(|wide| wide == Scope::Document || wide == scope)
+/// Must the person agree before a request goes to the provider `disclosure` describes? Only when the text
+/// leaves the machine and the person has not agreed to this recipient and model.
+fn needs_agreement(agreed: Option<&Agreed>, disclosure: &Disclosure) -> bool {
+    disclosure.leaves_machine && !agreed.is_some_and(|a| a.recipient == disclosure.recipient && a.model == disclosure.model)
 }
 
 /// What a click in the pane asks for.
@@ -412,13 +538,19 @@ pub(crate) enum Act {
     InsertAfter,
     Copy,
     UndoEdits,
+    /// Show or hide Settings.
+    Settings,
+    /// Withdraw the agreement: the next request asks again.
+    Withdraw,
     #[cfg(not(target_arch = "wasm32"))]
     ForgetKey,
 }
 
 impl WordApp {
     /// Keep the API key in `folder` (the settings folder) when the person asks for that, and use the key
-    /// saved there by an earlier run. Called once, by the desktop app, after its settings are loaded.
+    /// saved there by an earlier run; and keep the pane's choices and the person's agreement there
+    /// ([`saved::FILE_NAME`]), reading what an earlier run kept. Called once, by the desktop app, after its
+    /// settings are loaded, and only when it keeps settings.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn use_saved_assistant_key(&mut self, folder: &std::path::Path) {
         use wordcraft_assistant::key_store::KeyFile;
@@ -429,11 +561,17 @@ impl WordApp {
                 run.key = Password::new(&key);
                 run.on_disk = Some(Password::new(&key));
                 run.remember = true;
+                run.from_file = true;
             }
             Ok(None) => {}
             Err(problem) => run.file_problem = Some(problem),
         }
         run.file = Some(file);
+        let choices = folder.join(saved::FILE_NAME);
+        if let Some(saved) = saved::load(&choices) {
+            run.choices = saved;
+        }
+        run.choices_file = Some(choices);
     }
 
     /// Carry out what a click asked for.
@@ -442,19 +580,21 @@ impl WordApp {
             Act::Send => self.assistant_ask(ctx),
             Act::Agree => {
                 if let Some(ready) = self.assistant.ready.take() {
-                    let scope = ready.request.scope;
-                    let document = self.session.document_id();
+                    // Once for every later request, document and run, until it is withdrawn.
                     let run = &mut self.assistant_run;
-                    if ready.edit.is_some() {
-                        // This document only, which also covers a text answer about any part of it.
-                        if !run.agreed_edits.contains(&document) {
-                            run.agreed_edits.push(document);
-                        }
-                    } else {
-                        run.agreed = Some(if run.agreed == Some(Scope::Document) { Scope::Document } else { scope });
-                    }
+                    run.choices.agreed = Some(Agreed { recipient: ready.disclosure.recipient.clone(), model: ready.disclosure.model.clone() });
+                    run.save_choices(Choice::Agreement);
                     self.assistant_send(ready, ctx);
                 }
+            }
+            Act::Settings => self.assistant.settings_open = !self.assistant.settings_open,
+            Act::Withdraw => {
+                self.assistant_run.choices.agreed = None;
+                self.assistant_run.save_choices(Choice::Agreement);
+                // The button that was pressed is gone: the keyboard goes to Settings, or to the instruction box
+                // when the setup shows again (Settings is part of it then).
+                self.assistant.want(if self.assistant_run.setup_done() { Focus::Settings } else { Focus::Prompt });
+                self.assistant_say(tl!("Your agreement was withdrawn. The next request asks for it again before anything is sent.").to_owned(), ctx);
             }
             Act::Cancel => {
                 self.assistant.ready = None;
@@ -512,7 +652,7 @@ impl WordApp {
     }
 
     /// Gather what would be shared and make the provider. A provider that leaves the machine waits for the
-    /// person's agreement, unless they have already agreed to this much in this run; every other request goes
+    /// person's agreement, unless they have agreed already (once, for every request); every other request goes
     /// at once.
     fn assistant_ask(&mut self, ctx: &egui::Context) {
         if self.assistant.waiting.is_some() || self.assistant.ready.is_some() {
@@ -529,11 +669,11 @@ impl WordApp {
             self.assistant.error = Some(Error::EmptyInstruction);
             return;
         }
-        if self.assistant.edits {
+        if self.assistant_run.choices.edits {
             self.assistant_ask_edits(instruction, ctx);
             return;
         }
-        let scope = self.assistant.scope();
+        let scope = self.assistant_run.choices.scope();
         let context = match self.run("assistant.context", json!({"scope": scope.as_str()})) {
             Ok(shared) => shared.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned(),
             Err(_) => {
@@ -549,6 +689,8 @@ impl WordApp {
         let provider = match (self.assistant.factory)(self.assistant_run.typed_key()) {
             Ok(provider) => provider,
             Err(error) => {
+                // No key at all: the setup, with the key box, shows again.
+                self.assistant_run.accepted &= error != Error::MissingKey;
                 self.assistant.error = Some(error);
                 return;
             }
@@ -562,9 +704,13 @@ impl WordApp {
         let disclosure = provider.disclosure();
         let chars = request.context.chars().count();
         let ready = Ready { provider, request, edit: None, disclosure, chars, basis, key };
-        // Agreeing that the assistant may read this whole document covers a text answer about it too.
-        let covered = self.assistant_run.agreed_edits.contains(&self.session.document_id());
-        if needs_agreement(self.assistant_run.agreed, scope, ready.disclosure.leaves_machine) && !covered {
+        self.assistant_agree_or_send(ready, ctx);
+    }
+
+    /// Send `ready`, or hold it for the person's agreement when it needs one.
+    fn assistant_agree_or_send(&mut self, ready: Ready, ctx: &egui::Context) {
+        self.assistant_run.refresh_agreement();
+        if needs_agreement(self.assistant_run.choices.agreed.as_ref(), &ready.disclosure) {
             self.assistant.ready = Some(ready);
             self.assistant.want(Focus::Agree);
         } else {
@@ -573,7 +719,7 @@ impl WordApp {
     }
 
     /// Prepare a request in which the assistant changes the document itself. Its tools can read all of the
-    /// document, so the agreement is for the whole document, and it is asked once per document in a run.
+    /// document, which the agreement covers.
     fn assistant_ask_edits(&mut self, instruction: String, ctx: &egui::Context) {
         let context = match self.run("assistant.context", json!({"scope": "document"})) {
             Ok(shared) => shared.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned(),
@@ -590,6 +736,8 @@ impl WordApp {
         let provider = match (self.assistant.factory)(self.assistant_run.typed_key()) {
             Ok(provider) => provider,
             Err(error) => {
+                // No key at all: the setup, with the key box, shows again.
+                self.assistant_run.accepted &= error != Error::MissingKey;
                 self.assistant.error = Some(error);
                 return;
             }
@@ -599,12 +747,7 @@ impl WordApp {
         let disclosure = provider.disclosure();
         let chars = request.context.chars().count();
         let ready = Ready { provider, request, edit: Some(EditJob { history }), disclosure, chars, basis: None, key };
-        if ready.disclosure.leaves_machine && !self.assistant_run.agreed_edits.contains(&self.session.document_id()) {
-            self.assistant.ready = Some(ready);
-            self.assistant.want(Focus::Agree);
-        } else {
-            self.assistant_send(ready, ctx);
-        }
+        self.assistant_agree_or_send(ready, ctx);
     }
 
     /// Send on a worker thread, so the window keeps drawing while the reply is written. A request that changes
@@ -613,6 +756,8 @@ impl WordApp {
         let (tx, rx) = channel();
         let Ready { mut provider, request, edit, basis, key, .. } = ready;
         let instruction = request.instruction.clone();
+        // A text request's document text, which the chat sends again with its instruction.
+        let shared = (edit.is_none() && !request.context.trim().is_empty()).then(|| Shared { scope: request.scope, text: request.context.clone() });
         let repaint = ctx.clone();
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
@@ -677,7 +822,7 @@ impl WordApp {
                 self.assistant.reply = None;
                 self.assistant.edit_result = false;
                 let said = if edit_base.is_some() { tl!("The assistant is working…") } else { tl!("Waiting for the reply…") };
-                self.assistant.waiting = Some(Waiting { rx, instruction, basis, key, cancel, edit: edit_base, round: 0, calls: 0 });
+                self.assistant.waiting = Some(Waiting { rx, instruction, shared, basis, key, cancel, edit: edit_base, round: 0, calls: 0 });
                 self.assistant.want(Focus::Stop);
                 self.assistant_say(said.to_owned(), ctx);
             }
@@ -744,15 +889,17 @@ impl WordApp {
         let instruction = waiting.instruction.clone();
         let basis = waiting.basis.clone();
         let key = waiting.key.clone();
+        self.assistant_run.note_answer(result.as_ref().map(|_| ()));
         match result {
             Ok(mut reply) => {
+                self.assistant.last_usage = Some((reply.model.clone(), reply.usage));
                 // A declined reply and a blank one have no text to place, whatever else came with them.
                 if matches!(reply.stop, Stop::Refusal { .. }) || reply.text.trim().is_empty() {
                     reply.text.clear();
                 }
                 if !reply.text.is_empty() {
-                    self.assistant.history.push(Turn { role: Speaker::User, text: instruction });
-                    self.assistant.history.push(Turn { role: Speaker::Assistant, text: reply.text.clone() });
+                    // The instruction goes again with the text it carried, so the next request repeats this one.
+                    self.assistant.add_exchange(Turn::user(instruction, waiting.shared.clone()), Turn::assistant(reply.text.clone()));
                 }
                 let mut said = outcome_words(&reply);
                 self.assistant.reply = Some(reply);
@@ -783,12 +930,17 @@ impl WordApp {
         let edited = match result {
             Ok(edited) => edited,
             Err(error) => {
+                self.assistant_run.note_answer(Err(&error));
                 let text = error_text(&error);
                 self.assistant.error = Some(error);
                 self.assistant_show_outcome(&text);
                 return;
             }
         };
+        if edited.outcome.rounds > 0 {
+            self.assistant_run.note_answer(Ok(()));
+            self.assistant.last_usage = Some((edited.outcome.model.clone(), edited.outcome.usage));
+        }
         let mut said = String::new();
         self.assistant.applied = None;
         self.assistant.apply_error = None;
@@ -835,8 +987,7 @@ impl WordApp {
             // The chat goes on from what the document has: the summary of changes that were not applied would
             // tell the model's next turn about changes the document does not have.
             if on_document && !outcome.text.trim().is_empty() {
-                self.assistant.history.push(Turn { role: Speaker::User, text: waiting.instruction.clone() });
-                self.assistant.history.push(Turn { role: Speaker::Assistant, text: outcome.text.clone() });
+                self.assistant.add_exchange(Turn::user(waiting.instruction.clone(), None), Turn::assistant(outcome.text.clone()));
             }
         } else {
             said = edit_stop_words(&outcome.stop).to_owned();
@@ -1105,52 +1256,34 @@ fn focus_if_asked(ui: &Ui, app: &mut WordApp, response: &egui::Response, focus: 
     ui.ctx().request_repaint();
 }
 
+/// The introduction, for the way the assistant works.
+fn intro(edits: bool) -> &'static str {
+    if edits {
+        tl!("Ask for a change to your document, or a question about it. The assistant makes the changes itself, and Undo reverts them in one step.")
+    } else {
+        tl!("Ask for a change to your text, or a question about it. A reply is placed only when you choose.")
+    }
+}
+
 fn body(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
-    muted(
-        ui,
-        if app.assistant.edits {
-            tl!(
-                "Ask for a change to your document, or a question about it. The assistant makes the changes itself, and Undo reverts them in one step."
-            )
-        } else {
-            tl!("Ask for a change to your text, or a question about it. A reply is placed only when you choose.")
-        },
-    );
     if !CAN_SEND {
+        muted(ui, intro(app.assistant_run.choices.edits));
         // Nothing here can send: say so and offer nothing that looks as if it could.
         notice(ui, Tone::Info, &key_note(&app.assistant_run), None);
         return;
     }
     let busy = app.assistant.waiting.is_some() || app.assistant.ready.is_some();
-    muted(ui, key_note(&app.assistant_run));
-    ui.add_space(2.0);
-    let label = ui.label(tl!("API key:"));
-    let key_box = ui
-        .add_enabled(!busy, TextEdit::singleline(app.assistant_run.key.as_mut_string()).password(true).desired_width(f32::INFINITY).id(key_box_id()))
-        .labelled_by(label.id);
-    if !busy {
-        focus_if_asked(ui, app, &key_box, Focus::Key);
+    // Until the one-time setup is done it shows first, as it always did; then it waits under Settings.
+    let setup = !app.assistant_run.setup_done();
+    setup_changed(app, ui, setup);
+    if setup {
+        muted(ui, intro(app.assistant_run.choices.edits));
+        settings(app, ui, busy, act, true);
+        ui.add_space(4.0);
     }
-    keep_controls(app, ui, busy, act);
-    #[cfg(not(target_arch = "wasm32"))]
-    if let Some(problem) = file_problem_text(&app.assistant_run) {
-        notice(ui, Tone::Warn, &problem, Some((Live::Polite, false)));
-        // Which file it is, so the person can act on what the notice says.
-        if let Some(file) = &app.assistant_run.file {
-            ui.add(egui::Label::new(RichText::new(file.path().display().to_string()).weak()).selectable(true).wrap());
-        }
-    }
-    ui.add_space(4.0);
-    stable(ui, "edits", |ui| {
-        ui.add_enabled(!busy, egui::Checkbox::new(&mut app.assistant.edits, tl!("Let the assistant make changes in the document")))
-    });
-    if !app.assistant.edits {
-        stable(ui, "scope", |ui| {
-            ui.add_enabled(!busy, egui::Checkbox::new(&mut app.assistant.document_scope, tl!("Use the whole document instead of the selection")))
-        });
-    }
-    ui.add_space(4.0);
     let label = ui.label(tl!("Instruction:"));
+    // Laid out as the document lays out its paragraphs, from the right in a right-to-left interface.
+    let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap_width: f32| crate::rtl::field_galley(ui, text.as_str(), wrap_width);
     let prompt = ui
         .add_enabled(
             !busy,
@@ -1159,6 +1292,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
                 .desired_width(f32::INFINITY)
                 .char_limit(MAX_INSTRUCTION_BYTES)
                 .hint_text(tl!("For example: make this paragraph shorter"))
+                .align(crate::rtl::field_align())
+                .layouter(&mut layouter)
                 .id_salt("assistant.prompt"),
         )
         .labelled_by(label.id);
@@ -1167,18 +1302,24 @@ fn body(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     }
     let waiting = app.assistant.waiting.is_some();
     let can_send = !busy && !app.assistant.prompt.trim().is_empty();
-    let (mut send, mut new_chat, mut stop) = (false, false, false);
+    let (mut send, mut new_chat, mut stop, mut toggle) = (false, false, false, false);
     ui.horizontal_wrapped(|ui| {
         send = button(ui, app, tl!("Send"), Focus::Send, can_send);
         if waiting {
             stop = button(ui, app, tl!("Stop Waiting"), Focus::Stop, true);
         }
         new_chat = stable(ui, "newChat", |ui| ui.add_enabled(!busy, egui::Button::new(tl!("New Chat")))).inner.clicked();
+        if !setup {
+            toggle = settings_button(ui, app);
+        }
     });
-    for (clicked, what) in [(send, Act::Send), (stop, Act::Stop), (new_chat, Act::NewChat)] {
+    for (clicked, what) in [(send, Act::Send), (stop, Act::Stop), (new_chat, Act::NewChat), (toggle, Act::Settings)] {
         if clicked {
             *act = Some(what);
         }
+    }
+    if !setup && app.assistant.settings_open {
+        settings(app, ui, busy, act, false);
     }
     status_line(app, ui);
     if app.assistant.stopped {
@@ -1191,6 +1332,156 @@ fn body(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     reply(app, ui, act);
 }
 
+/// When the setup part goes, or comes back: Settings starts closed, a keyboard focus on one of the controls that
+/// go moves to the instruction box (or, when the Settings button goes, to the key box), and a screen reader is
+/// told where the part went.
+fn setup_changed(app: &mut WordApp, ui: &Ui, setup: bool) {
+    let before = app.assistant.shown_setup.replace(setup);
+    match before {
+        Some(true) if !setup => {
+            app.assistant.settings_open = false;
+            let focused = ui.ctx().memory(|m| m.focused());
+            if focused.is_some_and(|id| app.assistant.setup_ids.contains(&id)) {
+                app.assistant.want(Focus::Prompt);
+            }
+            let done = tl!("The setup is done. The key and the options are now under Settings.");
+            let said = app.assistant.said.trim_end_matches('\u{200b}');
+            let text = if said.is_empty() { done.to_owned() } else { format!("{said} {done}") };
+            app.assistant.say(text);
+            ui.ctx().request_repaint();
+        }
+        Some(false) if setup && std::mem::take(&mut app.assistant.settings_focused) => app.assistant.want(Focus::Key),
+        _ => {}
+    }
+}
+
+/// The key and the options: shown before the instruction box until the setup is done, then under Settings. Its
+/// controls keep their identity in both places, so the keyboard stays on them when they move.
+fn settings(app: &mut WordApp, ui: &mut Ui, busy: bool, act: &mut Option<Act>, setup: bool) {
+    let mut ids = Vec::new();
+    muted(ui, key_note(&app.assistant_run));
+    ui.add_space(2.0);
+    let label = ui.label(tl!("API key:"));
+    let key_box = ui
+        .add_enabled(!busy, TextEdit::singleline(app.assistant_run.key.as_mut_string()).password(true).desired_width(f32::INFINITY).id(key_box_id()))
+        .labelled_by(label.id);
+    ids.push(key_box.id);
+    if !busy {
+        focus_if_asked(ui, app, &key_box, Focus::Key);
+    }
+    keep_controls(app, ui, busy, act, &mut ids);
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(problem) = file_problem_text(&app.assistant_run) {
+        notice(ui, Tone::Warn, &problem, Some((Live::Polite, false)));
+        // Which file it is, so the person can act on what the notice says.
+        if let Some(file) = &app.assistant_run.file {
+            ui.add(egui::Label::new(RichText::new(file.path().display().to_string()).weak()).selectable(true).wrap());
+        }
+    }
+    ui.add_space(4.0);
+    let choices = &mut app.assistant_run.choices;
+    let edits = stable(ui, "edits", |ui| {
+        ui.add_enabled(!busy, egui::Checkbox::new(&mut choices.edits, tl!("Let the assistant make changes in the document")))
+    })
+    .inner;
+    ids.push(edits.id);
+    let mut changed = edits.changed().then_some(Choice::Edits);
+    if !choices.edits {
+        let scope = stable(ui, "scope", |ui| {
+            ui.add_enabled(!busy, egui::Checkbox::new(&mut choices.whole_document, tl!("Use the whole document instead of the selection")))
+        })
+        .inner;
+        ids.push(scope.id);
+        if scope.changed() {
+            changed = Some(Choice::WholeDocument);
+        }
+    }
+    if let Some(which) = changed {
+        app.assistant_run.save_choices(which);
+    }
+    agreement_state(app, ui, busy, act, setup, &mut ids);
+    if app.assistant_run.choices_unsaved {
+        notice(ui, Tone::Warn, tl!("The pane's settings could not be saved, so they last for this run only."), None);
+    }
+    if let Some((model, usage)) = &app.assistant.last_usage {
+        muted(ui, usage_words(model, usage));
+    }
+    app.assistant.setup_ids = ids;
+}
+
+/// What the person agreed to, with the button that withdraws it. Before the setup is done there is nothing to
+/// say until they agree: the first request asks.
+fn agreement_state(app: &mut WordApp, ui: &mut Ui, busy: bool, act: &mut Option<Act>, setup: bool, ids: &mut Vec<egui::Id>) {
+    match app.assistant_run.choices.agreed.clone() {
+        Some(agreed) => {
+            let text = fmt(
+                tl!("You agreed that requests may be sent to {recipient}, to be read by the model {model}."),
+                &[("recipient", &agreed.recipient), ("model", &agreed.model)],
+            );
+            muted(ui, text);
+            let withdraw = stable(ui, "withdraw", |ui| ui.add_enabled(!busy, egui::Button::new(tl!("Withdraw Agreement")))).inner;
+            ids.push(withdraw.id);
+            if withdraw.clicked() {
+                *act = Some(Act::Withdraw);
+            }
+        }
+        None if !setup => muted(ui, tl!("You have not agreed yet: the next request asks before anything is sent.")),
+        None => {}
+    }
+}
+
+/// The last request's token use: the tokens in, of them those the cache served and those written to it, and
+/// the tokens out.
+fn usage_words(model: &str, usage: &Usage) -> String {
+    fmt(
+        tl!(
+            "Last request ({model}): {input} tokens in, of which {read} were read from the cache and {written} were written to it; {output} tokens out."
+        ),
+        &[
+            ("model", model),
+            ("input", &usage.input_tokens.to_string()),
+            ("read", &usage.cache_read_tokens.to_string()),
+            ("written", &usage.cache_write_tokens.to_string()),
+            ("output", &usage.output_tokens.to_string()),
+        ],
+    )
+}
+
+/// The Settings button: shows or hides the key and the options in place. Its state is exposed to assistive
+/// technology (expanded or collapsed) and drawn, not by colour: an arrow at its start that points the way
+/// reading goes while closed and down while open.
+fn settings_button(ui: &mut Ui, app: &mut WordApp) -> bool {
+    let open = app.assistant.settings_open;
+    let rtl = crate::rtl::on();
+    let icon = egui::IdSalt::new("assistant.settingsArrow");
+    let side = ui.spacing().icon_width * 0.6;
+    let arrow = egui::Atom::custom(icon, egui::vec2(side, side));
+    let shown = stable(ui, "settings", |ui| {
+        // A button lays its parts out from the left: the arrow goes after the text to sit at the right, where a
+        // right-to-left row starts.
+        let button = if rtl { egui::Button::new((tl!("Settings"), arrow)) } else { egui::Button::new((arrow, tl!("Settings"))) };
+        button.atom_ui(ui)
+    })
+    .inner;
+    let response = shown.response.clone();
+    if let Some(rect) = shown.rect(icon) {
+        use std::f32::consts::TAU;
+        let rotation = if open {
+            0.0
+        } else if rtl {
+            TAU * 0.25
+        } else {
+            -TAU * 0.25
+        };
+        let color = ui.style().interact(&response).fg_stroke.color;
+        ui.painter().add(egui::Shape::rotated_triangle(rect, rotation, color));
+    }
+    ui.ctx().accesskit_node_builder(response.id, |node| node.set_expanded(open));
+    focus_if_asked(ui, app, &response, Focus::Settings);
+    app.assistant.settings_focused = ui.ctx().memory(|m| m.has_focus(response.id));
+    response.clicked()
+}
+
 /// The status line: a live region, so what happens away from the keyboard is spoken.
 fn status_line(app: &WordApp, ui: &mut Ui) {
     if app.assistant.said.is_empty() {
@@ -1200,9 +1491,9 @@ fn status_line(app: &WordApp, ui: &mut Ui) {
     live_region(ui, label.id, &app.assistant.said, Live::Polite);
 }
 
-/// The options for keeping the key on this computer.
+/// The options for keeping the key on this computer. Their ids go into `ids`.
 #[cfg(not(target_arch = "wasm32"))]
-fn keep_controls(app: &mut WordApp, ui: &mut Ui, busy: bool, act: &mut Option<Act>) {
+fn keep_controls(app: &mut WordApp, ui: &mut Ui, busy: bool, act: &mut Option<Act>, ids: &mut Vec<egui::Id>) {
     if !app.assistant_run.can_keep() {
         return;
     }
@@ -1211,75 +1502,70 @@ fn keep_controls(app: &mut WordApp, ui: &mut Ui, busy: bool, act: &mut Option<Ac
         // Said before the checkbox, so it is read before the person can turn it on.
         muted(ui, tl!("If you choose to remember the key, it is kept unencrypted in a file in WordCraft's settings folder."));
     }
-    stable(ui, "remember", |ui| {
+    let remember = stable(ui, "remember", |ui| {
         ui.add_enabled(!busy, egui::Checkbox::new(&mut app.assistant_run.remember, tl!("Remember this key on this computer")))
-    });
+    })
+    .inner;
+    ids.push(remember.id);
     if before && !app.assistant_run.remember && app.assistant_run.on_disk.is_some() && !app.assistant_run.forget(false) {
         // Turning it off removes the saved copy, and the key stays for this run. If the copy could not be
         // removed it is still there, so the box stays ticked.
         app.assistant_run.remember = true;
     }
-    if app.assistant_run.on_disk.is_some()
-        && stable(ui, "forget", |ui| ui.add_enabled(!busy, egui::Button::new(tl!("Forget Saved Key")))).inner.clicked()
-    {
-        *act = Some(Act::ForgetKey);
+    if app.assistant_run.on_disk.is_some() {
+        let forget = stable(ui, "forget", |ui| ui.add_enabled(!busy, egui::Button::new(tl!("Forget Saved Key")))).inner;
+        ids.push(forget.id);
+        if forget.clicked() {
+            *act = Some(Act::ForgetKey);
+        }
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn keep_controls(_: &mut WordApp, _: &mut Ui, _: bool, _: &mut Option<Act>) {}
+fn keep_controls(_: &mut WordApp, _: &mut Ui, _: bool, _: &mut Option<Act>, _: &mut Vec<egui::Id>) {}
 
-/// Who gets the text, said before it is sent, with the buttons that agree or decline. It describes the request
-/// that is waiting, not the controls above it, which cannot change while it waits.
+/// Who gets the text, said once before the first request is sent, with the buttons that agree or decline. It
+/// covers everything a later request may send, in either way of working, since agreeing is for all of them; and
+/// it describes the request that is waiting, not the controls above it, which cannot change while it waits.
 fn consent(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     let Some(ready) = &app.assistant.ready else { return };
     let edits = ready.edit.is_some();
-    let note = if edits {
-        fmt(
-            tl!(
-                "Your instruction and the whole document ({chars} characters) will be sent over the internet to {recipient}, to be read by the model {model}. The assistant can also read the rest of the document (headers, footers, notes, comments with their authors' names, and the document's properties; not text deleted with Track Changes on) and change it with WordCraft's editing commands. Its changes apply together when it finishes, and Undo reverts all of them in one step; with Track Changes on, the text it adds or deletes is tracked (its formatting changes are not), and a change that cannot be tracked is not made. WordCraft keeps no copy. Nothing is sent until you agree."
-            ),
-            &[("chars", &ready.chars.to_string()), ("recipient", &ready.disclosure.recipient), ("model", &ready.disclosure.model)],
-        )
-    } else if ready.chars == 0 {
-        let sentence = match ready.request.scope {
-            Scope::Selection => tl!(
-                "Your instruction (no document text goes with it: nothing is selected) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree."
-            ),
-            Scope::Document => tl!(
-                "Your instruction (no document text goes with it: the document is empty) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree."
-            ),
-        };
-        fmt(sentence, &[("recipient", &ready.disclosure.recipient), ("model", &ready.disclosure.model)])
+    let note = fmt(
+        tl!(
+            "Requests from this pane are sent over the internet to {recipient}, to be read by the model {model}. A request sends your instruction, the earlier messages of this chat, and the selected text, or the whole document when you choose that. When the assistant makes changes in the document, a request sends the whole document, and the assistant can also read the rest of it (headers, footers, notes, comments with their authors' names, and the document's properties; not text deleted with Track Changes on) and change it with WordCraft's editing commands. WordCraft keeps no copy. Nothing is sent until you agree."
+        ),
+        &[("recipient", &ready.disclosure.recipient), ("model", &ready.disclosure.model)],
+    );
+    // What this request sends: the scope of a text answer, the whole document when the assistant makes changes.
+    let this = if ready.chars == 0 {
+        match ready.request.scope {
+            Scope::Selection => tl!("This request sends only your instruction: nothing is selected.").to_owned(),
+            Scope::Document => tl!("This request sends only your instruction: the document is empty.").to_owned(),
+        }
     } else {
         let what = match ready.request.scope {
             Scope::Document => tl!("the whole document"),
             Scope::Selection => tl!("the selected text"),
         };
-        fmt(
-            tl!(
-                "Your instruction and {what} ({chars} characters) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree."
-            ),
-            &[("what", what), ("chars", &ready.chars.to_string()), ("recipient", &ready.disclosure.recipient), ("model", &ready.disclosure.model)],
-        )
+        fmt(tl!("This request sends your instruction and {what} ({chars} characters)."), &[("what", what), ("chars", &ready.chars.to_string())])
     };
     let start = (ready.chars > 0).then(|| {
         let words = if edits { tl!("The document starts: {start}") } else { tl!("The text starts: {start}") };
         fmt(words, &[("start", &preview(&ready.request.context))])
     });
-    // What agreeing covers, as the pane really treats it: changes cover everything; the whole document covers a
-    // selection too; a selection does not cover the whole document.
-    let covers_document = ready.request.scope == Scope::Document || app.assistant_run.agreed == Some(Scope::Document);
-    let covers = if edits {
-        tl!("Agreeing covers later requests about this document in this run, with or without changes to it. Another document asks again.")
-    } else if covers_document {
-        tl!("Agreeing covers later requests in this run, whether they send a selection or the whole document.")
+    // What agreeing covers, as the pane really treats it: every later request, until it is withdrawn.
+    let covers = if app.assistant_run.choices_kept() {
+        tl!(
+            "Your agreement is kept in WordCraft's settings: later requests, in any document and in later runs, are sent when you press Send, without asking again. You can withdraw it under Settings."
+        )
     } else {
-        tl!("Agreeing covers later requests in this run that send a selection. A request that sends the whole document asks again.")
+        tl!(
+            "Your agreement lasts for this run: later requests, in any document, are sent when you press Send, without asking again. You can withdraw it under Settings."
+        )
     };
     // Everything the decision rests on is one announcement, said when it appears, so a screen reader reads
     // the whole of it before the person decides.
-    let mut lines = vec![note];
+    let mut lines = vec![note, this];
     lines.extend(start);
     if ready.disclosure.fallback_possible {
         lines.push(tl!("If the model declines, the service may have another of its models read the text instead.").to_owned());
@@ -1296,6 +1582,13 @@ fn consent(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     } else if cancel {
         *act = Some(Act::Cancel);
     }
+}
+
+/// Text the model wrote, laid out paragraph by paragraph in each paragraph's own direction (a Hebrew paragraph
+/// from the right, an English one from the left, in either interface), and selectable.
+fn model_text(ui: &mut Ui, text: &str) {
+    let galley = crate::rtl::paragraphs(ui, text, ui.available_width());
+    ui.add(egui::Label::new(galley).selectable(true));
 }
 
 /// The reply, what ended it, and the buttons that place it.
@@ -1329,7 +1622,7 @@ fn reply(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
         (Stop::End, false) => {}
     }
     if !reply.text.is_empty() {
-        ui.add(egui::Label::new(reply.text.clone()).selectable(true).wrap());
+        model_text(ui, &reply.text);
         ui.horizontal_wrapped(|ui| {
             if stable(ui, "replace", |ui| ui.button(tl!("Replace Selection"))).inner.clicked() {
                 *act = Some(Act::Replace);
@@ -1345,11 +1638,6 @@ fn reply(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     if let Some(why) = &app.assistant.apply_error {
         notice(ui, Tone::Bad, why, Some((Live::Assertive, app.assistant.apply_mark)));
     }
-    let usage = fmt(
-        tl!("{model}: {input} tokens in, {output} tokens out"),
-        &[("model", &reply.model), ("input", &reply.usage.input_tokens.to_string()), ("output", &reply.usage.output_tokens.to_string())],
-    );
-    muted(ui, usage);
     if reply.fallback_used {
         muted(ui, tl!("The first model declined, and a fallback model wrote this reply."));
     }
@@ -1367,7 +1655,7 @@ fn edit_result(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
         notice(ui, Tone::Warn, tl!("The assistant reached a limit of this request before it finished: only part of the work may be done."), None);
     }
     if !reply.text.is_empty() {
-        ui.add(egui::Label::new(reply.text.clone()).selectable(true).wrap());
+        model_text(ui, &reply.text);
     }
     let undo = app.assistant_changes_on_top();
     ui.horizontal_wrapped(|ui| {
@@ -1381,11 +1669,6 @@ fn edit_result(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     if let Some(why) = &app.assistant.apply_error {
         notice(ui, Tone::Bad, why, Some((Live::Assertive, app.assistant.apply_mark)));
     }
-    let usage = fmt(
-        tl!("{model}: {input} tokens in, {output} tokens out"),
-        &[("model", &reply.model), ("input", &reply.usage.input_tokens.to_string()), ("output", &reply.usage.output_tokens.to_string())],
-    );
-    muted(ui, usage);
     if reply.fallback_used {
         muted(ui, tl!("The first model declined, and a fallback model wrote this reply."));
     }

@@ -82,6 +82,8 @@ impl Pane {
         }
     }
 
+    /// Where a pane opens until the person moves it. The edges are logical (`End` is the left in a
+    /// right-to-left interface), except the AI pane's, which opens on the window's right in every interface.
     fn default_state(self) -> PaneState {
         let (edge, width) = match self {
             Self::SmartArtText => (Edge::Start, 250.0),
@@ -95,7 +97,7 @@ impl Pane {
             Self::RestrictEditing => (Edge::End, 270.0),
             Self::Proofing => (Edge::End, 400.0),
             Self::Comments => (Edge::End, 290.0),
-            Self::Assistant => (Edge::End, 320.0),
+            Self::Assistant => (state::edge_of(false), 320.0),
         };
         PaneState::docked(edge, width)
     }

@@ -7,7 +7,9 @@
 //! be sent in the clear or to a host the endpoint did not name.
 
 use std::fmt;
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use crate::agent::{Step, ToolRequest, build_tool_body, parse_step};
 use crate::{
@@ -24,6 +26,8 @@ const SETUP_TIMEOUT: Duration = Duration::from_secs(20);
 const RETRIES: u32 = 2;
 /// The longest wait before sending again.
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
+/// How often a wait before sending again looks whether the request was let go.
+const CANCEL_CHECK: Duration = Duration::from_millis(100);
 
 /// A key that never prints.
 struct Secret(String);
@@ -40,6 +44,8 @@ pub struct Claude {
     model: String,
     endpoint: String,
     agent: ureq::Agent,
+    /// Set when the person lets the request go: nothing is sent again after that.
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl fmt::Debug for Claude {
@@ -74,7 +80,13 @@ impl Claude {
             .timeout_connect(Some(SETUP_TIMEOUT))
             .timeout_global(Some(TIMEOUT))
             .build();
-        Claude { key: Secret(key.to_owned()), model: model.to_owned(), endpoint: endpoint.to_owned(), agent: ureq::Agent::new_with_config(config) }
+        Claude {
+            key: Secret(key.to_owned()),
+            model: model.to_owned(),
+            endpoint: endpoint.to_owned(),
+            agent: ureq::Agent::new_with_config(config),
+            cancel: None,
+        }
     }
 
     /// A provider that sends to `endpoint` over plain HTTP, for the tests, which point it at a server
@@ -108,16 +120,25 @@ impl Provider for Claude {
         let (status, text) = self.post(&body)?;
         parse_step(status, &text)
     }
+
+    fn set_cancel(&mut self, flag: Arc<AtomicBool>) {
+        self.cancel = Some(flag);
+    }
 }
 
 impl Claude {
     /// POST `body` to the endpoint with the key, the version and the fallback beta; the status and
     /// the whole answer. A busy or failing service, and a connection that could not be made, are tried
     /// again up to [`RETRIES`] times, waiting as the service asks (sending again is safe: nothing runs
-    /// until a whole answer has come); a spent usage limit is not.
+    /// until a whole answer has come); a spent usage limit is not. Once the request is let go
+    /// ([`Provider::set_cancel`]) nothing is sent again: the wait ends and the answer is
+    /// [`Error::Interrupted`].
     fn post(&self, body: &str) -> Result<(u16, String), Error> {
         let mut attempt = 0;
         loop {
+            if self.cancelled() {
+                return Err(Error::Interrupted);
+            }
             let sent = self
                 .agent
                 .post(self.endpoint.as_str())
@@ -130,7 +151,7 @@ impl Claude {
                 Ok(response) => response,
                 Err(e) if attempt < RETRIES && never_sent(&e) => {
                     attempt += 1;
-                    std::thread::sleep(backoff(attempt, None));
+                    self.wait(backoff(attempt, None));
                     continue;
                 }
                 Err(e) => return Err(transport(e)),
@@ -147,10 +168,27 @@ impl Claude {
             })?;
             if attempt < RETRIES && retryable(status, &text, should_retry.as_deref()) {
                 attempt += 1;
-                std::thread::sleep(backoff(attempt, retry_after));
+                self.wait(backoff(attempt, retry_after));
                 continue;
             }
             return Ok((status, text));
+        }
+    }
+
+    /// Was the request let go?
+    fn cancelled(&self) -> bool {
+        self.cancel.as_ref().is_some_and(|flag| flag.load(Ordering::SeqCst))
+    }
+
+    /// Wait `how_long` before sending again, or less once the request is let go.
+    fn wait(&self, how_long: Duration) {
+        let until = Instant::now() + how_long;
+        while !self.cancelled() {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return;
+            }
+            std::thread::sleep(left.min(CANCEL_CHECK));
         }
     }
 }
@@ -173,6 +211,10 @@ fn transport(e: ureq::Error) -> Error {
 /// there; else a timeout, a conflict, a busy service (429, except a spent usage limit) or a failing one
 /// (5xx, 529 included).
 fn retryable(status: u16, body: &str, should_retry: Option<&str>) -> bool {
+    // A success is the answer, whatever a header says.
+    if (200..300).contains(&status) {
+        return false;
+    }
     match should_retry {
         Some("true") => return true,
         Some("false") => return false,

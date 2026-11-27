@@ -67,10 +67,10 @@ struct Basis {
     selection: wordcraft_engine::Selection,
 }
 
-/// A request in which the assistant changes the document itself: what it is given besides the instruction.
+/// A request in which the assistant changes the document itself: what it is given besides the instruction and
+/// the document (the workspace is made from the document when the request is sent, and the selected text the
+/// model is told about is read there, so the two agree).
 struct EditJob {
-    /// The selected text, empty when nothing is selected.
-    selection: String,
     /// The earlier turns of this chat, oldest first.
     history: Vec<Turn>,
 }
@@ -108,16 +108,22 @@ struct Edited {
     outcome: conversation::Outcome,
     steps: Vec<Value>,
     changed: bool,
+    /// A limit of the request (tool calls, commands, changes) stopped the assistant: its work may be partial.
+    limited: bool,
 }
 
 /// The document the assistant's changes were made on, which they may be applied to only while it is unchanged.
 struct EditBase {
     document: u64,
-    rev: u64,
+    /// Its content when the request began (sharing its storage with the open document).
+    doc: wordcraft_engine::doc::Document,
     /// Track Changes was on: the changes were made, and are applied, tracked or not accordingly.
     tracking: bool,
     /// The name the assistant's tracked changes carry.
     author: String,
+    /// The selection and the view the assistant started from, which the changes are replayed from, wherever
+    /// the person has clicked since.
+    start: Value,
 }
 
 /// Runs the assistant's tool calls on its workspace.
@@ -180,9 +186,9 @@ pub(crate) struct AssistantRun {
     /// The widest scope the person agreed to send to a provider that leaves the machine: `None` until they
     /// agree. Agreeing to the document covers the selection too. Never saved.
     agreed: Option<Scope>,
-    /// The person agreed that the assistant may read all of the document and change it, for this run. Never
-    /// saved.
-    agreed_edits: bool,
+    /// The documents (by id) the person agreed the assistant may read whole and change, for this run: each
+    /// document asks once. Never saved.
+    agreed_edits: Vec<u64>,
     /// The key the person typed or that was saved: kept in memory, wiped when dropped, never shown.
     key: Password,
     /// Where a key can be kept. `None`: nowhere (the browser, or before the app has chosen a folder).
@@ -296,8 +302,12 @@ pub(crate) struct AssistantState {
     reply: Option<Reply>,
     /// The reply ends a request that changed the document (no text to place, perhaps changes to undo).
     edit_result: bool,
-    /// The assistant's last changes were applied: Undo These Changes is offered while they are the last step.
-    applied: bool,
+    /// The assistant's last changes were applied: the document and where its undo history stood right after.
+    /// Undo These Changes is offered while the history stands there, so it undoes those changes and no
+    /// others.
+    applied: Option<(u64, u64)>,
+    /// A limit of the request stopped the assistant before it finished: its changes so far were applied.
+    partial: bool,
     /// What the reply was asked about, when that was the selection.
     basis: Option<Basis>,
     error: Option<Error>,
@@ -330,7 +340,8 @@ impl Default for AssistantState {
             history: Vec::new(),
             reply: None,
             edit_result: false,
-            applied: false,
+            applied: None,
+            partial: false,
             basis: None,
             error: None,
             apply_error: None,
@@ -369,6 +380,13 @@ impl AssistantState {
 
     fn scope(&self) -> Scope {
         if self.document_scope { Scope::Document } else { Scope::Selection }
+    }
+}
+
+impl WordApp {
+    /// Are the assistant's last changes the newest step of the open document's undo history?
+    fn assistant_changes_on_top(&self) -> bool {
+        self.assistant.applied == Some((self.session.document_id(), self.session.undo_mark())) && self.session.undo_label() == Some(ASSISTANT_CHANGES)
     }
 }
 
@@ -421,12 +439,13 @@ impl WordApp {
             Act::Agree => {
                 if let Some(ready) = self.assistant.ready.take() {
                     let scope = ready.request.scope;
+                    let document = self.session.document_id();
                     let run = &mut self.assistant_run;
                     if ready.edit.is_some() {
-                        // Agreeing that the assistant may read and change the whole document covers a text
-                        // answer about any part of it too.
-                        run.agreed_edits = true;
-                        run.agreed = Some(Scope::Document);
+                        // This document only, which also covers a text answer about any part of it.
+                        if !run.agreed_edits.contains(&document) {
+                            run.agreed_edits.push(document);
+                        }
                     } else {
                         run.agreed = Some(if run.agreed == Some(Scope::Document) { Scope::Document } else { scope });
                     }
@@ -456,8 +475,10 @@ impl WordApp {
                 }
             }
             Act::UndoEdits => {
-                if self.assistant.applied && self.session.undo_label() == Some(ASSISTANT_CHANGES) {
-                    self.assistant.applied = false;
+                if self.assistant_changes_on_top() {
+                    self.assistant.applied = None;
+                    // The button that was pressed is gone: the keyboard goes to Send.
+                    self.assistant.want(Focus::Send);
                     match self.run("edit.undo", json!({})) {
                         Ok(_) => self.assistant_say(tl!("The assistant's changes were undone.").to_owned(), ctx),
                         Err(why) => self.assistant.apply_error = Some(why),
@@ -536,7 +557,9 @@ impl WordApp {
         let disclosure = provider.disclosure();
         let chars = request.context.chars().count();
         let ready = Ready { provider, request, edit: None, disclosure, chars, basis, key };
-        if needs_agreement(self.assistant_run.agreed, scope, ready.disclosure.leaves_machine) {
+        // Agreeing that the assistant may read this whole document covers a text answer about it too.
+        let covered = self.assistant_run.agreed_edits.contains(&self.session.document_id());
+        if needs_agreement(self.assistant_run.agreed, scope, ready.disclosure.leaves_machine) && !covered {
             self.assistant.ready = Some(ready);
             self.assistant.want(Focus::Agree);
         } else {
@@ -545,15 +568,14 @@ impl WordApp {
     }
 
     /// Prepare a request in which the assistant changes the document itself. Its tools can read all of the
-    /// document, so the agreement is for the whole document, and it is asked once per run.
+    /// document, so the agreement is for the whole document, and it is asked once per document in a run.
     fn assistant_ask_edits(&mut self, instruction: String, ctx: &egui::Context) {
-        let read = |app: &mut WordApp, scope: &str| {
-            app.run("assistant.context", json!({"scope": scope}))
-                .map(|shared| shared.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned())
-        };
-        let (Ok(context), Ok(selection)) = (read(self, "document"), read(self, "selection")) else {
-            self.assistant.error = Some(Error::NotStarted);
-            return;
+        let context = match self.run("assistant.context", json!({"scope": "document"})) {
+            Ok(shared) => shared.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_owned(),
+            Err(_) => {
+                self.assistant.error = Some(Error::NotStarted);
+                return;
+            }
         };
         if instruction.len() > MAX_INSTRUCTION_BYTES {
             self.assistant.error = Some(Error::TooLarge { what: "the instruction", bytes: instruction.len(), limit: MAX_INSTRUCTION_BYTES });
@@ -571,8 +593,8 @@ impl WordApp {
         let request = Request { instruction, context, scope: Scope::Document, history: history.clone() };
         let disclosure = provider.disclosure();
         let chars = request.context.chars().count();
-        let ready = Ready { provider, request, edit: Some(EditJob { selection, history }), disclosure, chars, basis: None, key };
-        if ready.disclosure.leaves_machine && !self.assistant_run.agreed_edits {
+        let ready = Ready { provider, request, edit: Some(EditJob { history }), disclosure, chars, basis: None, key };
+        if ready.disclosure.leaves_machine && !self.assistant_run.agreed_edits.contains(&self.session.document_id()) {
             self.assistant.ready = Some(ready);
             self.assistant.want(Focus::Agree);
         } else {
@@ -589,15 +611,24 @@ impl WordApp {
         let repaint = ctx.clone();
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
+        // Once the request is let go the provider sends nothing again, also while it waits to retry.
+        provider.set_cancel(cancel.clone());
         let (started, edit_base) = match edit {
             Some(job) => {
                 let author = tl!("AI Assistant").to_owned();
                 let seed = workspace::Seed::of(&self.session, &author);
-                let (document, rev) = seed.base();
-                let base = EditBase { document, rev, tracking: self.session.doc.settings.track_changes, author };
+                let base = EditBase {
+                    document: self.session.document_id(),
+                    doc: seed.document().clone(),
+                    tracking: self.session.doc.settings.track_changes,
+                    author,
+                    start: seed.start(),
+                };
                 let started = std::thread::Builder::new().name("assistant".into()).spawn(move || {
                     let mut tools = workspace::Toolbox::new(seed);
+                    tools.set_cancel(stop.clone());
                     let overview = tools.overview();
+                    let selection = tools.selection_text();
                     let definitions = workspace::Toolbox::definitions();
                     let result = {
                         let mut host = Host(&mut tools);
@@ -605,7 +636,7 @@ impl WordApp {
                             tools: &definitions,
                             instruction: &request.instruction,
                             overview: &overview,
-                            selection: &job.selection,
+                            selection: &selection,
                             history: &job.history,
                         };
                         let progress_tx = tx.clone();
@@ -615,7 +646,8 @@ impl WordApp {
                             progress_repaint.request_repaint();
                         })
                     };
-                    let edited = result.map(|outcome| Edited { outcome, steps: tools.steps().to_vec(), changed: tools.changed() });
+                    let edited =
+                        result.map(|outcome| Edited { outcome, steps: tools.steps().to_vec(), changed: tools.changed(), limited: tools.hit_limit() });
                     let _ = tx.send(Msg::Edited(edited));
                     repaint.request_repaint();
                 });
@@ -660,26 +692,19 @@ impl WordApp {
             };
             match msg {
                 Msg::Progress(progress) => {
-                    let new_round = match progress {
+                    match progress {
+                        // The status line is a live region: it changes once a round, so a screen reader is not
+                        // read every step. The steps between rounds take no time anyway; the rounds do.
                         conversation::Progress::Round(round) => {
                             waiting.round = round;
-                            true
+                            let calls = waiting.calls;
+                            let text = fmt(
+                                tl!("The assistant is working: round {round}, {calls} steps so far…"),
+                                &[("round", &round.to_string()), ("calls", &calls.to_string())],
+                            );
+                            self.assistant_say(text, ctx);
                         }
-                        conversation::Progress::Tool { .. } => {
-                            waiting.calls += 1;
-                            false
-                        }
-                    };
-                    let (round, calls) = (waiting.round, waiting.calls);
-                    let text = fmt(
-                        tl!("The assistant is working: round {round}, {calls} steps so far…"),
-                        &[("round", &round.to_string()), ("calls", &calls.to_string())],
-                    );
-                    // The line changes with every step; a screen reader hears it once a round.
-                    if new_round {
-                        self.assistant_say(text, ctx);
-                    } else {
-                        self.assistant.said = text;
+                        conversation::Progress::Tool { .. } => waiting.calls += 1,
                     }
                 }
                 Msg::Reply(result) => return self.assistant_reply(result, ctx),
@@ -742,31 +767,47 @@ impl WordApp {
     fn assistant_edited(&mut self, result: Result<Edited, Error>, ctx: &egui::Context) {
         let Some(waiting) = self.assistant_end_wait() else { return };
         let Some(base) = waiting.edit.as_ref() else { return };
+        // What the status line said while the assistant worked is no longer true, whatever happens now.
+        self.assistant.said.clear();
         let edited = match result {
             Ok(edited) => edited,
             Err(error) => {
-                self.assistant.said.clear();
+                let text = error_text(&error);
                 self.assistant.error = Some(error);
+                self.assistant_show_outcome(&text);
                 return;
             }
         };
         let mut said = String::new();
-        self.assistant.applied = false;
+        self.assistant.applied = None;
         self.assistant.apply_error = None;
+        self.assistant.apply_mark = !self.assistant.apply_mark;
         let outcome = edited.outcome;
+        // A limit made the assistant stop: what it did is applied, and said to be partial.
+        self.assistant.partial = outcome.stop == Stop::End && (outcome.cut_short || edited.limited);
+        let mut on_document = false;
         if outcome.stop == Stop::End {
             if edited.changed && !edited.steps.is_empty() {
+                // The same document with the same content: what the person did meanwhile that changed nothing (a
+                // click, a save, an Undo and its Redo) does not cost them the request.
                 let unchanged = self.session.document_id() == base.document
-                    && self.session.rev() == base.rev
-                    && self.session.doc.settings.track_changes == base.tracking;
+                    && self.session.doc.settings.track_changes == base.tracking
+                    && workspace::unchanged_since(&self.session.doc, &base.doc);
                 if !unchanged {
                     self.assistant.apply_error =
                         Some(tl!("The document changed while the assistant worked, so its changes were not applied. Ask again.").to_owned());
                 } else {
-                    match self.run("assistant.runSteps", json!({"steps": edited.steps, "author": base.author})) {
+                    let params = json!({"steps": edited.steps, "author": base.author, "start": base.start});
+                    match self.run("assistant.runSteps", params) {
                         Ok(_) => {
-                            self.assistant.applied = true;
-                            said = tl!("The assistant's changes were applied. Undo reverts all of them in one step.").to_owned();
+                            self.assistant.applied = Some((self.session.document_id(), self.session.undo_mark()));
+                            on_document = true;
+                            said = if self.assistant.partial {
+                                tl!("The assistant reached a limit of this request before it finished. The changes it made so far were applied, and its reply says what is left. Undo reverts all of them in one step.")
+                            } else {
+                                tl!("The assistant's changes were applied. Undo reverts all of them in one step.")
+                            }
+                            .to_owned();
                         }
                         Err(why) => {
                             self.assistant.apply_error = Some(fmt(tl!("The assistant's changes could not be applied: {why}"), &[("why", &why)]));
@@ -775,16 +816,19 @@ impl WordApp {
                 }
             } else {
                 said = tl!("The assistant answered without changing the document.").to_owned();
+                on_document = true;
             }
-            if !outcome.text.trim().is_empty() {
+            // The chat goes on from what the document has: the summary of changes that were not applied would
+            // tell the model's next turn about changes the document does not have.
+            if on_document && !outcome.text.trim().is_empty() {
                 self.assistant.history.push(Turn { role: Speaker::User, text: waiting.instruction.clone() });
                 self.assistant.history.push(Turn { role: Speaker::Assistant, text: outcome.text.clone() });
             }
         } else {
             said = edit_stop_words(&outcome.stop).to_owned();
         }
-        // The service accepted the key: now it may be kept, if the person asked, and they are told.
-        if self.assistant_run.keep_if_asked(waiting.key.as_ref()) {
+        // The service answered, so it accepted the key: now it may be kept, if the person asked, and they are told.
+        if outcome.rounds > 0 && self.assistant_run.keep_if_asked(waiting.key.as_ref()) {
             said = format!("{said} {}", tl!("The key was saved on this computer."));
         }
         let mut text = outcome.text;
@@ -795,9 +839,22 @@ impl WordApp {
             Some(Reply { text, stop: outcome.stop, usage: outcome.usage, model: outcome.model, fallback_used: outcome.fallback_used });
         self.assistant.edit_result = true;
         self.assistant.basis = None;
+        let shown = self.assistant.apply_error.clone().unwrap_or_else(|| said.trim().to_owned());
+        self.assistant_show_outcome(&shown);
         if !said.trim().is_empty() {
             self.assistant_say(said.trim().to_owned(), ctx);
         }
+    }
+
+    /// A request that changes the document ended while the pane was closed: what happened to the document must
+    /// not go unsaid. The pane opens again, without taking the keyboard, so its live region speaks and it
+    /// shows; the status bar says it too.
+    fn assistant_show_outcome(&mut self, text: &str) {
+        if self.session.view.assistant_pane || text.is_empty() {
+            return;
+        }
+        let _ = self.run("view.assistantPane", json!({"value": true}));
+        self.status_long(text.to_owned());
     }
 
     /// Put the reply into the document through `assistant.apply`.
@@ -1157,7 +1214,7 @@ fn consent(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     let note = if edits {
         fmt(
             tl!(
-                "Your instruction and the whole document ({chars} characters) will be sent over the internet to {recipient}, to be read by the model {model}. The assistant can also read the rest of the document, including headers, footers, notes, comments with their authors' names and the document's properties, and change it with WordCraft's editing commands. Its changes apply together when it finishes, and Undo reverts all of them in one step; with Track Changes on, the text it adds or deletes is tracked. WordCraft keeps no copy. Nothing is sent until you agree."
+                "Your instruction and the whole document ({chars} characters) will be sent over the internet to {recipient}, to be read by the model {model}. The assistant can also read the rest of the document (headers, footers, notes, comments with their authors' names, and the document's properties; not text deleted with Track Changes on) and change it with WordCraft's editing commands. Its changes apply together when it finishes, and Undo reverts all of them in one step; with Track Changes on, the text it adds or deletes is tracked (its formatting changes are not), and a change that cannot be tracked is not made. WordCraft keeps no copy. Nothing is sent until you agree."
             ),
             &[("chars", &ready.chars.to_string()), ("recipient", &ready.disclosure.recipient), ("model", &ready.disclosure.model)],
         )
@@ -1191,7 +1248,7 @@ fn consent(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     // selection too; a selection does not cover the whole document.
     let covers_document = ready.request.scope == Scope::Document || app.assistant_run.agreed == Some(Scope::Document);
     let covers = if edits {
-        tl!("Agreeing covers later requests in this run, with or without changes to the document.")
+        tl!("Agreeing covers later requests about this document in this run, with or without changes to it. Another document asks again.")
     } else if covers_document {
         tl!("Agreeing covers later requests in this run, whether they send a selection or the whole document.")
     } else {
@@ -1283,10 +1340,13 @@ fn edit_result(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
     if !why.is_empty() {
         notice(ui, Tone::Warn, why, None);
     }
+    if app.assistant.partial && app.assistant.applied.is_some() {
+        notice(ui, Tone::Warn, tl!("The assistant reached a limit of this request before it finished: only part of the work may be done."), None);
+    }
     if !reply.text.is_empty() {
         ui.add(egui::Label::new(reply.text.clone()).selectable(true).wrap());
     }
-    let undo = app.assistant.applied && app.session.undo_label() == Some(ASSISTANT_CHANGES);
+    let undo = app.assistant_changes_on_top();
     ui.horizontal_wrapped(|ui| {
         if undo && stable(ui, "undoEdits", |ui| ui.button(tl!("Undo These Changes"))).inner.clicked() {
             *act = Some(Act::UndoEdits);

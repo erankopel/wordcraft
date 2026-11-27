@@ -26,14 +26,14 @@ pub fn specs() -> Vec<CommandSpec> {
             r#"{"text": string, "mode"?: "replaceSelection" | "insertAfter" (default replaceSelection)}: puts a reply into the document as plain text, exactly as written (no AutoCorrect or AutoFormat). replaceSelection replaces the selection, or inserts at the caret when nothing is selected; insertAfter adds the text as new paragraphs after the paragraph the selection ends in. One undo step, and tracked when Track Changes is on. At most 1,000,000 bytes."#,
         ),
         CommandSpec::new("assistant.runSteps", "Apply Assistant Changes", "Agents", run_steps).params(
-            r#"{"steps": [{"command": id, "params"?: {...}}], "author"?: string} → the selection: runs the steps in order on a private copy of the document in which only commands that read or edit the open document are allowed (no files, network, preferences, protection, macros, dialogs or Track Changes controls) and no file can be read or written; when every step succeeds the copy replaces the document as ONE undo step, else nothing changes. Text the steps add or delete is tracked when Track Changes is on, as `author` (default "AI Assistant"); formatting applies directly. At most 500 steps."#,
+            r#"{"steps": [{"command": id, "params"?: {...}}], "author"?: string, "start"?: {"selection"?: {"anchor": Pos, "focus": Pos}, "view"?: {...}}} → the selection: runs the steps in order on a private copy of the document in which only commands that read or edit the open document are allowed (no files, network, preferences, protection, macros, dialogs or Track Changes controls) and no file can be read or written, starting from `start` (the selection and the view the steps were made from; default the current ones); when every step succeeds the copy replaces the document as ONE undo step, else nothing changes. Text the steps add or delete is tracked when Track Changes is on, as `author` (default "AI Assistant"); formatting applies directly. At most 500 steps. Repeat and macro recording leave it out."#,
         ),
     ]
 }
 
 /// Apply the steps an AI assistant made (see [`crate::agent`]): replayed on a fresh workspace of the
-/// open document, whose document then replaces it. `run` makes that one undo step and rolls back on
-/// failure.
+/// open document, from where they were made (`start`), whose document then replaces it. `run` makes
+/// that one undo step and rolls back on failure.
 fn run_steps(s: &mut Session, v: &Value) -> CmdResult {
     let steps = v
         .get("steps")
@@ -43,9 +43,17 @@ fn run_steps(s: &mut Session, v: &Value) -> CmdResult {
         return Err(CmdError::Params("assistant.runSteps: `steps` is empty".into()));
     }
     let author = p::str(v, "author").unwrap_or(crate::agent::DEFAULT_AUTHOR);
-    let mut ws = crate::agent::replay(crate::agent::Seed::of(s, author), steps).map_err(|e| CmdError::Failed(format!("assistant.runSteps: {e}")))?;
+    let mut seed = crate::agent::Seed::of(s, author);
+    if let Some(start) = v.get("start").filter(|x| !x.is_null()) {
+        seed = seed.starting_at(start).map_err(|e| CmdError::Params(format!("assistant.runSteps: `start`: {e}")))?;
+    }
+    let mut ws = crate::agent::replay(seed, steps).map_err(|e| CmdError::Failed(format!("assistant.runSteps: {e}")))?;
     s.doc = std::mem::take(&mut ws.doc);
     s.sel = ws.sel.clone();
+    // The pictures the steps restyled keep what Reset Picture and the next restyle need: the workspace
+    // started from these maps, and only the steps changed them.
+    s.originals = std::mem::take(&mut ws.originals);
+    s.picture_looks = std::mem::take(&mut ws.picture_looks);
     // The body is a new one, any equation being edited is gone, and the bibliography style is the
     // document's (the steps may have changed it).
     s.note_body_replaced();
@@ -91,7 +99,7 @@ fn context(s: &mut Session, v: &Value) -> CmdResult {
 /// The selected text as it reads with every tracked change accepted, as [`Session::selected_text`]
 /// reads the selection but without the text deleted with Track Changes on: that text is still in the
 /// file, marked deleted, and must not go anywhere the person did not mean it to.
-fn selected_final_text(s: &Session) -> String {
+pub(crate) fn selected_final_text(s: &Session) -> String {
     let final_text = |a: &Pos, b: &Pos| s.doc.copy_range(a, b).to_document().final_text(StoryRef::Body);
     if let Some(segments) = s.column_segments() {
         return segments.iter().map(|(a, b)| final_text(a.min(b), a.max(b))).collect::<Vec<_>>().join("\n");

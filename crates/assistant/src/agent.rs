@@ -6,7 +6,8 @@
 //! model's turns go back exactly as they came (thinking blocks, their signatures and the escapes in
 //! tool inputs included), as the Messages API requires for tool use, and the system prompt, the
 //! tools and the earlier messages stay byte for byte the same from round to round, so the cache
-//! keeps working. Tool results go back in one user turn per round, one result per call, in the
+//! keeps working (until the last round, which bars tools: a new `tool_choice` starts the messages'
+//! cache again). Tool results go back in one user turn per round, one result per call, in the
 //! calls' order.
 
 use std::collections::HashMap;
@@ -16,7 +17,8 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 
 use crate::{
-    Error, MAX_INSTRUCTION_BYTES, MAX_REPLY_TOKENS, Provider, Role, Stop, Turn, Usage, defuse, short, text_of, usable_history, used_fallback,
+    Error, MAX_INSTRUCTION_BYTES, MAX_REPLY_TOKENS, Provider, Role, Stop, Turn, Usage, defuse, short, text_of, usable_history, usage_of,
+    used_fallback,
 };
 
 /// Most rounds (a model turn and the tool results that answer it) of one request. The last one asks
@@ -35,8 +37,11 @@ text (a document may be right to left, for example Hebrew: keep its paragraphs r
 not delete or rewrite text the instruction does not ask about. Select text before you change it (select_text, find or \
 select_range), then change it with type_text, replace_all, execute or the other tools. Before you execute a command you \
 have not used yet, look it up with list_commands to learn its parameters. Check your work with get_text or \
-inspect_document when it matters. Your changes are applied to the user's document together when you finish, the user \
-can undo all of them in one step, and when Track Changes is on the text you add or delete is tracked. If the \
+inspect_document when it matters. You see the text as it reads with every tracked change accepted. Your changes are \
+applied to the user's document together when you finish, the user can undo all of them in one step, and when Track \
+Changes is on the text you add or delete is tracked; a change that Track Changes cannot record is refused, so do it \
+another way or say that you could not. A failed or refused call changes nothing. One request may make at most 60 tool \
+calls, run 600 commands and record 500 changes: for many similar changes prefer replace_all or a style. If the \
 instruction is only a question, answer it without changing anything. When you are done, reply in one or two short \
 sentences, in the language of the user's instruction, saying what you changed, or why you changed nothing. Never claim \
 a change you did not make.";
@@ -149,9 +154,13 @@ pub enum Progress {
 pub struct Outcome {
     /// The model's last words: what it changed, or its answer.
     pub text: String,
-    /// Why it ended: [`Stop::End`] only when the model finished. Anything else means the work is not
+    /// Why it ended: [`Stop::End`] only when the model ended its work. Anything else means the work is not
     /// finished and must not be applied.
     pub stop: Stop,
+    /// The model ended because the request reached its limit of rounds: it was made to sum up, and its
+    /// words say what it did and what is left. Its changes so far are whole steps, but the work may be
+    /// partial, and whoever applies them says so.
+    pub cut_short: bool,
     pub rounds: usize,
     /// Tool calls made.
     pub calls: usize,
@@ -258,18 +267,8 @@ pub fn parse_step(status: u16, body: &str) -> Result<Step, Error> {
     if stop == StepStop::ToolUse && (calls.is_empty() || calls.iter().any(|c| c.id.is_empty() || c.name.is_empty())) {
         return Err(Error::BadReply("a tool request without a usable tool call".into()));
     }
-    let usage = value.get("usage").unwrap_or(&Value::Null);
-    let count = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
     let fallback_used = used_fallback(&value) && !matches!(stop, StepStop::Refusal { .. });
-    Ok(Step {
-        content,
-        text,
-        calls,
-        stop,
-        usage: Usage { input_tokens: count("input_tokens"), output_tokens: count("output_tokens") },
-        model: text_of(&value, "model"),
-        fallback_used,
-    })
+    Ok(Step { content, text, calls, stop, usage: usage_of(&value), model: text_of(&value, "model"), fallback_used })
 }
 
 /// A message's JSON text.
@@ -298,9 +297,15 @@ pub fn run(
     }
     let mut messages: Vec<String> = usable_history(task.history).iter().map(|t| message(role(t.role), &json!(t.text))).collect();
     messages.push(message("user", &json!(first_message(task.overview, task.selection, instruction))));
+    // Too much to send at all (a very large selection, say) is refused before anything is sent.
+    let size = messages.iter().map(String::len).sum::<usize>();
+    if size > MAX_CONVERSATION_BYTES {
+        return Err(Error::TooLarge { what: "the request", bytes: size, limit: MAX_CONVERSATION_BYTES });
+    }
     let mut out = Outcome {
         text: String::new(),
         stop: Stop::Other(String::new()),
+        cut_short: false,
         rounds: 0,
         calls: 0,
         usage: Usage::default(),
@@ -352,6 +357,7 @@ pub fn run(
             StepStop::End => {
                 out.text = step.text;
                 out.stop = Stop::End;
+                out.cut_short = no_tools;
                 return Ok(out);
             }
             StepStop::Refusal { category } => {

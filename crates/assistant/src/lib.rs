@@ -144,8 +144,20 @@ pub enum Stop {
 /// Tokens a request used, as the API counts them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
+    /// Every token of the prompt: the ones written to or read from the cache are included, although the
+    /// API counts them apart.
     pub input_tokens: u64,
     pub output_tokens: u64,
+}
+
+/// The tokens an answer's `usage` reports, the cached prompt tokens counted in.
+pub(crate) fn usage_of(value: &Value) -> Usage {
+    let usage = value.get("usage").unwrap_or(&Value::Null);
+    let count = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+    Usage {
+        input_tokens: count("input_tokens") + count("cache_creation_input_tokens") + count("cache_read_input_tokens"),
+        output_tokens: count("output_tokens"),
+    }
 }
 
 /// What came back.
@@ -242,6 +254,9 @@ pub trait Provider: Send {
     fn send_tools(&mut self, _request: &agent::ToolRequest) -> Result<agent::Step, Error> {
         Err(Error::Unavailable)
     }
+    /// Give up, with [`Error::Interrupted`], instead of sending again once `flag` is set: the person let
+    /// the request go. A provider that never sends a request twice need not look at it.
+    fn set_cancel(&mut self, _flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {}
 }
 
 /// The chat turns to send: whole, alternating user and assistant from a user turn, ending with an
@@ -275,7 +290,7 @@ pub(crate) fn defuse(text: &str) -> String {
         out.push_str(before);
         out.push('<');
         let name = after.strip_prefix('/').unwrap_or(after);
-        let is_ours = ["document", "instruction"].iter().any(|tag| name.get(..tag.len()).is_some_and(|n| n.eq_ignore_ascii_case(tag)));
+        let is_ours = ["document", "instruction", "selection"].iter().any(|tag| name.get(..tag.len()).is_some_and(|n| n.eq_ignore_ascii_case(tag)));
         if is_ours {
             out.push('\\');
         }
@@ -370,19 +385,11 @@ pub fn parse_reply(status: u16, body: &str) -> Result<Reply, Error> {
         let error = value.get("error").unwrap_or(&Value::Null);
         return Err(Error::Http { status, kind: text_of(error, "type"), message: text_of(error, "message") });
     }
-    let usage = value.get("usage").unwrap_or(&Value::Null);
-    let count = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
     let stop = stop_of(&value);
     // The fallback model can decline too: a final refusal means the whole chain declined, and no
     // fallback wrote a reply.
     let fallback_used = used_fallback(&value) && !matches!(stop, Stop::Refusal { .. });
-    let reply = Reply {
-        text: reply_text(&value),
-        stop,
-        usage: Usage { input_tokens: count("input_tokens"), output_tokens: count("output_tokens") },
-        model: text_of(&value, "model"),
-        fallback_used,
-    };
+    let reply = Reply { text: reply_text(&value), stop, usage: usage_of(&value), model: text_of(&value, "model"), fallback_used };
     if reply.text.is_empty() && reply.stop == Stop::End {
         return Err(Error::BadReply("the reply has no text".into()));
     }

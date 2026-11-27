@@ -23,6 +23,8 @@ struct Script {
     turns: Arc<Mutex<VecDeque<Result<Step, Error>>>>,
     /// How many tool requests were sent.
     tool_requests: Arc<Mutex<usize>>,
+    /// The first message of each tool request: what the model is told.
+    first_messages: Arc<Mutex<Vec<String>>>,
 }
 
 thread_local! {
@@ -48,8 +50,9 @@ impl Provider for Scripted {
         self.0.result.clone()
     }
 
-    fn send_tools(&mut self, _request: &ToolRequest) -> Result<Step, Error> {
+    fn send_tools(&mut self, request: &ToolRequest) -> Result<Step, Error> {
         *self.0.tool_requests.lock().unwrap() += 1;
+        self.0.first_messages.lock().unwrap().push(request.messages.first().cloned().unwrap_or_default());
         let until = Instant::now() + Duration::from_secs(10);
         while self.0.hold.load(std::sync::atomic::Ordering::SeqCst) && Instant::now() < until {
             std::thread::sleep(Duration::from_millis(2));
@@ -77,7 +80,15 @@ fn reply(text: &str) -> Reply {
 }
 
 fn script(remote: bool, result: Result<Reply, Error>) -> Script {
-    Script { remote, result, sent: Arc::default(), hold: Arc::default(), turns: Arc::default(), tool_requests: Arc::default() }
+    Script {
+        remote,
+        result,
+        sent: Arc::default(),
+        hold: Arc::default(),
+        turns: Arc::default(),
+        tool_requests: Arc::default(),
+        first_messages: Arc::default(),
+    }
 }
 
 /// A script for a request that changes the document: the model's turns, in order.
@@ -603,11 +614,12 @@ fn the_assistant_changes_the_document_and_one_undo_takes_it_back() {
     settle(&mut app, &ctx);
     assert_eq!(body(&app), "Hello there");
     assert_eq!(app.session.undo_label(), Some(super::ASSISTANT_CHANGES), "one step for all of them");
-    assert!(app.assistant.applied && app.assistant.apply_error.is_none());
+    assert!(app.assistant.applied.is_some() && app.assistant.apply_error.is_none());
     assert_eq!(app.assistant.reply.as_ref().map(|r| r.text.as_str()), Some("I replaced the word and made it bold."));
     assert!(app.assistant.said.contains("Undo"), "{:?}", app.assistant.said);
     app.assistant_act(Act::UndoEdits, &ctx);
     assert_eq!(body(&app), "Hello world", "one undo takes all of it back");
+    assert_eq!(app.assistant.want_focus, super::Focus::Send, "the keyboard leaves the button that is gone");
 }
 
 /// A request that changes the document asks once for the whole document, and the agreement covers later ones.
@@ -622,7 +634,7 @@ fn changing_the_document_needs_agreement_for_the_whole_document_once() {
     assert_eq!((ready.request.scope, ready.chars), (Scope::Document, "First paragraph\nSecond paragraph".chars().count()), "the whole document");
     app.assistant_act(Act::Agree, &ctx);
     settle(&mut app, &ctx);
-    assert!(app.assistant_run.agreed_edits);
+    assert!(app.assistant_run.agreed_edits.contains(&app.session.document_id()));
     ask(&mut app, &ctx, "Check it again");
     assert!(app.assistant.ready.is_none(), "agreed once for the run");
     settle(&mut app, &ctx);
@@ -647,6 +659,8 @@ fn changes_are_not_applied_when_the_document_changed_meanwhile() {
     settle(&mut app, &ctx);
     assert_eq!(body(&app), "Hello world!", "the person's edit stays and the assistant's is not applied");
     assert!(app.assistant.apply_error.as_deref().is_some_and(|e| e.contains("changed")), "{:?}", app.assistant.apply_error);
+    assert!(app.assistant.history.is_empty(), "the chat does not claim changes the document does not have");
+    assert!(!app.assistant.said.contains("working"), "the status line no longer says it is working: {:?}", app.assistant.said);
 }
 
 /// A request that did not finish applies nothing, and says so.
@@ -660,7 +674,7 @@ fn an_unfinished_request_changes_nothing() {
     ask(&mut app, &ctx, "Change world");
     settle(&mut app, &ctx);
     assert_eq!(body(&app), "Hello world");
-    assert!(!app.assistant.applied);
+    assert!(app.assistant.applied.is_none());
     assert!(app.assistant.said.contains("nothing was changed"), "{:?}", app.assistant.said);
 }
 
@@ -690,6 +704,153 @@ fn stopping_the_assistant_changes_nothing_and_sends_no_more() {
     assert_eq!(body(&app), "Hello world");
     assert_eq!(*requests.lock().unwrap(), 1, "the worker stopped before a second request");
     assert!(app.assistant.said.contains("Nothing was changed"), "{:?}", app.assistant.said);
+}
+
+/// Wait until the scripted provider has been asked `n` times.
+fn wait_for_requests(script: &Script, n: usize) {
+    let until = Instant::now() + Duration::from_secs(10);
+    while *script.tool_requests.lock().unwrap() < n && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// The changes land where the assistant made them, also when the person clicked elsewhere while it worked: a
+/// change to the selection the assistant was given replaces that selection, not the text at the new caret.
+#[test]
+fn the_changes_land_where_the_assistant_made_them_after_a_click() {
+    let ctx = egui::Context::default();
+    let held = edit_script(false, vec![Ok(Step::tools(&[("type_text", json!({"text": "there"}))])), Ok(Step::text("Done."))]);
+    held.hold.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut app = edit_app("Hello world", held.clone());
+    app.run("select.text", json!({"text": "world"})).unwrap();
+    ask(&mut app, &ctx, "Say there instead");
+    wait_for_requests(&held, 1);
+    app.run("caret.docStart", json!({})).unwrap();
+    held.hold.store(false, std::sync::atomic::Ordering::SeqCst);
+    settle(&mut app, &ctx);
+    assert_eq!(body(&app), "Hello there", "{:?}", app.assistant.apply_error);
+}
+
+/// What the person does meanwhile that leaves the document as it was (an edit and its Undo) does not cost them
+/// the request.
+#[test]
+fn an_edit_undone_meanwhile_does_not_cost_the_request() {
+    let ctx = egui::Context::default();
+    let held = edit_script(
+        false,
+        vec![Ok(Step::tools(&[("select_text", json!({"text": "world"})), ("type_text", json!({"text": "there"}))])), Ok(Step::text("Done."))],
+    );
+    held.hold.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut app = edit_app("Hello world", held.clone());
+    ask(&mut app, &ctx, "Change world");
+    wait_for_requests(&held, 1);
+    app.run("caret.docEnd", json!({})).unwrap();
+    app.run("text.insert", json!({"text": "!"})).unwrap();
+    app.run("edit.undo", json!({})).unwrap();
+    held.hold.store(false, std::sync::atomic::Ordering::SeqCst);
+    settle(&mut app, &ctx);
+    assert_eq!(body(&app), "Hello there", "{:?}", app.assistant.apply_error);
+}
+
+/// Undo These Changes undoes the assistant's last changes and nothing else: once they are undone another way,
+/// it does not undo an earlier request's.
+#[test]
+fn undo_these_changes_undoes_only_the_last_request_s_own_step() {
+    let ctx = egui::Context::default();
+    let turns = vec![
+        Ok(Step::tools(&[("select_text", json!({"text": "Hello"})), ("execute", json!({"command": "format.bold"}))])),
+        Ok(Step::text("Bold.")),
+        Ok(Step::tools(&[("select_text", json!({"text": "world"})), ("type_text", json!({"text": "there"}))])),
+        Ok(Step::text("Done.")),
+    ];
+    let mut app = edit_app("Hello world", edit_script(false, turns));
+    ask(&mut app, &ctx, "Make Hello bold");
+    settle(&mut app, &ctx);
+    ask(&mut app, &ctx, "Say there");
+    settle(&mut app, &ctx);
+    assert_eq!(body(&app), "Hello there");
+    app.run("edit.undo", json!({})).unwrap();
+    assert_eq!(body(&app), "Hello world");
+    let depth = app.session.undo_depth();
+    app.assistant_act(Act::UndoEdits, &ctx);
+    assert_eq!(app.session.undo_depth(), depth, "the first request's changes stay");
+}
+
+/// Agreeing that the assistant may read and change a document covers that document: another one asks again.
+#[test]
+fn the_agreement_to_change_a_document_covers_that_document_only() {
+    let ctx = egui::Context::default();
+    let turns = vec![Ok(Step::text("Nothing to change.")), Ok(Step::text("Nothing here either."))];
+    let mut app = edit_app("A draft", edit_script(true, turns));
+    let frame = |app: &mut WordApp| {
+        ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
+    };
+    frame(&mut app);
+    ask(&mut app, &ctx, "Check it");
+    app.assistant_act(Act::Agree, &ctx);
+    settle(&mut app, &ctx);
+    app.run("file.new", json!({})).unwrap();
+    frame(&mut app);
+    // The new document's window state starts with the app's own provider: the test's again.
+    app.assistant.factory = scripted;
+    let first = app.assistant_run.agreed_edits.clone();
+    ask(&mut app, &ctx, "Check this one");
+    assert!(
+        app.assistant.ready.is_some(),
+        "a new document asks again: agreed for {first:?}, now in {}, error {:?}, waiting {}",
+        app.session.document_id(),
+        app.assistant.error,
+        app.assistant.waiting.is_some()
+    );
+}
+
+/// The model is told the selection the assistant starts from: a selection changed before Agree is the one it
+/// works on and the one it is told about.
+#[test]
+fn the_model_is_told_the_selection_it_starts_from() {
+    let ctx = egui::Context::default();
+    let script = edit_script(true, vec![Ok(Step::text("Nothing to change."))]);
+    let told = script.first_messages.clone();
+    let mut app = edit_app("Alpha\nGamma", script);
+    app.run("select.text", json!({"text": "Alpha"})).unwrap();
+    ask(&mut app, &ctx, "Shorten the selection");
+    app.run("select.text", json!({"text": "Gamma"})).unwrap();
+    app.assistant_act(Act::Agree, &ctx);
+    settle(&mut app, &ctx);
+    let first = told.lock().unwrap().first().cloned().unwrap_or_default();
+    assert!(first.contains("<selection>\\nGamma\\n</selection>"), "{first}");
+}
+
+/// With the pane hidden, the status bar says what happened to the document.
+#[test]
+fn a_hidden_pane_reports_the_outcome_on_the_status_bar() {
+    let ctx = egui::Context::default();
+    let turns = vec![Ok(Step::tools(&[("select_text", json!({"text": "world"})), ("type_text", json!({"text": "there"}))])), Ok(Step::text("Done."))];
+    let mut app = edit_app("Hello world", edit_script(false, turns));
+    app.session.view.assistant_pane = false;
+    ask(&mut app, &ctx, "Change world");
+    settle(&mut app, &ctx);
+    let status = app.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
+    assert!(status.contains("applied"), "{status:?}");
+    assert!(app.session.view.assistant_pane, "the pane opens again, so what happened is shown and spoken");
+}
+
+/// When a limit of the request stops the assistant, what it did is applied and the pane says the work may be
+/// partial; its reply says what is left.
+#[test]
+fn work_stopped_by_a_limit_is_applied_and_said_to_be_partial() {
+    let ctx = egui::Context::default();
+    let mut turns = vec![Ok(Step::tools(&[("select_text", json!({"text": "world"})), ("type_text", json!({"text": "there"}))]))];
+    for _ in 0..wordcraft_assistant::agent::MAX_ROUNDS - 2 {
+        turns.push(Ok(Step::tools(&[("get_text", json!({}))])));
+    }
+    turns.push(Ok(Step::text("I changed the first word; the rest is left.")));
+    let mut app = edit_app("Hello world", edit_script(false, turns));
+    ask(&mut app, &ctx, "Change every word");
+    settle(&mut app, &ctx);
+    assert_eq!(body(&app), "Hello there", "the work so far is applied");
+    assert!(app.assistant.partial && app.assistant.applied.is_some());
+    assert!(app.assistant.said.contains("limit"), "{:?}", app.assistant.said);
 }
 
 /// Keeping the key on this computer: only when asked, only once the key has worked, in a file of its own that

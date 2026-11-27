@@ -154,6 +154,7 @@ fn which_answers_are_asked_again() {
     );
     assert!(!retryable(529, "{}", Some("false")) && retryable(400, "{}", Some("true")));
     assert!(backoff(1, Some(Duration::from_secs(600))) <= MAX_RETRY_WAIT, "never waits longer than the cap");
+    assert!(!retryable(200, "", Some("true")), "a success is never sent again");
 }
 
 /// An overloaded service is asked again, and the second answer is the reply.
@@ -195,4 +196,68 @@ fn an_overloaded_service_is_asked_again() {
     let reply = claude.send(&request()).unwrap();
     assert_eq!(reply.text, "Short.");
     server.join().unwrap();
+}
+
+/// A request the person lets go is not sent again: the wait the service asked for ends, and nothing more goes
+/// out.
+#[test]
+fn a_request_let_go_is_not_sent_again() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Instant;
+    let overloaded = r#"{"type":"error","error":{"type":"overloaded_error","message":"busy"}}"#;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1/messages", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut raw = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = stream.read(&mut chunk).unwrap_or(0);
+            raw.extend_from_slice(&chunk[..n]);
+            let text = String::from_utf8_lossy(&raw).to_lowercase();
+            if let Some(end) = text.find("\r\n\r\n") {
+                let length = text.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+                if raw.len() >= end + 4 + length {
+                    break;
+                }
+            }
+            if n == 0 {
+                break;
+            }
+        }
+        let reply = format!(
+            "HTTP/1.1 529 Overloaded\r\nContent-Type: application/json\r\nRetry-After: 20\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{overloaded}",
+            overloaded.len()
+        );
+        stream.write_all(reply.as_bytes()).unwrap();
+        drop(stream);
+        // Any request sent again would come within the wait the answer asked for: count them.
+        listener.set_nonblocking(true).unwrap();
+        let until = Instant::now() + Duration::from_secs(3);
+        let mut again = 0;
+        while Instant::now() < until {
+            if listener.accept().is_ok() {
+                again += 1;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        again
+    });
+    let flag = Arc::new(AtomicBool::new(false));
+    let mut claude = Claude::with_endpoint(KEY, DEFAULT_MODEL, &url);
+    claude.set_cancel(flag.clone());
+    let letting_go = {
+        let flag = flag.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            flag.store(true, Ordering::SeqCst);
+        })
+    };
+    let started = Instant::now();
+    assert_eq!(claude.send(&request()).map(|r| r.text), Err(Error::Interrupted));
+    assert!(started.elapsed() < Duration::from_secs(10), "the 20-second wait ended when the request was let go");
+    letting_go.join().unwrap();
+    assert_eq!(server.join().unwrap(), 0, "nothing was sent again");
 }

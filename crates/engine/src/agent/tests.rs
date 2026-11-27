@@ -90,7 +90,7 @@ fn tool_calls_change_the_workspace_and_record_steps() {
     let inspected = tools.call("inspect_document", &json!({"from": 1, "count": 1}));
     assert!(!inspected.is_error && inspected.content.contains("Second line") && !inspected.content.contains("Hello world"), "{}", inspected.content);
     let ids: Vec<&str> = tools.steps().iter().filter_map(|st| st["command"].as_str()).collect();
-    assert_eq!(ids, ["select.text", "format.bold"], "reads are not steps");
+    assert_eq!(ids, ["select.range", "format.bold"], "reads are not steps; a selection by words is recorded as its exact place");
     assert!(tools.changed());
     assert_eq!(body(&s), "Hello world\nSecond line");
     assert_eq!(s.undo_depth(), undo_before, "the open document has no new undo step");
@@ -157,4 +157,202 @@ fn long_results_are_cut_at_a_character_and_say_so() {
     let text = "א".repeat(RESULT_BUDGET);
     let cut = within_budget(&text, RESULT_BUDGET);
     assert!(cut.len() < text.len() + 200 && cut.contains("[cut:"), "{}", &cut[cut.len() - 80..]);
+}
+
+/// The steps are replayed from the selection the workspace started with, wherever the person has clicked
+/// since: a step that acts on the given selection lands where the assistant made it.
+#[test]
+fn steps_replay_from_where_the_workspace_started() {
+    let mut s = session("Alpha beta");
+    s.run("select.text", &json!({"text": "beta"})).unwrap();
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    assert!(!tools.call("type_text", &json!({"text": "gamma"})).is_error);
+    let (steps, start) = (tools.steps().to_vec(), tools.start().clone());
+    s.run("caret.docStart", &json!({})).unwrap();
+    s.run("assistant.runSteps", &json!({"steps": steps, "start": start})).unwrap();
+    assert_eq!(body(&s), "Alpha gamma");
+}
+
+/// A command that is read-only in name but moves the selection (Spelling selects the next issue) is a step,
+/// so what is done at that selection is replayed there.
+#[test]
+fn a_command_that_moves_the_selection_is_a_step() {
+    if crate::tests::no_language_data("a_command_that_moves_the_selection_is_a_step") {
+        return;
+    }
+    let s = session("The colour and the flavour.");
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    for (word, fix) in [("colour", "color"), ("flavour", "flavor")] {
+        let found = tools.call("execute", &json!({"command": "review.spelling"}));
+        assert!(found.content.contains(word), "{}", found.content);
+        assert!(!tools.call("execute", &json!({"command": "review.applySuggestion", "params": {"text": fix}})).is_error);
+    }
+    assert_eq!(body(tools.workspace()), "The color and the flavor.");
+    let replayed = replay(Seed::of(&s, ""), tools.steps()).unwrap();
+    assert_eq!(body(&replayed), body(tools.workspace()), "the replay gives what the assistant saw");
+}
+
+/// A call that fails leaves nothing behind that a later step depends on: a bad pattern does not leave Find
+/// set to patterns, so what follows runs in the workspace as it is replayed.
+#[test]
+fn a_failed_call_leaves_no_trace() {
+    let s = session("Mr. Smith and Mrs. Jones");
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    let bad = tools.call("find", &json!({"text": "(?<=Mr)\\.", "regex": true}));
+    assert!(bad.is_error, "{}", bad.content);
+    assert!(!tools.call("replace_all", &json!({"text": "Mr.", "with": "Mr"})).is_error);
+    assert_eq!(body(tools.workspace()), "Mr Smith and Mrs. Jones", "a plain replacement, not a pattern");
+    let replayed = replay(Seed::of(&s, ""), tools.steps()).unwrap();
+    assert_eq!(body(&replayed), body(tools.workspace()));
+}
+
+/// A call that only opens a dialog leaves the selection as it was, and a command that only asks the window
+/// to scroll is a step like any other.
+#[test]
+fn a_dialog_leaves_no_trace_and_a_scroll_is_no_dialog() {
+    let s = session("One\nTwo");
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    tools.call("select_text", &json!({"text": "Two"}));
+    let before = tools.workspace().sel.clone();
+    assert!(tools.call("execute", &json!({"command": "edit.goto"})).is_error);
+    assert_eq!(tools.workspace().sel, before, "the dialog-only call is put back");
+    let goto = tools.call("execute", &json!({"command": "edit.goto", "params": {"page": 1}}));
+    assert!(!goto.is_error, "{}", goto.content);
+    assert_eq!(tools.steps().last().and_then(|st| st["command"].as_str()), Some("edit.goto"));
+    let replayed = replay(Seed::of(&s, ""), tools.steps()).unwrap();
+    assert_eq!(replayed.sel, tools.workspace().sel, "the replay goes where the assistant went");
+}
+
+/// With Track Changes on, a change that cannot be tracked is refused and leaves nothing; tracked typing,
+/// new paragraphs and replacements go through.
+#[test]
+fn with_track_changes_on_an_untracked_change_is_refused() {
+    let mut s = session("Alpha beta");
+    s.run("review.trackChanges", &json!({"value": true})).unwrap();
+    let mut tools = Toolbox::new(Seed::of(&s, "Helper"));
+    tools.call("select_text", &json!({"text": "beta"}));
+    let table = tools.call("insert_table", &json!({"values": [["a", "b"], ["c", "d"]]}));
+    assert!(table.is_error && table.content.contains("Track Changes"), "{}", table.content);
+    assert!(!tools.changed(), "the refused table left nothing");
+    for (tool, input) in [
+        ("type_text", json!({"text": "gamma"})),
+        ("type_text", json!({"text": "one\ntwo", "paragraphs": true})),
+        ("replace_all", json!({"text": "Alpha", "with": "Omega"})),
+    ] {
+        let done = tools.call(tool, &input);
+        assert!(!done.is_error, "{tool}: {}", done.content);
+    }
+    assert!(tools.changed());
+    let replayed = replay(Seed::of(&s, "Helper"), tools.steps()).unwrap();
+    assert_eq!(body(&replayed), body(tools.workspace()));
+}
+
+/// One batch runs at most its limit, and one request records at most its limit of changes: the model is
+/// told before anything is lost, not when the changes are applied.
+#[test]
+fn the_limits_are_told_while_the_assistant_works() {
+    let s = session("Hello");
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    let many = vec![json!({"command": "select.all"}); MAX_BATCH + 1];
+    let refused = tools.call("batch", &json!({"commands": many}));
+    assert!(refused.is_error && refused.content.contains("at most"), "{}", refused.content);
+    let batch = vec![json!({"command": "select.all"}); MAX_BATCH];
+    while tools.steps().len() < MAX_STEPS {
+        assert!(!tools.call("batch", &json!({"commands": batch})).is_error);
+    }
+    let over = tools.call("execute", &json!({"command": "select.all"}));
+    assert!(over.is_error && over.content.contains("most changes"), "{}", over.content);
+    assert_eq!(tools.steps().len(), MAX_STEPS);
+    assert!(replay(Seed::of(&s, ""), tools.steps()).is_ok(), "what was recorded can be applied");
+}
+
+/// A runaway copy and paste stops at the bound on how far one request may grow the document.
+#[test]
+fn the_document_cannot_grow_without_bound() {
+    let s = session(&"x".repeat(1000));
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    let doubling =
+        [json!({"command": "select.all"}), json!({"command": "edit.copy"}), json!({"command": "caret.docEnd"}), json!({"command": "edit.paste"})];
+    let commands: Vec<Value> = doubling.iter().cycle().take(48).cloned().collect();
+    tools.call("batch", &json!({"commands": commands}));
+    let limit = 1000 + 2_000_000;
+    let size = body(tools.workspace()).len();
+    assert!(size > 1000 && size <= limit, "it grew, and stopped at the bound: {size}");
+    let again = tools.call("execute", &json!({"command": "edit.paste"}));
+    assert!(again.is_error && again.content.contains("more than this request may grow"), "{}", again.content);
+    assert_eq!(body(tools.workspace()).len(), size, "the refused paste left nothing");
+}
+
+/// Fields that read a file or a web address, or start a program, are refused; hyperlinks and other fields are
+/// not. HTML and RTF are not pasted.
+#[test]
+fn fields_that_reach_out_and_rich_pastes_are_refused() {
+    for code in [
+        "INCLUDEPICTURE \"https://example.test/p.png\" \\d",
+        "includetext \"C:\\\\docs\\\\x.docx\"",
+        "DDEAUTO cmd \"/c calc\"",
+        "QUOTE \"https://example.test/?d=x\"",
+    ] {
+        assert!(refusal("insert.field", &json!({"instr": code})).is_some(), "{code}");
+        assert!(refusal("fields.setCode", &json!({"code": code})).is_some(), "{code}");
+    }
+    for code in ["HYPERLINK \"https://example.test\"", "DATE \\@ \"d MMMM yyyy\"", "PAGE"] {
+        assert!(refusal("insert.field", &json!({"instr": code})).is_none(), "{code}");
+    }
+    assert!(refusal("edit.paste", &json!({"html": "<img src=\"https://example.test/p.png\">"})).is_some());
+    assert!(refusal("edit.pasteSpecial", &json!({"rtf": "{\\rtf1}"})).is_some());
+    assert!(refusal("edit.paste", &json!({"text": "plain"})).is_none());
+}
+
+/// Parameters named like files that are not files (a direction, an original size) do not refuse a command.
+#[test]
+fn names_like_files_that_are_not_files_are_allowed() {
+    assert!(refusal("shape.textDirection", &json!({"dir": "vert"})).is_none());
+    assert!(refusal("equation.move", &json!({"dir": "left"})).is_none());
+    assert!(refusal("picture.size", &json!({"original": true})).is_none());
+    assert!(refusal("format.bold", &json!({"dir": "/tmp"})).is_some());
+}
+
+/// The assistant reads the document as it reads with every tracked change accepted: deleted text is in no
+/// tool's result, the readers that show it are closed, and a phrase that spans a deletion can be selected.
+#[test]
+fn the_assistant_never_reads_tracked_deletions() {
+    let mut s = session("The cap is $2M now");
+    s.run("review.trackChanges", &json!({"value": true})).unwrap();
+    s.run("select.text", &json!({"text": "$2M"})).unwrap();
+    s.run("text.insert", &json!({"text": "$3M"})).unwrap();
+    assert!(s.doc.plain_text(StoryRef::Body).contains("$2M"), "the deletion is tracked");
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    let mut seen = tools.overview();
+    for (tool, input) in [
+        ("get_text", json!({})),
+        ("inspect_document", json!({"parts": true})),
+        ("get_selection", json!({})),
+        ("select_text", json!({"text": "cap is $3M"})),
+        ("get_selection", json!({})),
+    ] {
+        let out = tools.call(tool, &input);
+        assert!(!out.is_error, "{tool}: {}", out.content);
+        seen.push_str(&out.content);
+    }
+    assert!(!seen.contains("$2M"), "{seen}");
+    assert!(seen.contains("cap is $3M"), "the phrase across the deletion was selected: {seen}");
+    for id in ["document.paragraph", "review.changes"] {
+        assert!(tools.call("execute", &json!({"command": id, "params": {"path": [0]}})).is_error, "{id}");
+    }
+}
+
+/// Repeat and macro recording leave the assistant's changes out: they were made for one document as it was.
+#[test]
+fn repeat_does_not_apply_the_assistant_s_changes_again() {
+    let mut s = session("Hello world");
+    // The person's own last command, which Repeat is for.
+    s.run("format.bold", &json!({})).unwrap();
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    tools.call("execute", &json!({"command": "caret.docEnd"}));
+    tools.call("type_text", &json!({"text": "!"}));
+    s.run("assistant.runSteps", &json!({"steps": tools.steps(), "start": tools.start()})).unwrap();
+    assert_eq!(body(&s), "Hello world!");
+    let _ = s.run("edit.repeat", &json!({}));
+    assert_eq!(body(&s), "Hello world!", "Repeat does not type the assistant's text again");
 }

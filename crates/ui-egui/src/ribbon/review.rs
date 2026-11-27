@@ -51,6 +51,10 @@ pub(super) fn review(app: &mut WordApp, ui: &mut Ui) {
         let shown = app.session.view.comments_pane;
         big(ui, app, "showComments", "Show\nComments", "view.commentsPane", json!({"value": !shown}), false);
     });
+    group(ui, "AI", None, app, |ui, app| {
+        let shown = app.session.view.assistant_pane;
+        big(ui, app, "assistant", "AI\nAssistant", "view.assistantPane", json!({"value": !shown}), false);
+    });
     group(ui, "Tracking", Some("review.trackingOptions"), app, |ui, app| {
         let on = app.session.doc.settings.track_changes;
         let r = big(ui, app, "trackChanges", if on { "Track\nChanges ✓" } else { "Track\nChanges" }, "review.trackChanges", json!({}), false);

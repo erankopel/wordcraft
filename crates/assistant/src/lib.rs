@@ -3,7 +3,8 @@
 //!
 //! Text leaves the machine only through a [`Provider`], and the app calls one only after the person
 //! has agreed to what [`Provider::disclosure`] says. The Claude provider ([`claude`]) speaks the
-//! Messages API over plain HTTP with the person's own key, read from [`KEY_ENV`] and never stored.
+//! Messages API over HTTPS with the person's own key, which the person types in or sets in
+//! [`KEY_ENV`]. The key is stored only if the person asks (see [`key_store`]).
 //!
 //! Everything here that builds or reads a message ([`build_body`], [`parse_reply`]) is pure, so it is
 //! tested with canned replies and needs no key.
@@ -15,6 +16,8 @@ use serde_json::{Value, json};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod claude;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod key_store;
 mod mock;
 
 pub use mock::MockProvider;
@@ -30,7 +33,8 @@ pub const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 pub const HOST: &str = "api.anthropic.com";
 /// The Messages API endpoint.
 pub const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
-/// The environment variable the key is read from. WordCraft never writes it anywhere.
+/// The environment variable the key is read from when the person has not typed one in. WordCraft
+/// never writes it anywhere.
 pub const KEY_ENV: &str = "ANTHROPIC_API_KEY";
 
 /// Most document text one request carries, in bytes (about 150,000 tokens). A larger part is
@@ -115,7 +119,8 @@ pub struct Turn {
 pub struct Request {
     /// What the person asked for.
     pub instruction: String,
-    /// The document text in [`Request::scope`], as the app shows it to the person before sending.
+    /// The document text in [`Request::scope`], exactly what `assistant.context` returns: the pane
+    /// tells the person how much of it goes and the first words of it, not all of it.
     pub context: String,
     pub scope: Scope,
     /// The earlier turns of this chat, oldest first.
@@ -170,6 +175,13 @@ pub enum Error {
     Http { status: u16, kind: String, message: String },
     /// The answer was not a reply this code understands.
     BadReply(String),
+    /// This build cannot send requests: the browser version.
+    Unavailable,
+    /// The request could not be started: what would be shared could not be read, or a worker
+    /// thread could not be made. Nothing was sent.
+    NotStarted,
+    /// The worker ended without an answer.
+    Interrupted,
 }
 
 impl fmt::Display for Error {
@@ -181,6 +193,9 @@ impl fmt::Display for Error {
             Error::Network(why) => write!(f, "network error: {why}"),
             Error::Http { status, kind, message } => write!(f, "HTTP {status} {kind}: {message}"),
             Error::BadReply(why) => write!(f, "unreadable reply: {why}"),
+            Error::Unavailable => write!(f, "this build cannot send requests"),
+            Error::NotStarted => write!(f, "the request could not be started"),
+            Error::Interrupted => write!(f, "the request ended without an answer"),
         }
     }
 }
@@ -196,6 +211,8 @@ pub struct Disclosure {
     pub model: String,
     /// `false` only for a provider that keeps the text on this machine.
     pub leaves_machine: bool,
+    /// The service may have another of its models read the text when the first declines.
+    pub fallback_possible: bool,
 }
 
 /// Something that answers a [`Request`]. A real one sends the text over the network, so the app

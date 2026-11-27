@@ -595,6 +595,11 @@ fn paint_draw_to_review(pen: &Pen, name: &str) -> bool {
     let green = Color32::from_rgb(0x2E, 0x8B, 0x57);
     let orange = Color32::from_rgb(0xE0, 0x7B, 0x1F);
     match name {
+        // The AI pane: a speech bubble holding a four-point spark.
+        "assistant" => {
+            pen.closed(&[(2.5, 3.5), (17.5, 3.5), (17.5, 13.5), (9.0, 13.5), (5.0, 17.0), (5.0, 13.5), (2.5, 13.5)], c);
+            pen.fill(&[(10.0, 5.0), (11.2, 7.3), (13.5, 8.5), (11.2, 9.7), (10.0, 12.0), (8.8, 9.7), (6.5, 8.5), (8.8, 7.3)], a);
+        }
         // Draw
         "pen" => {
             pen.line(&[(4.0, 16.0), (14.0, 6.0), (16.0, 8.0), (6.0, 18.0), (3.5, 18.5), (4.0, 16.0)]);

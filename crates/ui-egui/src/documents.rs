@@ -61,6 +61,8 @@ impl WordApp {
         self.controls = Default::default();
         self.dialog = None;
         self.spelling_review = None;
+        // A new document starts a new chat; what the person agreed to and typed as the key stays for the run.
+        self.assistant = crate::assistant_pane::AssistantState::fresh_for_document(&self.assistant);
         self.colors = None;
         self.restrict = crate::dialogs_review::RestrictPane { open: self.restrict.open, ..Default::default() };
         self.status_msg = None;

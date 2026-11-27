@@ -719,6 +719,14 @@ fn main() -> eframe::Result {
             // English, and an accepted update would replace this program.
             app.set_startup_update_check(wordcraft_ui_egui::i18n::EDITION_LANGUAGE.is_none());
             load_prefs(&mut app);
+            // The AI pane keeps the person's API key in the settings folder, when they ask it to. A run
+            // without preferences neither reads nor writes that file either: it has no folder, so the pane
+            // offers no way to keep a key.
+            if prefs_enabled()
+                && let Some(folder) = wordcraft_control_key::settings_dir()
+            {
+                app.use_saved_assistant_key(&folder);
+            }
             // After the preferences, so the reason it gives is in the interface language.
             if updates_unsafe {
                 app.disable_self_update();

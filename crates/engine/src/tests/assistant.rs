@@ -61,6 +61,26 @@ fn text_deleted_by_track_changes_is_not_shared() {
     assert_eq!(shared["text"], "keep keep", "a tracked deletion is not shared: {shared}");
 }
 
+/// The same rule for a selection: text deleted with Track Changes on is still in the file, so reading the
+/// selection as plain text would have shared it.
+#[test]
+fn text_deleted_by_track_changes_is_not_shared_from_a_selection_either() {
+    let mut s = session("keep drop keep\nsecond paragraph");
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    select(&mut s, "drop ");
+    run(&mut s, "text.delete", json!({}));
+    assert!(s.doc.plain_text(StoryRef::Body).contains("drop"), "the deleted text is still in the file");
+    run(&mut s, "select.all", json!({}));
+    let selection = run(&mut s, "assistant.context", json!({"scope": "selection"}));
+    let document = run(&mut s, "assistant.context", json!({"scope": "document"}));
+    assert!(!selection["text"].as_str().unwrap_or_default().contains("drop"), "a tracked deletion is not shared: {selection}");
+    assert_eq!(selection["text"], document["text"], "with everything selected both scopes read the same text");
+    // A selection that covers only part of the text is read the same way.
+    select(&mut s, "keep drop");
+    let part = run(&mut s, "assistant.context", json!({"scope": "selection"}));
+    assert!(!part["text"].as_str().unwrap_or_default().contains("drop"), "{part}");
+}
+
 #[test]
 fn an_unknown_scope_is_refused() {
     let mut s = session("text");

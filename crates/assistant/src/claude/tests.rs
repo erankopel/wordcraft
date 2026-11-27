@@ -120,4 +120,20 @@ fn a_missing_or_blank_key_is_reported_and_a_given_one_is_not_printed() {
     assert!(!format!("{claude:?}").contains("sk-secret-value"));
     let disclosure = claude.disclosure();
     assert_eq!((disclosure.recipient.as_str(), disclosure.model.as_str(), disclosure.leaves_machine), (HOST, DEFAULT_MODEL, true));
+    assert!(disclosure.fallback_possible, "the request asks for fallbacks, so the person is told another model may read the text");
+}
+
+/// The provider the app makes sends only over HTTPS: pointed at a plain HTTP server it refuses
+/// before connecting, so the key is never sent in the clear and the server sees no connection.
+#[test]
+fn the_provider_the_app_makes_will_not_send_over_plain_http() {
+    let claude = Claude::from_key(Some(KEY)).unwrap();
+    assert!(claude.endpoint.starts_with("https://"), "the production endpoint is HTTPS: {}", claude.endpoint);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let mut claude = Claude { endpoint: format!("http://{}/v1/messages", listener.local_addr().unwrap()), ..claude };
+    let error = claude.send(&request()).unwrap_err();
+    assert!(matches!(error, Error::Network(_)), "{error:?}");
+    assert!(!format!("{error}").contains(KEY));
+    assert!(listener.accept().is_err(), "nothing connected to the plain HTTP server");
 }

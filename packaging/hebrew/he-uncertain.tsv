@@ -52,3 +52,14 @@
 	Ignore Once	התעלמות חד-פעמית	the spelling pane's button; 'התעלמות חד-פעמית' or 'התעלם פעם אחת'
 	only floating connectors in the body text can be glued	אפשר לחבר רק מחברים צפים שבגוף הטקסט	a reason an agent reads; 'glued' is rendered as 'connected'
 	only for Markdown (.md) files	רק עבור קובצי Markdown (‎.md)	the left-to-right mark before .md is meant to keep the dot in place
+	The reply could not be placed: {why}	לא ניתן להכניס את התשובה: {why}	'להכניס' for place; the engine's reason follows in English
+	The service refused the request ({status}): {message}	השירות דחה את הבקשה ({status}): {message}	'דחה' for refused
+	{model}: {input} tokens in, {output} tokens out	{model}: {input} אסימונים נכנסו, {output} אסימונים יצאו	'אסימונים' for tokens: check the term
+	AI	AI	kept as the Latin letters 'AI' for the ribbon group; 'בינה מלאכותית' is the long form
+	AI Assistant	עוזר AI	'עוזר AI': check against how AI features are named
+	The saved key was not used because other users can read its file. Remove the file, or type the key again.	המפתח השמור לא נעשה בו שימוש משום שמשתמשים אחרים יכולים לקרוא את הקובץ שלו. יש למחוק את הקובץ, או להקליד את המפתח מחדש.	long sentence; check the grammar of 'לא נעשה בו שימוש'
+	Your instruction and {what} ({chars} characters) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree.	ההוראה שלכם ו{what} (תווים: {chars}) יישלחו דרך האינטרנט אל {recipient}, כדי שהמודל {model} יקרא אותם. WordCraft לא שומר עותק. דבר לא יישלח עד שתאשרו.	the 'ו' is glued to {what} (המסמך כולו, הטקסט שנבחר): check how it reads; the count is written 'תווים: {chars}' so one character needs no plural
+	Assistant Context	הטקסט שיישלח לעוזר	the command that shows what would be shared with the assistant; check the phrasing
+	Agreeing covers later requests in this run that send a selection. A request that sends the whole document asks again.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו ששולחות טקסט נבחר. בקשה ששולחת את המסמך כולו תבקש אישור מחדש.	wording of the scope of the agreement: it must say what the pane really does
+	Agreeing covers later requests in this run, whether they send a selection or the whole document.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו, בין אם הן שולחות טקסט נבחר ובין אם הן שולחות את המסמך כולו.	wording of the scope of the agreement
+	If you choose to remember the key, it is kept unencrypted in a file in WordCraft's settings folder.	אם תבחרו לזכור את המפתח, הוא יישמר ללא הצפנה בקובץ בתיקיית ההגדרות של WordCraft.	said before the key is kept: it must say that the file is not encrypted

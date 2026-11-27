@@ -19,7 +19,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("assistant.context", "Assistant Context", "Agents", context)
             .params(
-                r#"{"scope"?: "selection" | "document" (default selection)} → {scope, text, chars, bytes, paragraphs, hasSelection, empty}: exactly the text the AI pane would share for that scope. The selection is the selected text; the document is the body text with Track Changes read as accepted (headers, footers, notes and text boxes are not included). Changes nothing."#,
+                r#"{"scope"?: "selection" | "document" (default selection)} → {scope, text, chars, bytes, paragraphs, hasSelection, empty}: exactly the text the AI pane would share for that scope. Both scopes read Track Changes as accepted: text deleted with tracking on is not included. The selection is the selected text; the document is the body text (headers, footers, notes and text boxes are not included). Text formatted as hidden is included. Changes nothing."#,
             )
             .pure(),
         CommandSpec::new("assistant.apply", "Apply Assistant Reply", "Agents", apply).params(
@@ -46,7 +46,7 @@ fn scope_of(v: &Value) -> Result<(Scope, &'static str), CmdError> {
 fn context(s: &mut Session, v: &Value) -> CmdResult {
     let (scope, name) = scope_of(v)?;
     let text = match scope {
-        Scope::Selection => s.selected_text(),
+        Scope::Selection => selected_final_text(s),
         Scope::Document => s.doc.final_text(StoryRef::Body),
     };
     let paragraphs = text.split('\n').filter(|line| !line.trim().is_empty()).count();
@@ -59,6 +59,18 @@ fn context(s: &mut Session, v: &Value) -> CmdResult {
         "empty": text.trim().is_empty(),
         "text": text,
     }))
+}
+
+/// The selected text as it reads with every tracked change accepted, as [`Session::selected_text`]
+/// reads the selection but without the text deleted with Track Changes on: that text is still in the
+/// file, marked deleted, and must not go anywhere the person did not mean it to.
+fn selected_final_text(s: &Session) -> String {
+    let final_text = |a: &Pos, b: &Pos| s.doc.copy_range(a, b).to_document().final_text(StoryRef::Body);
+    if let Some(segments) = s.column_segments() {
+        return segments.iter().map(|(a, b)| final_text(a.min(b), a.max(b))).collect::<Vec<_>>().join("\n");
+    }
+    let (a, b) = s.sel.ordered();
+    final_text(&a, &b)
 }
 
 /// The end of the paragraph the selection ends in, where `insertAfter` adds its text.

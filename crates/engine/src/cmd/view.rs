@@ -134,6 +134,9 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("view.altTextPane", "Alt Text Pane", "Review › Accessibility", |s, v| toggle(s, v, |x| &mut x.alt_text_pane))
             .params(r#"{"value"?: bool}"#)
             .pure(),
+        CommandSpec::new("view.assistantPane", "AI Pane", "Review › AI", |s, v| toggle(s, v, |x| &mut x.assistant_pane))
+            .params(r#"{"value"?: bool}"#)
+            .pure(),
         CommandSpec::new("view.formatShapePane", "Format Shape Pane", "Shape Format › Shape Styles", |s, v| {
             toggle(s, v, |x| &mut x.format_shape_pane)
         })

@@ -24,6 +24,7 @@ macro_rules! tl {
 
 pub mod a11y;
 pub mod a11y_pane;
+mod assistant_pane;
 pub mod async_saves;
 pub mod autoscroll;
 pub mod backstage;
@@ -675,6 +676,10 @@ pub struct WordApp {
     pub restrict: dialogs_review::RestrictPane,
     /// The language-aware spelling and grammar task pane.
     pub spelling_review: Option<proofing_pane::SpellingForm>,
+    /// The AI pane's chat, one per window.
+    pub(crate) assistant: assistant_pane::AssistantState,
+    /// What the person agreed to send and typed as the API key: for the run of the program, in every window.
+    pub(crate) assistant_run: assistant_pane::AssistantRun,
     pub status_msg: Option<(String, f64)>,
     pub previews: previews::Previews,
     /// Media key of the picture a pending Change Picture replaces (#147).

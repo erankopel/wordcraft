@@ -120,6 +120,25 @@ document makes the bar offer the pack. With no pack installed Hebrew shows no ma
 status bar names Hebrew while the caret is in Hebrew text (or in an empty right-to-left paragraph) and
 the text language, English, while it is in Latin text.
 
+## The AI assistant in the edition
+
+The edition includes Review › AI › **AI Assistant** (see [the AI assistant](assistant.md)), whose text is
+all in Hebrew: the pane, its agreement step, its errors, the ribbon group and button, the command names and
+what a screen reader is told. Only the abbreviations AI, API and KB, the name of the environment variable
+`ANTHROPIC_API_KEY`, the file name `assistant-key` and the model names stay in Latin letters. The 76 rows are
+in `packaging/hebrew/he-supplement.tsv`; the eleven least certain are in `he-uncertain.tsv`. The pane is
+mirrored like the rest of the interface: it docks at the left, the end edge, like Comments, and its buttons
+start at the right. The reply the model writes is in whatever language it writes in; the instruction box takes
+Hebrew.
+
+## Hebrew whatever the system language
+
+The edition's text is Hebrew on a computer whose language is English or anything else: the setting `auto`
+means the edition's language (see Choosing Hebrew), so nothing depends on the system locale. Two things
+are not WordCraft's text and do not follow it: the file dialogs of the desktop (on Linux they come from the
+desktop's portal, in the desktop's language) and the system's own menus. Page size and units are Israel's
+(A4, centimetres) unless `WORDCRAFT_REGION` is set. Starting with `WORDCRAFT_LANGUAGE=en` gives English.
+
 ## In the document
 
 - **List numbering:** `hebrew1` counts in Hebrew numerals (א ב ג … י יא … כ … ק … ת), with 15 and 16

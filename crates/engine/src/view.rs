@@ -42,6 +42,10 @@ pub struct ViewState {
     /// The Alt Text pane (Picture/Shape Format › Alt Text): the selected object's or table's alt text.
     #[serde(default)]
     pub alt_text_pane: bool,
+    /// The AI pane (Review › AI): ask for a rewrite or an answer about the selection or the document, then
+    /// apply the reply. Text is sent nowhere until the person agrees in the pane.
+    #[serde(default)]
+    pub assistant_pane: bool,
     /// The Format Shape pane (Shape Fill › More Gradients…, a shape's Format Shape…): the
     /// selected shapes' fill.
     #[serde(default)]
@@ -193,6 +197,7 @@ impl Default for ViewState {
             smart_art_pane: false,
             accessibility_pane: false,
             alt_text_pane: false,
+            assistant_pane: false,
             format_shape_pane: false,
             multi_page: false,
             single_column: false,

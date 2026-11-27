@@ -350,3 +350,79 @@ spacing	Open	פתוח
 	only the desktop app has several windows	רק ליישום השולחני יש כמה חלונות
 	turn on View Side by Side first	יש להפעיל קודם את התצוגה זה לצד זה
 	{n} KB	{n} KB
+	You stopped waiting for the reply.	הפסקתם להמתין לתשובה.
+	The reply was copied.	התשובה הועתקה.
+	The saved key was removed.	המפתח השמור הוסר.
+	Waiting for the reply…	ממתינים לתשובה…
+	The document or the selection changed after the request, so the reply was not placed. Select the text again and ask again.	המסמך או הבחירה השתנו לאחר הבקשה, ולכן התשובה לא הוכנסה. יש לבחור שוב את הטקסט ולשלוח בקשה חדשה.
+	The reply was placed in the document.	התשובה הוכנסה למסמך.
+	The reply could not be placed: {why}	לא ניתן להכניס את התשובה: {why}
+	The model declined this request, so there is no reply to place.	המודל סירב לבקשה הזו, ולכן אין תשובה להכניס.
+	The reply ran out of length before any text was written. Select less text.	התשובה הגיעה למגבלת האורך לפני שנכתב בה טקסט כלשהו. יש לבחור פחות טקסט.
+	The AI reply is ready, but it was cut off at its length limit.	תשובת ה-AI מוכנה, אך היא נקטעה במגבלת האורך שלה.
+	The AI reply is ready, but it may be incomplete.	תשובת ה-AI מוכנה, אך ייתכן שהיא חלקית.
+	The AI reply is ready.	תשובת ה-AI מוכנה.
+	No API key. Type one in the API key box, or set the ANTHROPIC_API_KEY environment variable and start WordCraft again.	אין מפתח API. יש להקליד אחד בתיבת מפתח ה-API, או להגדיר את משתנה הסביבה ANTHROPIC_API_KEY ולהפעיל את WordCraft מחדש.
+	Write what you want first.	יש לכתוב קודם את ההוראה.
+	The instruction is too long ({size} KB; the most is {limit} KB).	ההוראה ארוכה מדי ({size} KB; המקסימום הוא {limit} KB).
+	The text is too large to send ({size} KB; the most is {limit} KB). Select less text.	הטקסט גדול מדי לשליחה ({size} KB; המקסימום הוא {limit} KB). יש לבחור פחות טקסט.
+	The service could not be reached: {why}	לא ניתן להגיע לשירות: {why}
+	The API key was not accepted. Check the key you typed, or the ANTHROPIC_API_KEY environment variable.	מפתח ה-API לא התקבל. יש לבדוק את המפתח שהוקלד, או את משתנה הסביבה ANTHROPIC_API_KEY.
+	The service did not allow this request: {message}	השירות לא התיר את הבקשה הזו: {message}
+	The service did not allow this request.	השירות לא התיר את הבקשה הזו.
+	The service is busy, or the usage limit was reached ({message}). Try again later.	השירות עמוס, או שהגעתם למגבלת השימוש ({message}). יש לנסות שוב מאוחר יותר.
+	The service is busy, or the usage limit was reached. Try again later.	השירות עמוס, או שהגעתם למגבלת השימוש. יש לנסות שוב מאוחר יותר.
+	The service had a problem ({status}). Try again.	לשירות הייתה תקלה ({status}). יש לנסות שוב.
+	The service refused the request ({status}): {message}	השירות דחה את הבקשה ({status}): {message}
+	The reply could not be read: {why}	לא ניתן לקרוא את התשובה: {why}
+	The AI assistant is not available in this version of WordCraft.	עוזר ה-AI אינו זמין בגרסה זו של WordCraft.
+	The request could not be started. Nothing was sent. Try again.	לא ניתן היה להתחיל את הבקשה. דבר לא נשלח. יש לנסות שוב.
+	The request ended without an answer. Try again.	הבקשה הסתיימה ללא תשובה. יש לנסות שוב.
+	The AI assistant is not available in the browser version.	עוזר ה-AI אינו זמין בגרסת הדפדפן.
+	This key is saved on this computer, in WordCraft's settings folder, unencrypted.	המפתח הזה שמור במחשב הזה, בתיקיית ההגדרות של WordCraft, ללא הצפנה.
+	This key will be saved on this computer once it works, in WordCraft's settings folder, unencrypted.	המפתח הזה יישמר במחשב הזה אחרי שיתברר שהוא עובד, בתיקיית ההגדרות של WordCraft, ללא הצפנה.
+	The key you typed is used only in this run. It is not saved.	המפתח שהוקלד משמש רק בהפעלה הזו ואינו נשמר.
+	Using the key in the ANTHROPIC_API_KEY environment variable.	נעשה שימוש במפתח שבמשתנה הסביבה ANTHROPIC_API_KEY.
+	No API key yet. Type one in the API key box, or set the ANTHROPIC_API_KEY environment variable and start WordCraft again.	עדיין אין מפתח API. יש להקליד אחד בתיבת מפתח ה-API, או להגדיר את משתנה הסביבה ANTHROPIC_API_KEY ולהפעיל את WordCraft מחדש.
+	The saved key was not used because other users can read its file. Remove the file, or type the key again.	המפתח השמור לא נעשה בו שימוש משום שמשתמשים אחרים יכולים לקרוא את הקובץ שלו. יש למחוק את הקובץ, או להקליד את המפתח מחדש.
+	The file with the saved key does not hold a key, so it was not used.	הקובץ עם המפתח השמור אינו מכיל מפתח, ולכן לא נעשה בו שימוש.
+	The saved key could not be read, written or removed.	לא ניתן היה לקרוא, לכתוב או להסיר את המפתח השמור.
+	Error	שגיאה
+	Ask for a change to your text, or a question about it. A reply is placed only when you choose.	אפשר לבקש שינוי בטקסט שלכם, או לשאול עליו שאלה. התשובה מוכנסת רק כשתבחרו בכך.
+	API key:	מפתח API:
+	Use the whole document instead of the selection	להשתמש בכל המסמך במקום בבחירה
+	Instruction:	הוראה:
+	For example: make this paragraph shorter	לדוגמה: קצרו את הפסקה הזו
+	Send	שליחה
+	Stop Waiting	הפסקת ההמתנה
+	New Chat	שיחה חדשה
+	You stopped waiting. The request was already sent, and the service may still process it.	הפסקתם להמתין. הבקשה כבר נשלחה, והשירות עשוי עדיין לטפל בה.
+	Remember this key on this computer	לזכור את המפתח הזה במחשב הזה
+	Forget Saved Key	מחיקת המפתח השמור
+	Your instruction (no document text goes with it: nothing is selected) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree.	ההוראה שלכם (לא יישלח איתה טקסט מהמסמך: לא נבחר דבר) תישלח דרך האינטרנט אל {recipient}, כדי שהמודל {model} יקרא אותה. WordCraft לא שומר עותק. דבר לא יישלח עד שתאשרו.
+	the whole document	המסמך כולו
+	the selected text	הטקסט שנבחר
+	Your instruction and {what} ({chars} characters) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree.	ההוראה שלכם ו{what} (תווים: {chars}) יישלחו דרך האינטרנט אל {recipient}, כדי שהמודל {model} יקרא אותם. WordCraft לא שומר עותק. דבר לא יישלח עד שתאשרו.
+	The text starts: {start}	הטקסט מתחיל כך: {start}
+	If the model declines, the service may have another of its models read the text instead.	אם המודל יסרב, השירות עשוי להעביר את קריאת הטקסט למודל אחר שלו.
+	Agree and Send	אישור ושליחה
+	The reply was cut off at its length limit. Check it before you place it.	התשובה נקטעה במגבלת האורך שלה. יש לבדוק אותה לפני שמכניסים אותה.
+	The reply may be incomplete: the service did not say why it ended.	ייתכן שהתשובה חלקית: השירות לא ציין מדוע היא הסתיימה.
+	The reply may be incomplete (the service ended it with: {why}).	ייתכן שהתשובה חלקית (סיבת הסיום לפי השירות: {why}).
+	Replace Selection	החלפת הבחירה
+	Insert After	הוספה אחרי
+	{model}: {input} tokens in, {output} tokens out	{model}: {input} אסימונים נכנסו, {output} אסימונים יצאו
+	The first model declined, and a fallback model wrote this reply.	המודל הראשון סירב, ומודל חלופי כתב את התשובה הזו.
+	AI Assistant	עוזר AI
+	AI	AI
+	AI\nAssistant	עוזר\nAI
+	AI Pane	חלונית AI
+	Apply Assistant Reply	החלת תשובת העוזר
+	Assistant Context	הטקסט שיישלח לעוזר
+	The saved key could not be removed.	לא ניתן היה להסיר את המפתח השמור.
+	The key was saved on this computer.	המפתח נשמר במחשב הזה.
+	If you choose to remember the key, it is kept unencrypted in a file in WordCraft's settings folder.	אם תבחרו לזכור את המפתח, הוא יישמר ללא הצפנה בקובץ בתיקיית ההגדרות של WordCraft.
+	Agreeing covers later requests in this run that send a selection. A request that sends the whole document asks again.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו ששולחות טקסט נבחר. בקשה ששולחת את המסמך כולו תבקש אישור מחדש.
+	Agreeing covers later requests in this run, whether they send a selection or the whole document.	האישור חל על בקשות מאוחרות יותר בהפעלה הזו, בין אם הן שולחות טקסט נבחר ובין אם הן שולחות את המסמך כולו.
+	Your instruction (no document text goes with it: the document is empty) will be sent over the internet to {recipient}, to be read by the model {model}. WordCraft keeps no copy. Nothing is sent until you agree.	ההוראה שלכם (לא יישלח איתה טקסט מהמסמך: המסמך ריק) תישלח דרך האינטרנט אל {recipient}, כדי שהמודל {model} יקרא אותה. WordCraft לא שומר עותק. דבר לא יישלח עד שתאשרו.
+	The model sent no text, so there is no reply to place.	המודל לא שלח טקסט, ולכן אין תשובה להכניס.

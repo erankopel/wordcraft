@@ -297,7 +297,9 @@ pub(crate) fn place_endnotes(ctx: &mut Ctx, pb: &mut PageBuilder, ids: Vec<u32>,
         pb.y += h;
     } else {
         pb.y += 12.0;
-        let (x, ry) = (pb.col_x(), pb.y);
+        // Right to left, the line starts at the column's right edge, where the notes do.
+        let x = if pb.notes_rtl { pb.col_x() + (width - NOTE_SEP_W).max(0.0) } else { pb.col_x() };
+        let ry = pb.y;
         if let Some(pg) = pb.page() {
             pg.items.push(Placed::Rule { x0: x, y0: ry, x1: x + NOTE_SEP_W, y1: ry, border: Border::single(0.5) });
         }

@@ -220,6 +220,7 @@ fn new_page_builder<'p>(
         block_marks: Vec::new(),
         page_valign: wordcraft_doc::section::PageVAlign::Top,
         seps: NoteSeps::default(),
+        notes_rtl: false,
         para_end: None,
         behind: Vec::new(),
         max_y: 0.0,
@@ -296,6 +297,7 @@ fn begin_section_state<'p>(
     ctx.fields.page_format = page_format;
     pb.sect_idx = si;
     pb.sect_beneath = doc.note_options(sect, false).pos == wordcraft_doc::section::NotePos::BeneathText;
+    pb.notes_rtl = sect.rtl || doc.styles.resolve_para(&wordcraft_doc::props::ParaProps::default()).bidi;
     if !web && !doc.footnote_separators.is_empty() {
         pb.seps = NoteSeps::new(ctx, &doc.footnote_separators, sect.text_width());
     }

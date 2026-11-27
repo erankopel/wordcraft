@@ -395,7 +395,8 @@ pub(super) fn cover_page(s: &mut Session, v: &Value) -> CmdResult {
         blocks.push(Block::Para(Paragraph::new()));
     }
     let mut t =
-        Paragraph::with_text(&title, CharProps { size: Some(44.0), color: Some(TextColor::Rgb(accent)), ..Default::default() }).styled("Title");
+        Paragraph::with_text(&title, CharProps { size: Some(44.0), size_cs: Some(44.0), color: Some(TextColor::Rgb(accent)), ..Default::default() })
+            .styled("Title");
     t.props.borders = Some(wordcraft_doc::props::Borders {
         bottom: Some(wordcraft_doc::props::Border { style: wordcraft_doc::props::BorderStyle::Single, width: 2.0, color: Some(accent), space: 6.0 }),
         ..Default::default()

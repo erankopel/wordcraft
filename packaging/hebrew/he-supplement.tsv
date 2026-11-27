@@ -823,3 +823,5 @@ icons	Map Pin	סיכת מפה
 @msg	couldn't run xdg-mime: {error}	לא ניתן היה להפעיל את xdg-mime: {error}
 @msg	xdg-mime failed: {message}	xdg-mime נכשל: {message}
 	this edition of WordCraft has no community link	במהדורה זו של WordCraft אין קישור לקהילה
+	Complex script font:	גופן לטקסט בכתב מורכב:
+	Complex script size:	גודל לטקסט בכתב מורכב:

@@ -212,7 +212,7 @@ impl Session {
         }
         self.editing_lang = tag;
         let lang = self.editing_lang.clone().unwrap_or_else(|| "en-US".into());
-        self.restyle_untouched_document(|styles| styles.default_chr.lang = Some(lang));
+        self.restyle_untouched_document(|doc| crate::cmd::tools::set_language(&mut Arc::make_mut(&mut doc.styles).default_chr, &lang));
     }
 
     /// Start new blank documents right to left (`true`), or left to right again
@@ -225,16 +225,16 @@ impl Session {
             return;
         }
         self.new_documents_rtl = on;
-        self.restyle_untouched_document(|styles| crate::cmd::file::set_rtl_defaults(styles, on));
+        self.restyle_untouched_document(|doc| crate::cmd::file::set_rtl_defaults(doc, on));
     }
 
-    /// Change the document defaults of a document nobody has touched yet: untitled, unchanged, no
-    /// undo steps, no text. It is not an edit, so the document stays untouched. Any other
-    /// document is left alone.
-    fn restyle_untouched_document(&mut self, change: impl FnOnce(&mut wordcraft_doc::StyleSheet)) {
+    /// Change the document defaults (and the section) of a document nobody has touched yet:
+    /// untitled, unchanged, no undo steps, no text. It is not an edit, so the document stays
+    /// untouched. Any other document is left alone.
+    fn restyle_untouched_document(&mut self, change: impl FnOnce(&mut wordcraft_doc::Document)) {
         let untouched = self.path.is_none() && !self.dirty && self.history.is_empty() && self.redo.is_empty();
         if untouched && self.doc.plain_text(StoryRef::Body).trim().is_empty() && self.doc.paragraph_count() <= 1 {
-            change(Arc::make_mut(&mut self.doc.styles));
+            change(&mut self.doc);
             self.rev = self.rev.wrapping_add(1);
             // Not an edit: the document is as untouched as it was.
             if self.made_rev == self.rev.wrapping_sub(1) {

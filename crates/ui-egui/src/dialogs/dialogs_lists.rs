@@ -13,8 +13,9 @@ use crate::dialogs::buttons;
 use crate::options::MeasureExt;
 use crate::theme::{Tokens, semibold};
 
-/// Number styles a level can have: OOXML name and a sample.
-const STYLES: [(&str, &str); 10] = [
+/// Number styles a level can have: OOXML name and a sample (what the numbers look like, not
+/// translated). Hebrew numerals and the Hebrew alphabet part ways after the tenth.
+const STYLES: [(&str, &str); 12] = [
     ("decimal", "1, 2, 3, …"),
     ("lowerLetter", "a, b, c, …"),
     ("upperLetter", "A, B, C, …"),
@@ -23,6 +24,8 @@ const STYLES: [(&str, &str); 10] = [
     ("decimalZero", "01, 02, 03, …"),
     ("ordinal", "1st, 2nd, 3rd, …"),
     ("cardinalText", "One, Two, Three, …"),
+    ("hebrew1", "א, ב, ג, … י, יא, יב"),
+    ("hebrew2", "א, ב, ג, … י, כ, ל"),
     ("bullet", "•"),
     ("none", ""),
 ];

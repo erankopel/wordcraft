@@ -87,7 +87,8 @@ fn write_attempt(doc: &Document, lay: &DocLayout, opts: &PdfOptions, pages: &[us
         }
     }
     let settings = krilla::SerializeSettings { compress_content_streams: opts.compress, enable_tagging: opts.tagged, ..Default::default() };
-    let language = doc.styles.default_chr.lang.clone().filter(|l| !l.is_empty() && l.is_ascii());
+    // A Hebrew document is he-IL though its Latin words are en-US ([`wordcraft_doc::StyleSheet::document_lang`]).
+    let language = doc.styles.document_lang().filter(|l| !l.is_empty() && l.is_ascii());
     let mut writer = Writer::new_with_language(settings, metadata(doc, opts), language);
     let pdf = writer.document_mut();
 

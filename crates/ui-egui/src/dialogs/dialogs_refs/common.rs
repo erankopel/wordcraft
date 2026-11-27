@@ -69,8 +69,17 @@ pub(super) fn sample(ui: &mut Ui, lines: &[(usize, String, String)], right: bool
 /// Labels every document has.
 pub(super) const BUILT_IN_LABELS: [&str; 3] = ["Equation", "Figure", "Table"];
 
-pub(super) const NUMBER_FORMATS: [(&str, &str); 5] =
-    [("ARABIC", "1, 2, 3, …"), ("alphabetic", "a, b, c, …"), ("ALPHABETIC", "A, B, C, …"), ("roman", "i, ii, iii, …"), ("ROMAN", "I, II, III, …")];
+/// Caption number formats: (`\*` switch, example). The two Hebrew ones part ways after the tenth
+/// number: Hebrew numerals go on יא, יב (11, 12), the alphabet goes on כ, ל.
+pub(super) const NUMBER_FORMATS: [(&str, &str); 7] = [
+    ("ARABIC", "1, 2, 3, …"),
+    ("alphabetic", "a, b, c, …"),
+    ("ALPHABETIC", "A, B, C, …"),
+    ("roman", "i, ii, iii, …"),
+    ("ROMAN", "I, II, III, …"),
+    ("hebrew1", "א, ב, ג, … י, יא, יב"),
+    ("hebrew2", "א, ב, ג, … י, כ, ל"),
+];
 
 pub(super) const SEPARATORS: [(&str, &str); 5] =
     [("-", "- (hyphen)"), (".", ". (period)"), (":", ": (colon)"), ("\u{2014}", "\u{2014} (em dash)"), ("\u{2013}", "\u{2013} (en dash)")];

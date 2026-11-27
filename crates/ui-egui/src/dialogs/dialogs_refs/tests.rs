@@ -426,3 +426,19 @@ fn the_source_manager_imports_a_word_sources_file() {
     assert!(h.state().status_msg.as_ref().is_some_and(|(m, _)| m.contains("Imported 2 sources")), "{:?}", h.state().status_msg);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// HE-13: the Caption dialog numbers in Hebrew numerals (`hebrew1`, as here) or the Hebrew
+/// alphabet (`hebrew2`): its preview shows the first number, alef, and so does the caption.
+#[test]
+fn caption_dialog_numbers_in_hebrew() {
+    let mut a = app("A chart");
+    a.run("select.text", json!({"text": "A chart"})).unwrap();
+    assert_eq!(a.run("references.caption", json!({})).unwrap(), json!({"pending": "caption"}));
+    let RefsDialog::Caption(mut f) = form(&a) else { panic!() };
+    a.dialog = None;
+    f.format = "hebrew1".into();
+    assert_eq!(f.preview(), "Figure \u{05D0}");
+    a.run("references.caption", f.params()).unwrap();
+    assert!(instrs(&a).iter().any(|i| i.contains("\\* hebrew1")), "{:?}", instrs(&a));
+    assert!(a.session.doc.plain_text(StoryRef::Body).contains("Figure \u{05D0}"));
+}

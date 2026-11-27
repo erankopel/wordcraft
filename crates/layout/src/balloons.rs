@@ -147,10 +147,18 @@ pub(crate) fn add(ctx: &mut Ctx, lay: &mut DocLayout) {
                 items.push(Placed::Rule { x0: x, y0: y, x1: x + inner, y1: y, border });
                 y += 3.0;
             }
-            // Who wrote it, in their colour.
+            // Who wrote it, in their colour; a Hebrew or Arabic name too, whose letters take the
+            // complex-script size and bold (the document's defaults may set a size for them).
             let head = Paragraph::with_text(
                 author_name(&cm.author),
-                CharProps { bold: Some(true), size: Some(9.0), color: Some(TextColor::Rgb(color)), ..Default::default() },
+                CharProps {
+                    bold: Some(true),
+                    bold_cs: Some(true),
+                    size: Some(9.0),
+                    size_cs: Some(9.0),
+                    color: Some(TextColor::Rgb(color)),
+                    ..Default::default()
+                },
             );
             let pl = ctx.para_labelled(&head, inner, None, &[], None);
             let lead = pl.lines.first().map_or(0.0, |l| l.top.max(0.0));

@@ -445,6 +445,46 @@ impl StyleSheet {
         cp.overlay(&direct);
         ResolvedChar::from(&cp)
     }
+
+    /// The language a document is written in as a whole, for a reader (a PDF's `/Lang`): the
+    /// language of its complex-script text (`w:lang/@w:bidi`) when its paragraphs read right to
+    /// left by default, so a Hebrew document is `he-IL` though its Latin words keep `en-US`;
+    /// otherwise the language of its other text (`w:lang/@w:val`). Read from the document
+    /// defaults and the Normal style.
+    pub fn document_lang(&self) -> Option<String> {
+        let rc = self.resolve_char(None, &CharProps::default());
+        let bidi = rc.lang_bidi.filter(|l| !l.trim().is_empty());
+        match bidi {
+            Some(l) if self.resolve_para(&ParaProps::default()).bidi => Some(l),
+            _ => rc.lang,
+        }
+    }
+
+    /// The language a paragraph's text is read in (a PDF's paragraph tag): that of its first
+    /// letter, as Word files it. A letter formatted with the complex-script properties (Hebrew,
+    /// Arabic…, or any letter of a right-to-left run) is in the complex-script language
+    /// (`w:lang/@w:bidi`), else in the text language (`w:lang/@w:val`). Hebrew letters are never
+    /// Arabic, so Hebrew text whose complex-script language is not one written in Hebrew letters
+    /// (Word's usual `ar-SA` outside Hebrew setups) is read as Hebrew. `None` without letters.
+    pub fn para_lang(&self, p: &crate::Paragraph) -> Option<String> {
+        let style = p.props.style.as_deref();
+        for (r, c) in p.run_ranges() {
+            let Some(ch) = p.text.get(r).and_then(|t| t.chars().find(|ch| ch.is_alphabetic())) else { continue };
+            let rc = self.resolve_char(style, c);
+            if !rc.uses_complex(ch) {
+                return rc.lang;
+            }
+            let hebrew_letter = matches!(ch, '\u{0590}'..='\u{05FF}' | '\u{FB1D}'..='\u{FB4F}');
+            let written_in_hebrew = |l: &str| matches!(crate::bidi::primary_subtag(l).as_str(), "he" | "iw" | "yi" | "ji");
+            return match rc.lang_bidi.filter(|l| !l.trim().is_empty()) {
+                Some(l) if hebrew_letter && !written_in_hebrew(&l) => Some("he".into()),
+                None if hebrew_letter => Some("he".into()),
+                Some(l) => Some(l),
+                None => rc.lang,
+            };
+        }
+        None
+    }
 }
 
 /// The properties of `with` that differ from `without` (both fully resolved property sets of one

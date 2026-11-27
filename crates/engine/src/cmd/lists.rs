@@ -19,7 +19,7 @@ pub const LEVELS: usize = 9;
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("list.define", "Define New Multilevel List", "Home › Paragraph › Multilevel List", define).params(
-            r#"{"levels": [{"format"?: "decimal|lowerLetter|upperLetter|lowerRoman|upperRoman|decimalZero|ordinal|bullet|none", "text"?: "%1.%2." (%n = level n's number; the bullet character for bullet), "start"?: n, "restartAfter"?: 0-8 (0 = never; omit = the level above), "style"?: paragraph style linked to the level | null, "align"?: "left|center|right", "alignedAt"?: pt, "indentAt"?: pt, "follow"?: "tab|space|nothing", "tabAt"?: pt | null, "font"?: string | null, "bold"?: bool, "italic"?: bool, "color"?: "RRGGBB" | null, "legal"?: bool}, …] (index = level, up to 9; fields left out keep the base list's), "num"?: list id to change in place (default: a new list), "apply"?: bool (default true: number the selected paragraphs), "name"?: string}"#,
+            r#"{"levels": [{"format"?: "decimal|lowerLetter|upperLetter|lowerRoman|upperRoman|decimalZero|ordinal|cardinalText|hebrew1|hebrew2|bullet|none|…" (any ST_NumberFormat; hebrew1: Hebrew numerals א … י, יא; hebrew2: the Hebrew alphabet א … ת), "text"?: "%1.%2." (%n = level n's number; the bullet character for bullet), "start"?: n, "restartAfter"?: 0-8 (0 = never; omit = the level above), "style"?: paragraph style linked to the level | null, "align"?: "left|center|right", "alignedAt"?: pt, "indentAt"?: pt, "follow"?: "tab|space|nothing", "tabAt"?: pt | null, "font"?: string | null, "bold"?: bool, "italic"?: bool, "color"?: "RRGGBB" | null, "legal"?: bool}, …] (index = level, up to 9; fields left out keep the base list's), "num"?: list id to change in place (default: a new list), "apply"?: bool (default true: number the selected paragraphs), "name"?: string}"#,
         ),
         CommandSpec::new("list.get", "List Definition", "Home › Paragraph › Multilevel List", get)
             .params(r#"{"num"?: list id (default: the caret's list)} → {"num", "levels": [as list.define]}"#)
@@ -224,14 +224,18 @@ pub fn define_bullet(s: &mut Session, v: &Value) -> CmdResult {
         if let Some(lv) = levels.get_mut(usize::from(l)) {
             lv.text = ch.to_string();
             lv.chr.font = font.clone();
+            // A label in a right-to-left paragraph takes the complex-script size, bold and italic.
             if size.is_some() {
                 lv.chr.size = size;
+                lv.chr.size_cs = size;
             }
             if bold.is_some() {
                 lv.chr.bold = bold;
+                lv.chr.bold_cs = bold;
             }
             if italic.is_some() {
                 lv.chr.italic = italic;
+                lv.chr.italic_cs = italic;
             }
             if color.is_some() {
                 lv.chr.color = color;

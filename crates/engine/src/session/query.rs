@@ -292,11 +292,15 @@ impl Session {
     }
 }
 
-/// A new blank document on `region`'s paper (see [`Session::blank_document`]).
+/// A new blank document on `region`'s paper (see [`Session::blank_document`]). Its Header and
+/// Footer styles' centre and right tabs sit at the middle and the end of that paper's text width,
+/// as the Normal template of a region with that paper has them (A4: 4513 and 9026 twips).
 pub fn blank_document(region: &wordcraft_geom::Region) -> Document {
     let mut d = Document::new();
     let (_, w, h) = region.paper();
     d.last_section.page_w = w;
     d.last_section.page_h = h;
+    let width = d.last_section.text_width();
+    std::sync::Arc::make_mut(&mut d.styles).fit_header_footer_tabs(width);
     d
 }

@@ -58,6 +58,9 @@ pub(crate) struct PageBuilder<'a> {
     pub(crate) page_valign: wordcraft_doc::section::PageVAlign,
     /// The document's own footnote separators, laid out for the section's text width.
     pub(crate) seps: NoteSeps,
+    /// The default (short) note separators start at the right margin: the section reads right to
+    /// left, or the document's paragraphs do, as the notes below them then do.
+    pub(crate) notes_rtl: bool,
     /// Where the last paragraph's lines ended: page count, column and y.
     pub(crate) para_end: Option<(usize, usize, f32)>,
     /// Per page: how many items were inserted at the front of its list (behind the text), so a
@@ -199,9 +202,11 @@ impl PageBuilder<'_> {
                     it
                 })),
                 None => {
-                    let len = if cont { self.sect.text_width() } else { NOTE_SEP_W };
+                    let width = self.sect.text_width();
+                    let len = if cont { width } else { NOTE_SEP_W };
+                    let x0 = if self.notes_rtl { x + (width - len).max(0.0) } else { x };
                     let sy = top + NOTE_SEP / 2.0;
-                    pg.items.push(Placed::Rule { x0: x, y0: sy, x1: x + len, y1: sy, border: Border::single(0.5) });
+                    pg.items.push(Placed::Rule { x0, y0: sy, x1: x0 + len, y1: sy, border: Border::single(0.5) });
                 }
             }
             for (n, ny) in placed {

@@ -91,6 +91,9 @@ pub const NUMBER_FORMATS: &[(&str, &str)] = &[
     ("Ordinal", "1st, 2nd, 3rd, …"),
     ("CardText", "One, Two, Three, …"),
     ("OrdText", "First, Second, Third, …"),
+    // Hebrew numerals, and the Hebrew alphabet: they part ways after the tenth.
+    ("hebrew1", "א, ב, ג, … י, יא, יב"),
+    ("hebrew2", "א, ב, ג, … י, כ, ל"),
 ];
 
 /// Capitalization formats for the `\*` switch of a text field: (switch value, label).

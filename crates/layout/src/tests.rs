@@ -3816,6 +3816,53 @@ fn footnotes_sit_at_page_bottom() {
     assert!(l.caret_on(&Pos { story: StoryRef::Part(eid), path: Path::top(0), off: 0 }, 0).is_some());
 }
 
+/// The default footnote and endnote separators start where the notes below them do: at the left
+/// margin in a left-to-right document, at the right margin when the document's paragraphs or its
+/// section read right to left.
+#[test]
+fn default_note_separators_start_at_the_right_in_right_to_left_documents() {
+    crate::test_fonts();
+    use wordcraft_doc::para::NoteKind;
+    let doc = |paras_rtl: bool, section_rtl: bool| {
+        let mut d = Document::from_text("Body text line.\nAnother line.");
+        Arc::make_mut(&mut d.styles).default_para.bidi = paras_rtl.then_some(true);
+        d.last_section.rtl = section_rtl;
+        for (block, kind, part) in
+            [(0, NoteKind::Footnote, wordcraft_doc::PartKind::Footnote), (1, NoteKind::Endnote, wordcraft_doc::PartKind::Endnote)]
+        {
+            let note = wordcraft_doc::Paragraph::with_text("A note.", Default::default());
+            let id = d.add_part(part, vec![wordcraft_doc::para_block(note)]);
+            d.insert_object(&Pos::body(block, 4), InlineObject::NoteRef { kind, id, custom: String::new() }, &Default::default()).unwrap();
+        }
+        d
+    };
+    // The separator lines: the only horizontal rules these pages have.
+    let rules = |d: &Document| -> Vec<(f32, f32)> {
+        lay(d)
+            .pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .filter_map(|it| match it {
+                Placed::Rule { x0, x1, y0, y1, .. } if (y0 - y1).abs() < 0.01 => Some((*x0, *x1)),
+                _ => None,
+            })
+            .collect()
+    };
+    let ltr = doc(false, false);
+    let centre = ltr.last_section.page_w / 2.0;
+    let lines = rules(&ltr);
+    assert_eq!(lines.len(), 2, "a footnote and an endnote separator: {lines:?}");
+    assert!(lines.iter().all(|&(_, x1)| x1 < centre), "left to right, both stay in the left half: {lines:?}");
+    for (paras_rtl, section_rtl) in [(true, false), (false, true), (true, true)] {
+        let lines = rules(&doc(paras_rtl, section_rtl));
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(
+            lines.iter().all(|&(x0, _)| x0 > centre),
+            "paragraphs right to left: {paras_rtl}, section: {section_rtl}; both in the right half: {lines:?}"
+        );
+    }
+}
+
 #[test]
 fn deleted_note_anchors_take_no_number_and_print_no_note() {
     crate::test_fonts();
@@ -4593,6 +4640,46 @@ fn line_numbers_stand_beside_each_column() {
     let left = numbers.len() - right.len();
     assert!(numbers.iter().filter(|(r, _)| *r <= s.margin_left + 1.0).all(|(r, _)| (r - (s.margin_left - 18.0)).abs() < 0.5));
     assert!(left > 0);
+}
+
+/// A right-to-left section's lines start at the right, and so its line numbers stand right of its
+/// columns, at the line number distance from the text; a left-to-right section's stay at the left.
+#[test]
+fn line_numbers_of_a_right_to_left_section_stand_at_the_right() {
+    crate::test_fonts();
+    let text = (1..=120).map(|i| format!("\u{05E9}\u{05D5}\u{05E8}\u{05D4} {i}")).collect::<Vec<_>>().join("\n");
+    let numbers = |rtl: bool, count: u32| {
+        let mut d = Document::from_text(&text);
+        d.last_section.line_numbers = Some(Default::default());
+        d.last_section.rtl = rtl;
+        d.last_section.columns = wordcraft_doc::section::Columns { count, space: 36.0, separator: false, widths: Vec::new() };
+        let l = lay(&d);
+        // Every number's left and right edges, and every body line's left and right edges.
+        let span = |x: f32, para: &ParaLayout| (x, x + para.lines.first().and_then(|l| l.xs.last().copied()).unwrap_or(0.0));
+        let numbers: Vec<(f32, f32)> = l.pages[0]
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                Placed::Lines { story, para, x, .. } if *story == DECOR_STORY => Some(span(*x, para)),
+                _ => None,
+            })
+            .collect();
+        (d.last_section.clone(), numbers)
+    };
+    let (s, ltr) = numbers(false, 1);
+    let (text_left, text_right) = (s.margin_left + s.gutter, s.margin_left + s.gutter + s.text_width());
+    assert!(!ltr.is_empty() && ltr.iter().all(|(_, r)| *r < text_left), "left to right: in the left margin: {ltr:?}");
+    let (_, rtl) = numbers(true, 1);
+    assert_eq!(rtl.len(), ltr.len(), "a number per line either way");
+    assert!(rtl.iter().all(|(l, _)| *l > text_right), "right to left: in the right margin, past the text: {rtl:?}");
+    // In two columns, each column's numbers stand right of that column: some beside the
+    // right-hand column (in the page margin), some in the gap between the columns.
+    let (_, two) = numbers(true, 2);
+    let centre = s.page_w / 2.0;
+    assert!(
+        two.iter().any(|(l, _)| *l > text_right) && two.iter().any(|(l, r)| *l > text_left && *r < text_right && (*l - centre).abs() < 36.0),
+        "{two:?}"
+    );
 }
 
 #[test]

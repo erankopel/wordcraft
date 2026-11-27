@@ -783,8 +783,10 @@ fn add_notes(pb: &mut PageBuilder, mut new_notes: Vec<NoteBox>, notes: &[(usize,
     }
 }
 
-/// Line numbers for lines `l0..l1` of `pl` laid out from `y`, left of the column they are in:
-/// each column of a multi-column section gets its own (#6018), as in Word.
+/// Line numbers for lines `l0..l1` of `pl` laid out from `y`, beside the start edge of the column
+/// they are in: left of it, or right of it in a right-to-left section (`w:bidi` in `w:sectPr`),
+/// whose lines start at the right. Each column of a multi-column section gets its own (#6018), as
+/// in Word.
 fn line_numbers(ctx: &mut Ctx, pb: &mut PageBuilder, pl: &ParaLayout, (l0, l1): (usize, usize), y: f32) -> Vec<Placed> {
     let mut items = Vec::new();
     if let Some(ln) = pb.sect.line_numbers.clone().filter(|_| !pb.web && pl.rp.style != "Header" && !pl.rp.suppress_line_numbers)
@@ -801,13 +803,14 @@ fn line_numbers(ctx: &mut Ctx, pb: &mut PageBuilder, pl: &ParaLayout, (l0, l1): 
             let w = num.lines.first().and_then(|l| l.xs.last().copied()).unwrap_or(10.0);
             let dist = if ln.distance > 0.0 { ln.distance } else { 18.0 };
             let ly = y + (line.top - first.top) + (line.baseline - line.top) - num.lines.first().map(|l| l.baseline).unwrap_or(10.0);
+            let x = if pb.sect.rtl { pb.col_x() + pb.col_w() + dist } else { pb.col_x() - dist - w };
             items.push(Placed::Lines {
                 story: DECOR_STORY,
                 path: Path(vec![]),
                 para: num.clone(),
                 l0: 0,
                 l1: 1,
-                x: pb.col_x() - dist - w,
+                x,
                 y: ly,
                 turn: TextDirection::Horizontal,
             });

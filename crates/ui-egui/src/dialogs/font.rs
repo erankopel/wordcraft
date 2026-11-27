@@ -112,7 +112,26 @@ pub(super) fn font_box(
 /// The character properties the Font dialog's fields stand for.
 pub(super) fn font_props(d: &Dialog) -> serde_json::Map<String, Value> {
     let Dialog::Font {
-        font, font_ea, size, bold, italic, underline, strike, sup, sub, small_caps, caps, hidden, color, spacing, kern, kern_at, ..
+        font,
+        font_ea,
+        font_cs,
+        size_cs,
+        complex,
+        size,
+        bold,
+        italic,
+        underline,
+        strike,
+        sup,
+        sub,
+        small_caps,
+        caps,
+        hidden,
+        color,
+        spacing,
+        kern,
+        kern_at,
+        ..
     } = d
     else {
         return serde_json::Map::new();
@@ -152,6 +171,15 @@ pub(super) fn font_props(d: &Dialog) -> serde_json::Map<String, Value> {
     if let Ok(s) = size.trim().parse::<f64>() {
         props.insert("size".into(), json!(s));
     }
+    // The complex script row: Hebrew, Arabic… text's own font and size.
+    if *complex {
+        if !font_cs.trim().is_empty() {
+            props.insert("fontCs".into(), json!(font_cs.trim()));
+        }
+        if let Ok(s) = size_cs.trim().parse::<f64>() {
+            props.insert("sizeCs".into(), json!(s));
+        }
+    }
     if let Some(c) = wordcraft_doc::Rgb::parse(color) {
         props.insert("color".into(), json!({"Rgb": [c.0, c.1, c.2]}));
     } else if color.eq_ignore_ascii_case("auto") {
@@ -171,7 +199,9 @@ pub(super) fn east_asian_char(c: char) -> bool {
 /// size, bold, italic and colour, and carries the form back (see `Dialog::Font::bullet`).
 pub fn font_for_bullet(app: &mut WordApp, form: crate::dialogs_bullet::DefineBulletForm) -> Option<Dialog> {
     let mut d = Dialog::open("font", app)?;
-    if let Dialog::Font { font, font_was, size, bold, italic, color, .. } = &mut d {
+    if let Dialog::Font { font, font_was, size, bold, italic, color, complex, .. } = &mut d {
+        // A bullet has one font and size.
+        *complex = false;
         if !form.font.is_empty() {
             *font = app.previews.font_shown(&form.font);
             *font_was = font.clone();
@@ -211,19 +241,74 @@ pub(super) fn hand_back_bullet(app: &mut WordApp, d: &mut Dialog, ok: bool) -> b
 
 /// The Font dialog's OK: one formatting step that sets only the properties the user changed, so
 /// formatting the dialog can't show or left alone stays as it is. Fonts are set by their stored
-/// (English) names, the Latin font for Persian/Arabic text too (as `format.font`).
+/// (English) names. With the complex script row shown, each script's font and size are set on
+/// their own (Bold and Italic still format both, as the buttons do), so a new Latin text font
+/// leaves Hebrew text's font as it is; without it the font is the Persian/Arabic text's font too
+/// (as `format.font`), and a size sizes both.
 pub(super) fn apply_font(app: &mut WordApp, d: &Dialog) {
-    let Dialog::Font { start, .. } = d else { return };
+    let Dialog::Font { start, complex, .. } = d else { return };
     let mut changed: serde_json::Map<String, Value> = font_props(d).into_iter().filter(|(k, v)| start.get(k) != Some(v)).collect();
-    if let Some(f) = changed.get("font").and_then(Value::as_str).map(str::to_string) {
-        let f = app.previews.font_stored(&f);
-        changed.insert("font".into(), json!(f));
-        changed.insert("fontCs".into(), json!(f));
+    for key in ["font", "fontCs", "fontEa"] {
+        if let Some(f) = changed.get(key).and_then(Value::as_str).map(str::to_string) {
+            changed.insert(key.into(), json!(app.previews.font_stored(&f)));
+        }
     }
-    if let Some(f) = changed.get("fontEa").and_then(Value::as_str).map(str::to_string) {
-        changed.insert("fontEa".into(), json!(app.previews.font_stored(&f)));
+    if !*complex && let Some(f) = changed.get("font").cloned() {
+        changed.insert("fontCs".into(), f);
     }
-    if !changed.is_empty() {
+    if changed.is_empty() {
+        return;
+    }
+    if *complex {
+        for (latin, cs) in [("bold", "boldCs"), ("italic", "italicCs")] {
+            if let Some(v) = changed.get(latin).cloned() {
+                changed.entry(cs).or_insert(v);
+            }
+        }
+        let _ = app.run("format.set", json!({"props": changed, "pair": false}));
+    } else {
         let _ = app.run("format.set", json!({"props": changed}));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Dialog, WordApp, apply_font, json};
+    use crate::Services;
+    use wordcraft_engine::Session;
+
+    /// The Latin and complex-script font and size of the first paragraph's first letter.
+    fn fonts(a: &WordApp) -> (String, String, f32, f32) {
+        let s = &a.session;
+        let p = s.doc.para_at(&wordcraft_doc::Pos::body(0, 0)).expect("a first paragraph");
+        let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(0));
+        (rc.font, rc.font_cs, rc.size, rc.size_cs)
+    }
+
+    /// UWB-09, HE-02: in a Hebrew document the Font dialog has a complex script row showing
+    /// Hebrew text's own font. A new Latin text font leaves that font as it is, and the row sets
+    /// Hebrew text's font and size without touching the Latin ones.
+    #[test]
+    fn the_font_dialog_sets_the_hebrew_font_apart_from_the_latin_one() {
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        a.session.set_new_documents_rtl(true);
+        a.run("text.insert", json!({"text": "\u{05E9}\u{05DC}\u{05D5}\u{05DD}"})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        let before = fonts(&a);
+        let Some(mut d) = Dialog::open("font", &mut a) else { panic!("no Font dialog") };
+        let Dialog::Font { complex, font, font_cs, .. } = &mut d else { panic!("not the Font dialog") };
+        assert!(*complex, "Hebrew text shows the complex script row");
+        assert_eq!((font.as_str(), font_cs.as_str()), (before.0.as_str(), before.1.as_str()), "each row shows its own font");
+        *font = "Georgia".into();
+        apply_font(&mut a, &d);
+        let latin = fonts(&a);
+        assert_eq!((latin.0.as_str(), latin.1.as_str()), ("Georgia", before.1.as_str()), "the Hebrew font stays");
+        let Some(mut d) = Dialog::open("font", &mut a) else { panic!("no Font dialog") };
+        let Dialog::Font { font_cs, size_cs, .. } = &mut d else { panic!("not the Font dialog") };
+        (*font_cs, *size_cs) = ("Arial".into(), "20".into());
+        apply_font(&mut a, &d);
+        let complex = fonts(&a);
+        assert_eq!((complex.1.as_str(), complex.3), ("Arial", 20.0), "the complex script row reaches Hebrew text");
+        assert_eq!((complex.0.as_str(), complex.2), ("Georgia", latin.2), "and leaves the Latin font and size alone");
     }
 }

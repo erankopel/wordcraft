@@ -133,6 +133,14 @@ pub enum ListKind {
     LowerRoman,
     /// 1. 1.1. 1.1.1.
     Legal,
+    /// א. ב. ג. in Hebrew numerals (`hebrew1`: … ט, י, יא), then 1. and i. below it.
+    Hebrew1,
+    /// א) ב) ג) in Hebrew numerals.
+    Hebrew1Paren,
+    /// א. ב. ג. in the Hebrew alphabet (`hebrew2`: … ט, י, כ).
+    Hebrew2,
+    /// א) ב) ג) in the Hebrew alphabet.
+    Hebrew2Paren,
 }
 
 impl ListKind {
@@ -147,6 +155,10 @@ impl ListKind {
             "lowerLetterDot" => ListKind::LowerLetterDot,
             "lowerRoman" => ListKind::LowerRoman,
             "legal" | "multilevel" => ListKind::Legal,
+            "hebrew1" => ListKind::Hebrew1,
+            "hebrew1Paren" => ListKind::Hebrew1Paren,
+            "hebrew2" => ListKind::Hebrew2,
+            "hebrew2Paren" => ListKind::Hebrew2Paren,
             s if s.chars().count() == 1 => ListKind::BulletChar(s.chars().next()?),
             _ => return None,
         })
@@ -201,6 +213,10 @@ pub fn levels_for(kind: ListKind) -> Vec<Level> {
                 ListKind::LowerLetter => lvl(cyc(NumFormat::LowerLetter, NumFormat::LowerRoman, NumFormat::Decimal), format!("%{n})")),
                 ListKind::LowerLetterDot => lvl(cyc(NumFormat::LowerLetter, NumFormat::LowerRoman, NumFormat::Decimal), format!("%{n}.")),
                 ListKind::LowerRoman => lvl(cyc(NumFormat::LowerRoman, NumFormat::LowerLetter, NumFormat::Decimal), format!("%{n}.")),
+                ListKind::Hebrew1 => lvl(cyc(NumFormat::Hebrew1, NumFormat::Decimal, NumFormat::LowerRoman), format!("%{n}.")),
+                ListKind::Hebrew1Paren => lvl(cyc(NumFormat::Hebrew1, NumFormat::Decimal, NumFormat::LowerRoman), format!("%{n})")),
+                ListKind::Hebrew2 => lvl(cyc(NumFormat::Hebrew2, NumFormat::Decimal, NumFormat::LowerRoman), format!("%{n}.")),
+                ListKind::Hebrew2Paren => lvl(cyc(NumFormat::Hebrew2, NumFormat::Decimal, NumFormat::LowerRoman), format!("%{n})")),
                 ListKind::Outline => {
                     let f = [NumFormat::UpperRoman, NumFormat::UpperLetter, NumFormat::Decimal, NumFormat::LowerLetter, NumFormat::LowerRoman]
                         .get(i)

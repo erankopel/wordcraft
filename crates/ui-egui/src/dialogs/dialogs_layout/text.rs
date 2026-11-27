@@ -337,7 +337,10 @@ impl LanguageForm {
         let s = &app.session;
         let style = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.style.as_deref());
         let here = s.doc.styles.resolve_char(style, &s.typing_props());
-        let lang = here.lang.unwrap_or_else(|| "en-US".into());
+        // The selection's language as Word files it: Hebrew text is in the language of
+        // complex-script text (`w:lang/@w:bidi`), so it opens on Hebrew, not on its Latin words'
+        // English. Letters in several languages: the caret's, as before.
+        let lang = wordcraft_engine::cmd::format::selection_language(s).or(here.lang).unwrap_or_else(|| "en-US".into());
         LanguageForm {
             initial: (lang.clone(), here.no_proof),
             lang,
@@ -407,4 +410,24 @@ pub(super) fn language_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LanguageForm) 
         return run(app, "review.language", f.params());
     }
     cancel
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LanguageForm, WordApp, json};
+    use crate::Services;
+    use wordcraft_engine::Session;
+
+    /// UWB-15: in a Hebrew document the Language dialog opens on Hebrew in Hebrew text, the
+    /// language Word files its letters under (`w:lang/@w:bidi`), and on English in its Latin words.
+    #[test]
+    fn language_dialog_reads_hebrew_text_as_hebrew() {
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        a.session.set_new_documents_rtl(true);
+        a.run("text.insert", json!({"text": "\u{05E9}\u{05DC}\u{05D5}\u{05DD} Hello"})).unwrap();
+        a.run("caret.docStart", json!({})).unwrap();
+        assert_eq!(LanguageForm::read(&a).lang, "he-IL");
+        a.run("caret.docEnd", json!({})).unwrap();
+        assert_eq!(LanguageForm::read(&a).lang, "en-US");
+    }
 }

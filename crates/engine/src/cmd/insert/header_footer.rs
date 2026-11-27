@@ -30,7 +30,11 @@ pub(super) fn hf_part(s: &mut Session, header: bool) -> u32 {
     id
 }
 
-/// Three independently editable cells spanning the section's text width.
+/// Three independently editable cells spanning the section's text width: the first item at the
+/// start edge, the second centred, the third at the end edge. Where the Header (Footer) style reads
+/// right to left, as in a Hebrew document, the table is a right-to-left one (`w:bidiVisual`), as a
+/// table inserted in a right-to-left paragraph is: its first cell is at the right, and each
+/// cell's start and end alignment puts the first item at the right margin and the last at the left.
 fn three_column_hf(s: &Session, style: &str) -> wordcraft_doc::Blocks {
     let block = s.sel.focus.path.0.first().copied().unwrap_or(0) as usize;
     // The section `section_mut` would pick, read without making anything unique.
@@ -43,6 +47,7 @@ fn three_column_hf(s: &Session, style: &str) -> wordcraft_doc::Blocks {
     table.props.fixed = true;
     // Explicit nil borders also override borders inherited from the document's table style.
     table.props.borders = Some(Borders::all(Border::default()));
+    table.props.bidi_visual = s.doc.styles.resolve_para(&wordcraft_doc::props::ParaProps { style: Some(style.into()), ..Default::default() }).bidi;
     for row in &mut table.rows {
         for (cell, align) in row.cells.iter_mut().zip([Align::Left, Align::Center, Align::Right]) {
             let mut para = Paragraph::new().styled(style);

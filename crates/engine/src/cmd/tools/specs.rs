@@ -337,7 +337,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 pp.style = Some("ListParagraph".into());
             })
         })
-        .params(r#"{"format": "decimal|upperRoman|lowerLetter…", "text"?: "%1.", "start"?: n}"#),
+        .params(r#"{"format": "decimal|upperRoman|lowerLetter|hebrew1|hebrew2…" (hebrew1: Hebrew numerals א … י, יא; hebrew2: the Hebrew alphabet א … ת), "text"?: "%1.", "start"?: n}"#),
         CommandSpec::new("review.language", "Language", "Review › Language", language).params(
             r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default and the saved language for future blank documents), "scope"?: "selection" (default) | "document" (every run and paragraph mark of every story: body, headers, footers, notes, comments, text boxes, tables, glossary (skipped while Track Changes and Track Formatting are on); one undo step, selection unchanged; returns the caret, "scope":"document" and "glossarySkipped":true when the glossary was skipped)}"#,
         ),

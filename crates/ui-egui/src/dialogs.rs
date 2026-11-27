@@ -77,6 +77,13 @@ pub enum Dialog {
         /// Show the Asian text font box: a Chinese or Japanese interface, or East Asian text or
         /// an Asian font in the selection.
         asian: bool,
+        /// The complex-script font and size (Hebrew, Arabic… text, `w:cs` and `w:szCs`), set on
+        /// their own, apart from the Latin text font and size. Shown when `complex`: a
+        /// right-to-left interface, or right-to-left or complex-script text or paragraphs at the
+        /// selection; the Latin text font then no longer changes Hebrew text's font.
+        font_cs: String,
+        size_cs: String,
+        complex: bool,
         size: String,
         bold: bool,
         italic: bool,
@@ -628,7 +635,6 @@ impl Dialog {
         let b = |k: &str| st.get(k).and_then(Value::as_bool).unwrap_or(false);
         Some(match name {
             "font" => {
-                let font = app.previews.font_shown(&s("font"));
                 let font_ea = app.previews.font_shown(&s("fontEastAsia"));
                 let lang = crate::i18n::current().code();
                 let text = app.session.selected_text();
@@ -638,6 +644,15 @@ impl Dialog {
                     text
                 };
                 let asian = ["zh", "ja", "ko"].iter().any(|l| lang.starts_with(l)) || !font_ea.is_empty() || text.chars().any(east_asian_char);
+                // Word's complex script font and size, beside the Latin text ones, wherever
+                // right-to-left or complex-script text is written.
+                let rtl_para = app.session.doc.para_at(&app.session.sel.focus).is_some_and(|p| app.session.doc.styles.resolve_para(&p.props).bidi);
+                let complex = crate::rtl::on() || rtl_para || b("complex") || text.chars().any(wordcraft_doc::bidi::is_complex_script);
+                let num = |k: &str| st.get(k).and_then(Value::as_f64).map(|v| v.to_string()).unwrap_or_default();
+                // The Latin text font and size on their own when the complex script ones are
+                // shown; else what the Font group shows.
+                let (font, size) = if complex { (s("fontLatin"), num("sizeLatin")) } else { (s("font"), num("size")) };
+                let font = app.previews.font_shown(&font);
                 let kern = st.get("kern").and_then(Value::as_f64);
                 let mut d = Dialog::Font {
                     font_was: font.clone(),
@@ -645,7 +660,10 @@ impl Dialog {
                     font_ea_was: font_ea.clone(),
                     font_ea,
                     asian,
-                    size: st.get("size").and_then(Value::as_f64).map(|v| v.to_string()).unwrap_or_default(),
+                    font_cs: app.previews.font_shown(&s("fontCs")),
+                    size_cs: num("sizeCs"),
+                    complex,
+                    size,
                     bold: b("bold"),
                     italic: b("italic"),
                     underline: b("underline"),

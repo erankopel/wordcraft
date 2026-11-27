@@ -36,6 +36,18 @@ pub struct Opts {
     pub regex: bool,
     /// Take the text literally: no `^` codes.
     pub literal: bool,
+    /// Word's "Match diacritics": Hebrew points (niqqud) and cantillation marks must match too.
+    /// Off, a normal search looks past them, so שלום finds שָׁלוֹם and the other way round.
+    pub match_diacritics: bool,
+}
+
+/// Hebrew points and cantillation marks ([`wordcraft_doc::bidi::is_hebrew_point`]), any number,
+/// as a search without Match diacritics lets them follow each Hebrew letter.
+const HEBREW_MARKS: &str = r"[\x{0591}-\x{05BD}\x{05BF}\x{05C1}\x{05C2}\x{05C4}\x{05C5}\x{05C7}]*";
+
+/// A Hebrew letter (final forms and the Yiddish ligatures included), which points may follow.
+fn is_hebrew_letter(c: char) -> bool {
+    matches!(c, '\u{05D0}'..='\u{05EA}' | '\u{05EF}'..='\u{05F2}' | '\u{FB1D}'..='\u{FB4F}')
 }
 
 /// A pattern ready for the regex engine.
@@ -198,12 +210,18 @@ fn special(query: &str, o: &Opts) -> (String, bool) {
         if (o.ignore_punct && is_punct(c)) || (o.ignore_space && is_space(c)) {
             continue;
         }
-        // A keyboard apostrophe or double quote also finds text produced by smart quotes.
-        // Explicit character codes above, and literal/regex/wildcard searches, keep exact
-        // character matching.
+        // Without Match diacritics the points in Find what don't count either.
+        if !o.match_diacritics && wordcraft_doc::bidi::is_hebrew_point(c) {
+            continue;
+        }
+        // A keyboard apostrophe or double quote also finds text produced by smart quotes, and
+        // the Hebrew geresh and gershayim they stand for (צה"ל finds צה״ל and צה”ל); each finds
+        // the others. Explicit character codes above, and literal/regex/wildcard searches, keep
+        // exact character matching.
         atoms.push(match c {
-            '\'' => "['‘’]".into(),
-            '"' => "[\"“”]".into(),
+            '\'' | '\u{05F3}' => "['‘’\u{05F3}]".into(),
+            '"' | '\u{05F4}' => "[\"“”\u{05F4}]".into(),
+            _ if !o.match_diacritics && is_hebrew_letter(c) => format!("{}{HEBREW_MARKS}", lit(c)),
             _ => lit(c),
         });
     }

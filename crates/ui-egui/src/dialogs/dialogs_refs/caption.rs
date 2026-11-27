@@ -14,7 +14,7 @@ pub struct CaptionForm {
     /// `below` or `above`.
     pub position: String,
     pub exclude_label: bool,
-    /// `\*` format: `ARABIC`, `alphabetic`, `ALPHABETIC`, `roman`, `ROMAN`.
+    /// `\*` format: `ARABIC`, `alphabetic`, `ALPHABETIC`, `roman`, `ROMAN`, `hebrew1`, `hebrew2`.
     pub format: String,
     pub chapter: bool,
     /// Heading level that starts a chapter (1–9).
@@ -64,6 +64,8 @@ impl CaptionForm {
             "ALPHABETIC" => "A",
             "roman" => "i",
             "ROMAN" => "I",
+            // Alef, the first number in Hebrew numerals and in the Hebrew alphabet.
+            "hebrew1" | "hebrew2" => "\u{05D0}",
             _ => "1",
         };
         let chapter = if self.chapter { format!("1{}", self.separator) } else { String::new() };

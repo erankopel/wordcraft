@@ -121,7 +121,7 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("edit.find", "Find", "Home › Editing", find)
             .key("Mod+F")
-            .params(r#"{"text": string, "matchCase"?: bool, "wholeWord"?: bool, "matchPrefix"?: bool, "matchSuffix"?: bool, "ignorePunct"?: bool, "ignoreSpace"?: bool, "wildcards"?: bool, "special"?: bool (^p ^t ^# … codes, default true), "regex"?: bool}"#)
+            .params(r#"{"text": string, "matchCase"?: bool, "wholeWord"?: bool, "matchPrefix"?: bool, "matchSuffix"?: bool, "ignorePunct"?: bool, "ignoreSpace"?: bool, "matchDiacritics"?: bool (Hebrew points and cantillation marks must match too; default false: שלום finds שָׁלוֹם; " and ' also find ״ and ׳), "wildcards"?: bool, "special"?: bool (^p ^t ^# … codes, default true), "regex"?: bool}"#)
             .pure(),
         CommandSpec::new("edit.advancedFind", "Advanced Find", "Home › Editing › Find", advanced_find)
             .params(r#"{"text"?: string, …options of edit.find, "in"?: "main|selection", "highlight"?: bool}"#)
@@ -500,6 +500,7 @@ fn find_opts(f: &crate::session::FindState) -> find_pattern::Opts {
         wildcards: f.wildcards,
         regex: f.regex,
         literal: f.literal,
+        match_diacritics: f.match_diacritics,
     }
 }
 
@@ -654,6 +655,9 @@ fn read_opts(s: &mut Session, v: &Value) {
     }
     if let Some(b) = p::bool(v, "ignoreSpace") {
         s.find.ignore_space = b;
+    }
+    if let Some(b) = p::bool(v, "matchDiacritics") {
+        s.find.match_diacritics = b;
     }
     if let Some(t) = p::str(v, "with") {
         s.find.replace = t.to_string();

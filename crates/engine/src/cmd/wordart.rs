@@ -275,7 +275,15 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
         Some(id) => Some(TextWarp::new(id).ok_or_else(|| CmdError::Params(format!("unknown text warp `{id}`")))?),
     };
     let size = 36.0;
-    let props = CharProps { size: Some(size), bold: Some(true), text_effects: Some(Box::new(fx)), ..Default::default() };
+    // Hebrew or Arabic text is sized and bolded by the complex-script values (`w:szCs`, `w:bCs`).
+    let props = CharProps {
+        size: Some(size),
+        size_cs: Some(size),
+        bold: Some(true),
+        bold_cs: Some(true),
+        text_effects: Some(Box::new(fx)),
+        ..Default::default()
+    };
     // A box the text fits on one line in (with the box's margins); a bent one is taller.
     let col = s.doc.sections().first().map(|(_, sp)| sp.text_width()).unwrap_or(468.0);
     let w = (text_width(s, &text, size, true) + 24.0).clamp(72.0, col.max(72.0));

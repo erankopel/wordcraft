@@ -137,7 +137,7 @@ pub(crate) fn reference_link(instr: &str) -> Option<String> {
 }
 
 /// `\* FORMAT` switch value (Arabic, roman, ROMAN, alphabetic, ALPHABETIC, CardText, Ordinal,
-/// ArabicDash, DollarText, Hex…). `{ PAGE \* ArabicDash }` shows "- 31 -".
+/// ArabicDash, DollarText, Hex, hebrew1, hebrew2…). `{ PAGE \* ArabicDash }` shows "- 31 -".
 pub fn format_switch(instr: &str) -> Option<NumFormat> {
     let mut it = instr.split_whitespace();
     while let Some(w) = it.next() {
@@ -160,6 +160,9 @@ pub fn format_switch(instr: &str) -> Option<NumFormat> {
                 v if v.eq_ignore_ascii_case("ChineseNum1") => NumFormat::ChineseCountingThousand,
                 v if v.eq_ignore_ascii_case("ChineseNum2") => NumFormat::ChineseLegalSimplified,
                 v if v.eq_ignore_ascii_case("ChineseNum3") => NumFormat::IdeographDigital,
+                // Hebrew numerals (א … י יא … טו) and the Hebrew alphabet (א … ת).
+                v if v.eq_ignore_ascii_case("hebrew1") => NumFormat::Hebrew1,
+                v if v.eq_ignore_ascii_case("hebrew2") => NumFormat::Hebrew2,
                 _ => continue,
             };
             return Some(fmt);
@@ -490,6 +493,19 @@ mod tests {
             assert_eq!(field_number(r"SEQ x \* Upper", fmt, 1_000_140), "1000140", "{fmt:?}");
         }
         assert_eq!(field_number("SEQ x", NumFormat::CardinalText, 999_999), "nine hundred ninety-nine thousand nine hundred ninety-nine");
+    }
+
+    /// `\* hebrew1` numbers in Hebrew numerals and `\* hebrew2` in the Hebrew alphabet, on any
+    /// number field and whatever the page number format; the two part ways after the tenth.
+    #[test]
+    fn hebrew_number_switches() {
+        let ctx = FieldCtx { page: 15, pages: 11, section: 2, ..Default::default() };
+        let text = |instr: &str| field_text(instr, "", &ctx).0;
+        assert_eq!(text(r"PAGE \* hebrew1"), NumFormat::Hebrew1.format(15));
+        assert_ne!(text(r"PAGE \* hebrew1"), "15");
+        assert_eq!(text(r"NUMPAGES \* Hebrew2 \* MERGEFORMAT"), NumFormat::Hebrew2.format(11));
+        assert_ne!(text(r"NUMPAGES \* hebrew1"), text(r"NUMPAGES \* hebrew2"), "11 is יא in numerals, the 11th letter in the alphabet");
+        assert_eq!(text(r"SECTION \*HEBREW1"), NumFormat::Hebrew1.format(2));
     }
 
     /// Several capitalization switches apply in the order they appear.

@@ -19,6 +19,7 @@ mod inspect;
 mod specs;
 mod typing;
 
+pub(crate) use actions::set_language;
 pub use autocorrect::{AUTOCORRECT, AutoCap, AutoCorrectPrefs, lenient_autocorrect};
 #[cfg(test)]
 use compare::{Op, collapse_noise_matches, lcs_ops};

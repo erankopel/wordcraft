@@ -12,9 +12,23 @@ pub(super) fn preferred_language(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"preferred": l}))
 }
 
+/// Mark `c` as written in `tag`, in the attribute Word keeps that language in: a language written
+/// right to left (Hebrew, Yiddish, Arabic, Persian…) is the language of complex-script text
+/// (`w:lang/@w:bidi`, ECMA-376 Part 1 §17.3.2.20), which Hebrew letters are proofed in; any other
+/// is the language of the other text (`w:lang/@w:val`). The other attribute is left as it is, so
+/// marking Hebrew text Hebrew keeps its Latin words English.
+pub(crate) fn set_language(c: &mut CharProps, tag: &str) {
+    if wordcraft_doc::bidi::is_rtl_language(tag) {
+        c.lang_bidi = Some(tag.to_string());
+    } else {
+        c.lang = Some(tag.to_string());
+    }
+}
+
 /// Set Proofing Language: the selection's language and "do not check spelling or grammar",
 /// or (`default`) the document's default and the saved language for future blank documents;
-/// `detect` is the per-user detection preference.
+/// `detect` is the per-user detection preference. A right-to-left language is set as the language
+/// of complex-script text ([`set_language`]).
 /// Nothing at all sets US English, as before. `scope: "document"` sets it for every story.
 pub(super) fn language(s: &mut Session, v: &Value) -> CmdResult {
     // Checked first, so a bad scope changes nothing (not even the detect preference).
@@ -42,12 +56,13 @@ pub(super) fn language(s: &mut Session, v: &Value) -> CmdResult {
     }
     if p::bool(v, "default") == Some(true) {
         let l = lang.clone().ok_or_else(|| CmdError::Params("`default` needs `lang`".into()))?;
-        Arc::make_mut(&mut s.doc.styles).default_chr.lang = Some(l.clone());
-        // A Normal style that names its own language follows the new default.
+        let rtl = wordcraft_doc::bidi::is_rtl_language(&l);
+        set_language(&mut Arc::make_mut(&mut s.doc.styles).default_chr, &l);
+        // A Normal style that names its own language (for that script) follows the new default.
         if let Some(n) = Arc::make_mut(&mut s.doc.styles).styles.iter_mut().find(|x| x.id == "Normal")
-            && n.chr.lang.is_some()
+            && (if rtl { n.chr.lang_bidi.is_some() } else { n.chr.lang.is_some() })
         {
-            n.chr.lang = Some(l);
+            set_language(&mut n.chr, &l);
         }
     }
     let lang = match (lang, no_proof, detect) {
@@ -59,7 +74,7 @@ pub(super) fn language(s: &mut Session, v: &Value) -> CmdResult {
     }
     let change = |c: &mut CharProps| {
         if let Some(l) = &lang {
-            c.lang = Some(l.clone());
+            set_language(c, l);
         }
         if let Some(np) = no_proof {
             c.no_proof = Some(np);

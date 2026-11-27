@@ -102,6 +102,9 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         font,
         font_ea,
         asian,
+        font_cs,
+        size_cs,
+        complex,
         size,
         bold,
         italic,
@@ -121,8 +124,14 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     else {
         return false;
     };
-    let sample_props =
+    let mut sample_props =
         font_sample_props(app, sample_paper(app), font, size, color, (*bold, *italic, *underline, *strike), (*small_caps, *caps, *hidden), *spacing);
+    // Hebrew, Arabic… letters in the sample show in the complex script font and size.
+    if *complex {
+        sample_props.font_cs = Some(app.previews.font_stored(font_cs));
+        sample_props.size_cs = Some(super::font::preview_size(size_cs).min(40.0));
+        (sample_props.bold_cs, sample_props.italic_cs) = (Some(*bold), Some(*italic));
+    }
     crate::widgets::section(ui, "", |ui| {
         crate::rtl::Table::new("fontdlg").columns(2).spacing(vec2(10.0, 6.0)).show(ui, |t| {
             // Word's two font boxes when East Asian text is in use: the Latin text font and
@@ -149,7 +158,7 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 });
             }
             t.row(|r| {
-                r.cell(|ui| ui.label(if *asian { tl!("Latin text font:") } else { tl!("Font:") }));
+                r.cell(|ui| ui.label(if *asian || *complex { tl!("Latin text font:") } else { tl!("Font:") }));
                 r.cell(|ui| {
                     let fams = app.previews.families();
                     let stored = app.previews.font_stored(font);
@@ -169,6 +178,31 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 let size_label = r.cell(|ui| ui.label(tl!("Size:")));
                 r.cell(|ui| ui.text_edit_singleline(size).labelled_by(size_label.id));
             });
+            // Word's complex script font and size: Hebrew, Arabic… text's own, which the Latin
+            // text font and size above leave alone.
+            if *complex {
+                t.row(|r| {
+                    r.cell(|ui| ui.label(tl!("Complex script font:")));
+                    r.cell(|ui| {
+                        let fams = app.previews.families();
+                        let stored = app.previews.font_stored(font_cs);
+                        let warning = app.font_dialog_warning(&stored);
+                        if let Some(f) = font_box(ui, ("fontdlg_cs", font_cs.as_str()), &fams, &*prev, warning.as_deref()) {
+                            if f == crate::widgets::ADD_FONT {
+                                let _ = app.run("font.add", json!({}));
+                            } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
+                                let _ = app.run("font.loadSystem", json!({}));
+                            } else {
+                                *font_cs = f;
+                            }
+                        }
+                    });
+                });
+                t.row(|r| {
+                    let size_label = r.cell(|ui| ui.label(tl!("Complex script size:")));
+                    r.cell(|ui| ui.text_edit_singleline(size_cs).labelled_by(size_label.id));
+                });
+            }
             t.row(|r| {
                 r.cell(|ui| ui.label(tl!("Font color:")));
                 r.cell(|ui| {

@@ -327,6 +327,15 @@ impl Exporter<'_> {
             }
             _ => Tag::P.into(),
         };
+        // A paragraph in another language than the document's says so, so a screen reader reads a
+        // Hebrew paragraph of an English document (or an English one of a Hebrew document) in its
+        // own voice ([`wordcraft_doc::StyleSheet::para_lang`]).
+        let lang = self
+            .doc
+            .para(story, path)
+            .and_then(|p| self.doc.styles.para_lang(p))
+            .filter(|l| !l.is_empty() && l.is_ascii() && Some(l) != self.doc.styles.document_lang().as_ref());
+        let kind = kind.with_lang(lang);
         self.tags.push(TagEntry { kind, children: Vec::new() });
         let i = self.tags.len() - 1;
         self.tag_index.insert((story, path.clone()), i);
@@ -334,7 +343,7 @@ impl Exporter<'_> {
     }
 
     pub(crate) fn tag_tree(&mut self) -> TagTree {
-        let mut tree = TagTree::new().with_lang(self.doc.styles.default_chr.lang.clone());
+        let mut tree = TagTree::new().with_lang(self.doc.styles.document_lang());
         for e in std::mem::take(&mut self.tags) {
             if e.children.is_empty() {
                 continue;

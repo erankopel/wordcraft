@@ -108,6 +108,9 @@ pub struct FindState {
     pub match_suffix: bool,
     pub ignore_punct: bool,
     pub ignore_space: bool,
+    /// Word's "Match diacritics": Hebrew points and cantillation marks must match. Off by default,
+    /// as in Word, so text typed without them finds pointed text.
+    pub match_diacritics: bool,
     /// Matches from the last search: (start, end).
     #[serde(skip)]
     pub results: Vec<(Pos, Pos)>,

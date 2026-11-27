@@ -50,6 +50,8 @@ struct SegmentInput<'a> {
     lbase: usize,
     use_levels: bool,
     context: &'a [bool],
+    /// Characters at a right-to-left level take the complex-script properties ([`Dir::ParaAuto`]).
+    odd_complex: bool,
 }
 
 impl<'a> Builder<'a> {
@@ -63,7 +65,22 @@ impl<'a> Builder<'a> {
     }
 
     fn segment_keys(&self, input: SegmentInput<'_>) -> Vec<(usize, usize, SegKey)> {
-        let SegmentInput { text, rc, rc_cs, primary, primary_cs, primary_ea, run_face, ea_face, sym, levels, lbase, use_levels, context } = input;
+        let SegmentInput {
+            text,
+            rc,
+            rc_cs,
+            primary,
+            primary_cs,
+            primary_ea,
+            run_face,
+            ea_face,
+            sym,
+            levels,
+            lbase,
+            use_levels,
+            context,
+            odd_complex,
+        } = input;
         let show = |c: char| sym.map_or(c, |m| m.show(c));
         let mut seg_start = 0;
         let mut cur: Option<SegKey> = None;
@@ -75,7 +92,7 @@ impl<'a> Builder<'a> {
             let mark = is_mark(c);
             let complex = match cur {
                 Some(k) if mark => k.complex,
-                _ => rc_cs.is_some() && rc.uses_complex(dc),
+                _ => rc_cs.is_some() && (rc.uses_complex(dc) || (odd_complex && rtl)),
             };
             let primary = if complex { primary_cs.unwrap_or(primary) } else { primary };
             let face = match cur {
@@ -246,9 +263,20 @@ impl<'a> Builder<'a> {
         if text.is_empty() {
             return;
         }
+        // The levels by byte of `text`, from `lbase` on.
+        let (levels, lbase): (&[u8], usize) = match dir {
+            Dir::Para | Dir::ParaAuto => (&self.levels, base),
+            Dir::Own(l) => (l, 0),
+            Dir::Guess => (&[], 0),
+        };
+        let use_levels = !levels.is_empty();
+        // Characters at a right-to-left level of a run without a direction of its own are saved in
+        // `w:rtl` runs, and take the complex-script properties as Word gives them there.
+        let odd_complex =
+            matches!(dir, Dir::ParaAuto) && levels.get(lbase..lbase.saturating_add(text.len())).is_some_and(|l| l.iter().any(|v| v % 2 == 1));
         // Complex-script characters (Persian, Arabic…) use the run's complex-script font, size,
         // bold and italic.
-        let rc_cs: Option<Arc<ResolvedChar>> = text.chars().any(|c| rc.uses_complex(c)).then(|| Arc::new(rc.complex()));
+        let rc_cs: Option<Arc<ResolvedChar>> = (odd_complex || text.chars().any(|c| rc.uses_complex(c))).then(|| Arc::new(rc.complex()));
         let family = lookup_family(self.env.doc, &rc.font);
         let resolved = wordcraft_fonts::word::resolve(family, rc.bold, rc.italic);
         // The requested font is missing when it was substituted, or when another family stands in
@@ -274,13 +302,6 @@ impl<'a> Builder<'a> {
             (f, resolved, resolved.substituted || !family.eq_ignore_ascii_case(f))
         });
         let primary_ea = wanted_ea.filter(|(_, r, _)| !r.substituted).map(|(_, r, _)| r.face);
-        // The levels by byte of `text`, from `lbase` on.
-        let (levels, lbase): (&[u8], usize) = match dir {
-            Dir::Para => (&self.levels, base),
-            Dir::Own(l) => (l, 0),
-            Dir::Guess => (&[], 0),
-        };
-        let use_levels = !levels.is_empty();
         let context = if self.env.numeral == NumeralMode::Context && use_levels { context_digit_dirs(text, levels, lbase) } else { Vec::new() };
         // A missing Thai font: one face for the run's Thai and Latin text (#1549). A run with its
         // own complex-script font keeps that font for the Thai letters.
@@ -319,6 +340,7 @@ impl<'a> Builder<'a> {
             lbase,
             use_levels,
             context: &context,
+            odd_complex,
         });
         let missing = MissingFonts {
             latin: requested_missing.then_some(rc.font.as_str()),
@@ -457,7 +479,7 @@ impl<'a> Builder<'a> {
                     dot: s == "." || s == ",",
                 });
             }
-            if matches!(dir, Dir::Para) {
+            if matches!(dir, Dir::Para | Dir::ParaAuto) {
                 self.split_ligature_advances(seg_c0, rc.spacing, key.rtl);
             }
         }

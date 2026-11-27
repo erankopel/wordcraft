@@ -88,11 +88,13 @@ fn relative_font_sizes_resolve_styles_and_preserve_other_properties() {
     }
     s.run("format.growFont", &json!({})).unwrap();
     assert_eq!(sizes(&s), [22.0, 10.5]);
+    // The complex-script size grows from its own (the defaults' 30 pt), not from the Latin size
+    // (RTL-03: Grow Font made 16 pt Hebrew text 13 pt).
     for (block, size) in [(0, 22.0), (1, 10.5)] {
         let p = s.doc.para_at(&Pos::body(block, 0)).unwrap();
         assert_eq!(p.mark.size, Some(size));
         for (_, c) in p.run_ranges() {
-            assert_eq!((c.size, c.size_cs), (Some(size), Some(size)), "both scripts still get the explicit override");
+            assert_eq!((c.size, c.size_cs), (Some(size), Some(36.0)), "both scripts still get the explicit override, each from its own size");
             let resolved = s.doc.styles.resolve_char(p.props.style.as_deref(), c);
             assert!(if block == 0 { resolved.bold } else { resolved.italic });
         }

@@ -26,6 +26,10 @@ pub(super) fn painter_double_click(app: &mut WordApp) {
     let _ = app.run("edit.formatPainter", json!({"sticky": true}));
 }
 
+/// The Numbering gallery's Hebrew lists: the label sample and the `para.numbering` kind. Hebrew
+/// numerals (א … ט, י, יא) are the usual numbering of Hebrew documents' items and clauses.
+const HEBREW_NUMBERING: [(&str, &str); 2] = [("א. ב. ג.", "hebrew1"), ("א) ב) ג)", "hebrew1Paren")];
+
 /// Change List Level › and Define New Bullet… at the foot of the Bullets drop-down (#2786).
 /// Change List Level is for a paragraph in a list of its own numbering, the one `para.listLevel`
 /// changes (a style's numbering it leaves alone).
@@ -233,6 +237,13 @@ pub(super) fn home(app: &mut WordApp, ui: &mut Ui) {
                             ("i. ii. iii.", "lowerRoman"),
                         ] {
                             mi(ui, app, l, "para.numbering", json!({"kind": k}));
+                        }
+                        // Hebrew numbering, for right-to-left text or a right-to-left interface:
+                        // the samples are the labels themselves, the same in every language.
+                        if rtl || crate::rtl::on() {
+                            for (l, k) in HEBREW_NUMBERING {
+                                mi_text(ui, app, l, "para.numbering", json!({"kind": k}));
+                            }
                         }
                         ui.separator();
                         mi(ui, app, "Restart at 1", "para.restartNumbering", json!({}));

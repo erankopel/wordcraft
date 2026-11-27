@@ -2,9 +2,28 @@ use super::format::fmt;
 use super::{CmdError, CmdResult, LineSpacing, ListKind, NumRef, ParaProps, Session, Style, StyleKind, Value, json, p, sel_result};
 use std::sync::Arc;
 
+/// The kinds of list each list command makes, for the error naming them.
+const BULLET_KINDS: &str = "\"bullet\" or one bullet character";
+const NUMBER_KINDS: &str =
+    "numbered, numberedParen, upperLetter, lowerLetter, lowerLetterDot, lowerRoman, outline, legal, hebrew1, hebrew1Paren, hebrew2 or hebrew2Paren";
+
+/// The list kind `v` asks for (`default` without one). Bullets make bulleted lists and the other
+/// commands numbered ones: a kind of the other sort, or one there isn't, is an error, not a list
+/// of the default kind.
+fn requested_kind(v: &Value, default: ListKind) -> Result<ListKind, CmdError> {
+    let Some(name) = p::str(v, "kind") else { return Ok(default) };
+    match ListKind::parse(name) {
+        Some(kind) if kind.is_bullet() == default.is_bullet() => Ok(kind),
+        _ => {
+            let kinds = if default.is_bullet() { BULLET_KINDS } else { NUMBER_KINDS };
+            Err(CmdError::Params(format!("unknown list kind {name:?}; use {kinds}")))
+        }
+    }
+}
+
 /// Toggle lists using effective paragraph numbering; an explicit off request removes numbering.
 pub(super) fn list(s: &mut Session, v: &Value, default: ListKind) -> CmdResult {
-    let kind = p::str(v, "kind").and_then(ListKind::parse).unwrap_or(default);
+    let kind = requested_kind(v, default)?;
     let off = p::bool(v, "off").unwrap_or(false);
     let a = s.sel.ordered().0;
     // Toggle: if every selected paragraph already has this kind of list, remove it.
@@ -12,12 +31,15 @@ pub(super) fn list(s: &mut Session, v: &Value, default: ListKind) -> CmdResult {
         .iter()
         .map(|p| s.doc.para(a.story, p).and_then(|x| s.doc.styles.resolve_para(&x.props).numbering).filter(|n| n.num != 0))
         .collect();
+    // A list of the kind asked for: of the same sort (bullets or numbers), and with a kind given,
+    // the same number style too, so א. ב. ג. on a 1. 2. 3. list numbers in Hebrew rather than
+    // taking the numbers off.
     let same_kind = |n: &NumRef| {
         s.doc.numbering.level(n.num, n.level).is_some_and(|l| {
             let want = wordcraft_doc::numbering::levels_for(kind);
             want.get(usize::from(n.level)).is_some_and(|w| {
                 (w.format == wordcraft_doc::section::NumFormat::Bullet) == (l.format == wordcraft_doc::section::NumFormat::Bullet)
-                    && (p::str(v, "kind").is_none() || w.text == l.text)
+                    && (p::str(v, "kind").is_none() || (w.text == l.text && w.format == l.format))
             })
         })
     };

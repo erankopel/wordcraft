@@ -17,11 +17,12 @@ pub const SIZES: [f32; 17] = [8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("format.bold", "Bold", "Home › Font", |s, v| {
-            // The button formats both plain and complex-script text explicitly.
-            toggle(
+            // The button formats both plain and complex-script text explicitly; whether it turns
+            // bold on reads each piece of text by its script (Hebrew text by `w:bCs`).
+            toggle_scripts(
                 s,
                 v,
-                |r| r.bold,
+                |r, complex| if complex { r.bold_cs } else { r.bold },
                 |c, on| {
                     c.bold = Some(on);
                     c.bold_cs = Some(on);
@@ -31,10 +32,10 @@ pub fn specs() -> Vec<CommandSpec> {
         .key("Mod+B")
         .params(r#"{"value"?: bool}"#),
         CommandSpec::new("format.italic", "Italic", "Home › Font", |s, v| {
-            toggle(
+            toggle_scripts(
                 s,
                 v,
-                |r| r.italic,
+                |r, complex| if complex { r.italic_cs } else { r.italic },
                 |c, on| {
                     c.italic = Some(on);
                     c.italic_cs = Some(on);
@@ -150,7 +151,9 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"mark"?: "none" | "dot" | "comma" | "circle" | "underDot"}"#),
         CommandSpec::new("format.charStyle", "Apply Character Style", "Home › Styles", char_style).params(r#"{"style": string}"#),
-        CommandSpec::new("format.set", "Set Character Formatting", "Home › Font › Font", set).params(r#"{"props": CharProps}"#),
+        CommandSpec::new("format.set", "Set Character Formatting", "Home › Font › Font", set).params(
+            r#"{"props": CharProps, "pair"?: bool} (pair, default true: a size, bold or italic given without its complex-script value (sizeCs, boldCs, italicCs) sets that too; false sets only what is given, as the Font dialog does with its complex script row)"#,
+        ),
         CommandSpec::new("format.fontDialog", "Font Dialog", "Home › Font", |s, _| {
             s.push_ui_request(json!({"open": "font"}));
             sel_result(s)
@@ -159,7 +162,11 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("format.enclose", "Enclose Characters", "Home › Font", enclose)
             .params(r#"{"shape": "circle|square|triangle|diamond" | null, "style"?: "shrink|enlarge", "text"?: string}"#),
-        CommandSpec::new("format.state", "Formatting at Selection", "Home › Font", |s, _| Ok(state(s))).pure(),
+        CommandSpec::new("format.state", "Formatting at Selection", "Home › Font", |s, _| Ok(state(s)))
+            .params(
+                r#"{} → {"font", "fontShownAs", "size", "bold", "italic" (as the Font group shows them: Hebrew, Arabic… text by its complex-script font, size, bold and italic), "complex" (all of that text is complex-script text), "fontLatin", "sizeLatin" (the Latin text font and size), "fontCs", "sizeCs", "boldCs", "italicCs" (the complex-script ones), "fontEastAsia", "underline", "color", "lang", …; null when the selection mixes values}"#,
+            )
+            .pure(),
     ]
 }
 
@@ -318,6 +325,92 @@ fn toggle(s: &mut Session, v: &Value, get: fn(&ResolvedChar) -> bool, set: fn(&m
     apply(s, &|c| set(c, on))
 }
 
+/// [`toggle`] for a property with a complex-script twin (bold, italic): it is on when every piece
+/// of the text the Font group reads has it on in its own script ([`font_samples`]), so Ctrl+B
+/// on Hebrew text that is bold by `w:bCs` alone takes the bold off.
+fn toggle_scripts(s: &mut Session, v: &Value, get: fn(&ResolvedChar, bool) -> bool, set: fn(&mut CharProps, bool)) -> CmdResult {
+    let on = match p::bool(v, "value") {
+        Some(b) => b,
+        None => !font_samples(s).iter().all(|(r, complex)| get(r, *complex)),
+    };
+    apply(s, &|c| set(c, on))
+}
+
+/// Is text at `at` complex-script text when its own characters don't tell (a caret, spaces,
+/// punctuation), with `rc` the formatting there: as the nearest letter in its paragraph (before
+/// it, else after it) is, and in a paragraph without letters, when the paragraph reads right to
+/// left. So a caret in Hebrew text, or in an empty paragraph of a Hebrew document, is in Hebrew
+/// text, as the status bar shows it.
+fn context_is_complex(s: &Session, at: &Pos, rc: &ResolvedChar) -> bool {
+    let Some(p) = s.doc.para_at(at) else { return rc.rtl || rc.cs };
+    let off = at.off.min(p.text.len());
+    let before = p.text.get(..off).and_then(|t| t.chars().rev().find(|ch| ch.is_alphabetic()));
+    let nearest = before.or_else(|| p.text.get(off..).and_then(|t| t.chars().find(|ch| ch.is_alphabetic())));
+    match nearest {
+        Some(ch) => rc.uses_complex(ch),
+        None => rc.rtl || rc.cs || s.doc.styles.resolve_para(&p.props).bidi,
+    }
+}
+
+/// What the Font group reads, each piece of text with the formatting it is drawn in: every run of
+/// the selection (or the word around a caret, or a selected text box's text: what [`resolved`]
+/// reads), with `true` for its complex-script text (Hebrew or Arabic letters, any character of a
+/// right-to-left run), drawn with the complex-script font, size, bold and italic, and `false` for
+/// its other letters and digits. A run with both counts twice. Runs of spaces and punctuation
+/// alone read as the text around them does ([`context_is_complex`]), and so does a caret, with the
+/// formatting typing would use. Never empty.
+fn font_samples(s: &Session) -> Vec<(ResolvedChar, bool)> {
+    let ranges = column_rows(s).or_else(|| selected_text_box(s).or_else(|| target(s)).map(|r| vec![r])).unwrap_or_default();
+    let at = ranges.first().map_or_else(|| s.sel.ordered().0, |(a, _)| a.clone());
+    let mut out = Vec::new();
+    // Runs with neither kind of character in the selection: spaces, punctuation, objects.
+    let mut neutral = Vec::new();
+    'walk: for (a, b) in &ranges {
+        for path in s.doc.paths_between(a, b) {
+            let Some(p) = s.doc.para(a.story, &path) else { continue };
+            let from = if path == a.path { a.off } else { 0 };
+            let to = if path == b.path { b.off } else { p.len() };
+            for (r, c) in p.run_ranges() {
+                if r.end <= from || r.start >= to {
+                    continue;
+                }
+                let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), c);
+                let text = p.text.get(r.start.max(from)..r.end.min(to)).unwrap_or("");
+                let (mut complex, mut other) = (false, false);
+                for ch in text.chars().filter(|ch| ch.is_alphanumeric()) {
+                    if rc.uses_complex(ch) { complex = true } else { other = true }
+                }
+                match (other, complex) {
+                    (false, false) => neutral.push(rc),
+                    (true, false) => out.push((rc, false)),
+                    (false, true) => out.push((rc, true)),
+                    (true, true) => {
+                        out.push((rc.clone(), false));
+                        out.push((rc, true));
+                    }
+                }
+                // As `resolved` samples the runs: enough to tell.
+                if out.len() + neutral.len() > 10_000 {
+                    break 'walk;
+                }
+            }
+        }
+    }
+    if out.is_empty() {
+        // Nothing but spaces and punctuation, or a caret (the formatting typing would use, or an
+        // empty selected text box's or cell's paragraph mark).
+        let found = if neutral.is_empty() { resolved(s) } else { neutral };
+        out = found
+            .into_iter()
+            .map(|rc| {
+                let complex = context_is_complex(s, &at, &rc);
+                (rc, complex)
+            })
+            .collect();
+    }
+    out
+}
+
 fn underline(s: &mut Session, v: &Value) -> CmdResult {
     let style = p::str(v, "style").map(Underline::from_ooxml);
     let on = match (p::bool(v, "value"), style) {
@@ -377,8 +470,10 @@ fn size(s: &mut Session, v: &Value) -> CmdResult {
     })
 }
 
-fn current_size(s: &Session) -> f32 {
-    resolved(s).first().map(|r| r.size).unwrap_or(12.0)
+/// The size and the complex-script size of what's formatted at a caret: the formatting typing
+/// would use, or an empty paragraph's mark.
+fn current_sizes(s: &Session) -> (f32, f32) {
+    resolved(s).first().map(|r| (r.size, r.size_cs)).unwrap_or((12.0, 12.0))
 }
 
 fn step_size(s: &mut Session, dir: i32) -> CmdResult {
@@ -397,17 +492,18 @@ fn nudge_size(s: &mut Session, d: f32) -> CmdResult {
 
 /// Relative commands transform each run's effective size, including inherited sizes. Keep
 /// `apply`'s targets and the existing explicit override of both normal and complex-script size.
+/// Each script steps from its own size, so Grow Font makes 16 pt Hebrew text (`w:szCs`) in a run
+/// whose Latin size is 12 pt bigger, not 13 pt.
 fn resize(s: &mut Session, next: &dyn Fn(f32) -> f32) -> CmdResult {
-    let set = |c: &mut CharProps, size: f32| {
-        let size = next(size).clamp(1.0, 1638.0);
-        c.size = Some(size);
-        c.size_cs = Some(size);
+    let set = |c: &mut CharProps, (size, size_cs): (f32, f32)| {
+        c.size = Some(next(size).clamp(1.0, 1638.0));
+        c.size_cs = Some(next(size_cs).clamp(1.0, 1638.0));
     };
     let ranges = column_rows(s).or_else(|| selected_text_box(s).or_else(|| target(s)).map(|range| vec![range]));
     let Some(ranges) = ranges else {
         // Pending typing props and an empty paragraph's mark get the same single change.
-        let size = current_size(s);
-        return apply(s, &|c| set(c, size));
+        let sizes = current_sizes(s);
+        return apply(s, &|c| set(c, sizes));
     };
     // Resolve against one immutable snapshot while formatting splits and normalizes runs.
     let styles = s.doc.styles.clone();
@@ -417,7 +513,10 @@ fn resize(s: &mut Session, next: &dyn Fn(f32) -> f32) -> CmdResult {
             let style = p.props.style.clone();
             let from = if path == a.path { a.off } else { 0 };
             let to = if path == b.path { b.off } else { p.len() };
-            let format = |c: &mut CharProps| set(c, styles.resolve_char(style.as_deref(), c).size);
+            let format = |c: &mut CharProps| {
+                let r = styles.resolve_char(style.as_deref(), c);
+                set(c, (r.size, r.size_cs));
+            };
             // Avoid format_range here: its path walk would repeat a paragraph-prefix scan.
             p.format(from, to, &format)?;
             // Keep format_range's paragraph-mark rule, including filtering linked marks.
@@ -856,11 +955,14 @@ fn char_style(s: &mut Session, v: &Value) -> CmdResult {
 
 fn set(s: &mut Session, v: &Value) -> CmdResult {
     let mut props: CharProps = serde_json::from_value(v.get("props").cloned().unwrap_or(Value::Null)).map_err(|e| CmdError::Params(e.to_string()))?;
-    // The font dialog and callers supplying one value format both scripts. Explicit
-    // complex-script values still take precedence; importing a DOCX never uses this command.
-    props.size_cs = props.size_cs.or(props.size);
-    props.bold_cs = props.bold_cs.or(props.bold);
-    props.italic_cs = props.italic_cs.or(props.italic);
+    // Callers supplying one value format both scripts. Explicit complex-script values still take
+    // precedence; importing a DOCX never uses this command. `pair: false` (the Font dialog with
+    // its complex script row) sets each script's values on their own.
+    if p::bool(v, "pair") != Some(false) {
+        props.size_cs = props.size_cs.or(props.size);
+        props.bold_cs = props.bold_cs.or(props.bold);
+        props.italic_cs = props.italic_cs.or(props.italic);
+    }
     apply(s, &|c| c.overlay(&props))
 }
 
@@ -877,7 +979,15 @@ pub fn state(s: &Session) -> Value {
     let at = selected_text_box(s).map_or_else(|| s.sel.focus.clone(), |(a, _)| a);
     let style = s.doc.para_at(&at).and_then(|p| p.props.style.clone()).unwrap_or_else(|| "Normal".into());
     let style_name = s.doc.styles.get(&style).map(|st| st.name.clone()).unwrap_or(style.clone());
-    let font = same(&|r| json!(r.font));
+    // The Font group shows each piece of text in its own script's font, size, bold and italic:
+    // Hebrew text its complex-script ones, as it is drawn and as Word shows them.
+    let samples = font_samples(s);
+    let shown = |f: &dyn Fn(&ResolvedChar, bool) -> Value| -> Value {
+        let mut each = samples.iter().map(|(r, complex)| f(r, *complex));
+        let Some(v0) = each.next() else { return Value::Null };
+        if each.all(|v| v == v0) { v0 } else { Value::Null }
+    };
+    let font = shown(&|r, complex| json!(if complex { &r.font_cs } else { &r.font }));
     // The font's substitute when it isn't installed: the face its text is drawn in, apart from
     // characters the substitute lacks. `font.missing` lists every face the shown text is drawn
     // in, fallback faces too, and which fonts change the layout.
@@ -886,9 +996,18 @@ pub fn state(s: &Session) -> Value {
         "font": font,
         "fontShownAs": shown_as,
         "fontEastAsia": same(&|r| json!(r.font_ea)),
-        "size": same(&|r| json!(r.size)),
-        "bold": all.iter().all(|r| r.bold),
-        "italic": all.iter().all(|r| r.italic),
+        "size": shown(&|r, complex| json!(if complex { r.size_cs } else { r.size })),
+        "bold": samples.iter().all(|(r, complex)| if *complex { r.bold_cs } else { r.bold }),
+        "italic": samples.iter().all(|(r, complex)| if *complex { r.italic_cs } else { r.italic }),
+        // The Font group shows complex-script text's formatting: the selection is Hebrew text.
+        "complex": samples.iter().all(|(_, complex)| *complex),
+        // Each script's own, as the Font dialog shows them.
+        "fontLatin": same(&|r| json!(r.font)),
+        "sizeLatin": same(&|r| json!(r.size)),
+        "fontCs": same(&|r| json!(r.font_cs)),
+        "sizeCs": same(&|r| json!(r.size_cs)),
+        "boldCs": all.iter().all(|r| r.bold_cs),
+        "italicCs": all.iter().all(|r| r.italic_cs),
         "underline": all.iter().all(|r| r.underline != Underline::None),
         "underlineColor": same(&|r| json!(r.underline_color.map_or_else(|| "auto".to_string(), |c| c.hex()))),
         "strike": all.iter().all(|r| r.strike),
@@ -922,20 +1041,16 @@ enum LangAt {
     Mixed,
 }
 
-/// The language a letter is filed under, as Word files it: a letter formatted with the
-/// complex-script properties (Hebrew, Arabic…, any letter of a right-to-left run) is in the
-/// language of complex-script text (`w:lang/@w:bidi`), any other in the text language
-/// (`w:lang/@w:val`). An unset complex-script language reads as the text language.
-fn letter_lang(rc: &ResolvedChar, c: char) -> Option<String> {
-    script_lang(rc, rc.uses_complex(c))
-}
-
-/// The language of a run's complex-script letters (`complex`) or of its other letters.
+/// The language of a run's complex-script letters (`complex`) or of its other letters, as Word
+/// files them: a letter formatted with the complex-script properties (Hebrew, Arabic…, any
+/// letter of a right-to-left run) is in the language of complex-script text (`w:lang/@w:bidi`),
+/// any other in the text language (`w:lang/@w:val`). An unset complex-script language reads as
+/// the text language.
 fn script_lang(rc: &ResolvedChar, complex: bool) -> Option<String> {
     if complex { rc.lang_bidi.clone().or_else(|| rc.lang.clone()) } else { rc.lang.clone() }
 }
 
-/// The proofing language of the selection, letter by letter ([`letter_lang`]), over what the Font
+/// The proofing language of the selection, letter by letter ([`script_lang`]), over what the Font
 /// group reads ([`resolved`]): the selected text, or the word around a caret. A caret elsewhere,
 /// or a selection without letters, takes the class of the nearest letter in its paragraph (before
 /// it, else after it) with the formatting typing would use; in a paragraph without letters, the
@@ -983,14 +1098,7 @@ fn selection_lang(s: &Session) -> LangAt {
     let at = ranges.first().map_or_else(|| s.sel.ordered().0, |(a, _)| a.clone());
     let Some(p) = s.doc.para_at(&at) else { return LangAt::One(None) };
     let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), &s.typing_props());
-    let off = at.off.min(p.text.len());
-    let before = p.text.get(..off).and_then(|t| t.chars().rev().find(|ch| ch.is_alphabetic()));
-    let nearest = before.or_else(|| p.text.get(off..).and_then(|t| t.chars().find(|ch| ch.is_alphabetic())));
-    LangAt::One(match nearest {
-        Some(ch) => letter_lang(&rc, ch),
-        None if s.doc.styles.resolve_para(&p.props).bidi => rc.lang_bidi.clone().or(rc.lang),
-        None => rc.lang,
-    })
+    LangAt::One(script_lang(&rc, context_is_complex(s, &at, &rc)))
 }
 
 /// The proofing language of the selection as the Language dialog opens on it ([`selection_lang`]):

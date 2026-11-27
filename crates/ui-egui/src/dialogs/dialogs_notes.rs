@@ -10,13 +10,16 @@ use serde_json::{Value, json};
 use crate::WordApp;
 
 /// Number formats notes offer: OOXML name and a sample (not translated). The Format Page Numbers
-/// dialog offers the same list (#1113).
-pub(crate) const FORMATS: [(&str, &str); 5] = [
+/// dialog offers the same list (#1113). Hebrew numerals and the Hebrew alphabet part ways after
+/// the tenth.
+pub(crate) const FORMATS: [(&str, &str); 7] = [
     ("decimal", "1, 2, 3, …"),
     ("lowerLetter", "a, b, c, …"),
     ("upperLetter", "A, B, C, …"),
     ("lowerRoman", "i, ii, iii, …"),
     ("upperRoman", "I, II, III, …"),
+    ("hebrew1", "א, ב, ג, … י, יא, יב"),
+    ("hebrew2", "א, ב, ג, … י, כ, ל"),
 ];
 
 /// The dialog's fields; `[footnotes, endnotes]` where each kind has its own.

@@ -88,7 +88,7 @@ pub fn specs() -> Vec<CommandSpec> {
             })
         })
         .params(
-            r#"{"format"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter", "start"?: n | null} ("start" left out: the numbering keeps its start; null: the pages number on from the section before; a number: numbering starts there)"#,
+            r#"{"format"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter|hebrew1|hebrew2|…" (any ST_NumberFormat; hebrew1: Hebrew numerals א … י, יא; hebrew2: the Hebrew alphabet א … ת), "start"?: n | null} ("start" left out: the numbering keeps its start; null: the pages number on from the section before; a number: numbering starts there)"#,
         ),
         CommandSpec::new("layout.documentGrid", "Document Grid", "Layout › Page Setup › Document Grid", document_grid).params(
             r#"{"type"?: "none|lines|linesAndChars|snapToChars", "linesPerPage"?: n (sets the line pitch from the text height), "charsPerLine"?: n (sets the character pitch from the text width), "linePitch"?: pt, "charSpace"?: n (4096ths of a point added to the default font size: the character pitch)} — left out stays as it is; returns the grid with its lines per page and characters per line"#,

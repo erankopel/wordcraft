@@ -807,3 +807,48 @@ fn scripts_that_join_their_letters_are_told_apart() {
         assert!(!joins_cursively(c), "{c:?}");
     }
 }
+
+/// The formatting each character of body paragraph 0 is drawn with, by byte offset: `text` in one
+/// run with a Latin font and size and another complex-script font and size, in a right-to-left
+/// paragraph (`rtl_para`), the run saying its direction (`run_rtl`) or not.
+fn drawn_formats(text: &str, rtl_para: bool, run_rtl: Option<bool>) -> Vec<(usize, String, f32)> {
+    let mut d = doc_of(&[(text, rtl_para)]);
+    let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    let props = &mut p.runs[0].props;
+    (props.font, props.size) = (Some("Source Sans 3".into()), Some(12.0));
+    (props.font_cs, props.size_cs) = (Some("Source Serif 4".into()), Some(20.0));
+    props.rtl = run_rtl;
+    let l = lay(&d);
+    let (pl, _) = first_line(&l, 0);
+    pl.clusters.iter().map(|c| (c.start, pl.styles[c.style as usize].rc.font.clone(), pl.styles[c.style as usize].rc.size)).collect()
+}
+
+/// RTL-04: punctuation and spaces typed in Hebrew text are saved in its right-to-left (`w:rtl`)
+/// pieces, whose every character Word sets in the complex-script font and size; on screen they
+/// are drawn the same way, so the line keeps its glyphs and width after a save and a reopen. Text
+/// that says it is left to right, and a right-to-left paragraph without right-to-left letters
+/// (saved without `w:rtl`), keep the Latin font for them.
+#[test]
+fn punctuation_in_hebrew_text_takes_the_complex_script_font() {
+    crate::test_fonts();
+    let text = "שלום, עולם.";
+    let comma = text.find(',').unwrap();
+    let space = text.find(' ').unwrap();
+    let stop = text.find('.').unwrap();
+    let format_at = |formats: &[(usize, String, f32)], off: usize| formats.iter().find(|(at, ..)| *at == off).cloned().unwrap();
+    let letter = |formats: &[(usize, String, f32)]| format_at(formats, 0);
+    for rtl_para in [true, false] {
+        let typed = drawn_formats(text, rtl_para, None);
+        for off in [comma, space] {
+            assert_eq!(format_at(&typed, off), (off, letter(&typed).1, letter(&typed).2), "the Hebrew letters' font and size at {off}");
+        }
+        assert_eq!(format_at(&typed, 0).1, "Source Serif 4", "the letters are complex-script text");
+        // The full stop ends a right-to-left paragraph (level 1) but a left-to-right one (level 0).
+        let stop_font = format_at(&typed, stop).1;
+        assert_eq!(stop_font == "Source Serif 4", rtl_para, "the full stop of a paragraph read right to left: {rtl_para}");
+        let ltr = drawn_formats(text, rtl_para, Some(false));
+        assert_eq!(format_at(&ltr, comma).1, "Source Sans 3", "a run said to be left to right keeps the Latin font");
+    }
+    let latin = drawn_formats("Hello, world.", true, None);
+    assert!(latin.iter().all(|(_, font, size)| font == "Source Sans 3" && *size == 12.0), "{latin:?}");
+}

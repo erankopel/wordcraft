@@ -44,10 +44,26 @@ string_value() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g'
 }
 
+# This AppImage's file, or nothing. The runtime sets APPIMAGE to the file and APPDIR to where it
+# mounted or unpacked it, which is this folder. A program started from another AppImage inherits
+# that one's APPIMAGE and APPDIR (#5653), so they count only when APPDIR is this folder: run from a
+# folder extracted with --appimage-extract, they belong to another program.
+own_appimage() {
+  if [ -n "${APPIMAGE:-}" ] && [ -n "${APPDIR:-}" ] && [ "$(readlink -f "$APPDIR")" = "$HERE" ]; then
+    printf '%s\n' "$APPIMAGE"
+  fi
+}
+
+# Whether $1, a menu entry, is one --install wrote: it carries the mark.
+written_by_install() {
+  grep -q '^X-WordCraft-AppImage=' "$1"
+}
+
 install_entry() {
   # The AppImage file, which the menu entry starts; a folder extracted from it (--appimage-extract)
   # starts through its AppRun instead.
-  target="${APPIMAGE:-$HERE/AppRun}"
+  target="$(own_appimage)"
+  [ -n "$target" ] || target="$HERE/AppRun"
   case "$target" in
     /*) ;;
     *) target="$PWD/$target" ;;
@@ -64,6 +80,11 @@ install_entry() {
   icons="$data/icons/hicolor"
   mkdir -p "$apps" || fail "couldn't create $apps"
   entry="$apps/$APP_ID.desktop"
+  # An entry of that name that --install didn't write is the person's own (or copied out of the
+  # AppImage by hand): it and its icons are left as they are, as --uninstall leaves them.
+  if [ -f "$entry" ] && ! written_by_install "$entry"; then
+    fail "left $entry and its icons as they are: --install did not write it. To have --install replace it, remove it first."
+  fi
   # The entry inside the AppImage, with Exec and TryExec pointing at this file, and a mark that
   # --uninstall looks for before it removes anything.
   {
@@ -98,21 +119,22 @@ uninstall_entry() {
   apps="$data/applications"
   icons="$data/icons/hicolor"
   entry="$apps/$APP_ID.desktop"
-  status=0
-  if [ -f "$entry" ]; then
-    if grep -q '^X-WordCraft-AppImage=' "$entry"; then
-      rm -f "$entry" && say "removed $entry"
-    else
-      printf 'wordcraft: left %s as it is: --install did not write it\n' "$entry" >&2
-      status=1
-    fi
+  # An entry --install didn't write is the person's own, and so are the icons it shows: both stay.
+  if [ -f "$entry" ] && ! written_by_install "$entry"; then
+    fail "left $entry and its icons as they are: --install did not write it"
   fi
+  if [ -f "$entry" ]; then
+    rm -f "$entry" || fail "couldn't remove $entry"
+    say "removed $entry"
+  fi
+  # With the entry gone (or never there), the icons under the edition's id are --install's.
   for icon in "$icons"/*/apps/"$APP_ID".png "$icons"/*/apps/"$APP_ID".svg; do
-    [ -f "$icon" ] && rm -f "$icon" && say "removed $icon"
+    [ -f "$icon" ] || continue
+    rm -f "$icon" || fail "couldn't remove $icon"
+    say "removed $icon"
   done
   refresh "$apps" "$icons"
   say "$NAME is no longer in your applications menu. The AppImage and your settings are where they were."
-  exit "$status"
 }
 
 # Tell the desktop about the change: the Open With list (mimeinfo.cache) and the icons. Each tool
@@ -127,7 +149,8 @@ refresh() {
 }
 
 usage() {
-  me="$(basename "${APPIMAGE:-$0}")"
+  me="$(own_appimage)"
+  me="$(basename "${me:-$0}")"
   cat <<USAGE
 $NAME @VERSION@: WordCraft's Hebrew edition, an AppImage for Linux on x86_64.
 Needs Ubuntu 22.04 or newer, or another Linux with glibc $GLIBC or newer.

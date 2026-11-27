@@ -208,8 +208,12 @@ file dialogs follow the desktop's language (on Linux they come from its portal),
 saves, exports and inserts pictures through WordCraft's own file browser, which is in Hebrew and
 mirrored. **File › Options › Advanced › File dialogs** (`ui.fileDialogs`: `auto`, `wordcraft` or `system`)
 chooses the system's dialogs instead; Automatic is WordCraft's own browser in an edition and the
-system's in the stock build. The system's own menus do not follow WordCraft's language. Page size and
-units are Israel's (A4, centimetres) unless `WORDCRAFT_REGION` is set, and Mailings › Envelopes and
+system's in the stock build. In WordCraft's browser, as in the system's dialog, Add Font… takes
+several files at once: Ctrl and a click (or Ctrl+Space) adds a file or takes it out, Shift and a click
+(or Shift+Space) takes the files from the highlighted one, the file name box names each in quotes,
+and a status line beside the buttons, which screen readers announce, says how many there are. The
+system's own menus do not follow WordCraft's language. Page size and units are Israel's (A4,
+centimetres) unless `WORDCRAFT_REGION` is set, and Mailings › Envelopes and
 Labels start on the region's paper (a DL envelope and A4 label sheets). Starting with
 `WORDCRAFT_LANGUAGE=en` gives English.
 
@@ -249,21 +253,27 @@ chmod +x ~/Applications/wordcraft-hebrew-0.19.1-linux-x86_64.AppImage
   `$XDG_DATA_HOME`), whose command is this AppImage at its current path, and the icons under
   `~/.local/share/icons/hicolor`, then refreshes the Open With list (`update-desktop-database`).
   The AppImage stays where it is, so put it somewhere lasting first (`~/Applications` above); after
-  moving or renaming it, run `--install` again. Running it twice changes nothing.
+  moving or renaming it, run `--install` again. Running it twice changes nothing. An entry of that
+  name that `--install` didn't write (your own, or one copied out of the AppImage by hand) is left
+  as it is, with its icons: `--install` says so and fails, and replaces it once you remove it.
 - **Default app:** once it is in the menu, **File › Options › General › Make WordCraft the default
   for Word documents…** (הגדרת WordCraft כברירת המחדל למסמכי Word…) makes it open .docx, .doc, .rtf
   and .odt files and Word templates (`xdg-mime`, from xdg-utils). Before `--install` the button
   says, in the status bar, that WordCraft isn't in the menu yet and how to add it.
 - **`--uninstall`** removes the menu entry and icons that `--install` wrote, and nothing else: not
-  the AppImage, not the settings, and not an entry of that name that it didn't write (it says so and
-  fails). A default-app choice in `~/.config/mimeapps.list` that named the entry is left; desktops
-  skip an entry that is gone.
+  the AppImage, not the settings, and not an entry of that name that it didn't write or the icons
+  beside it (it says so and fails). A default-app choice in `~/.config/mimeapps.list` that named the
+  entry is left; desktops skip an entry that is gone.
 - **`--cli ARGS…`** runs the command-line tool: `… .AppImage --cli convert letter.docx letter.pdf`,
   `--cli --help` for the rest. It gets the edition's region too.
-- **`--help`** and **`--version`** say the same about Ubuntu 22.04 and glibc 2.35.
+- **`--help`** and **`--version`** say the same about Ubuntu 22.04 and glibc 2.35. `--version` also
+  names the edition's language and desktop id (`edition: language he, desktop id
+  ai.storyteller.wordcraft.hebrew`), as the program was built.
 - Without FUSE (some containers and minimal systems) the AppImage's runtime unpacks itself to a
   temporary folder each time it starts, which only makes the start slower; `--appimage-extract`
-  unpacks it once into `squashfs-root/`, whose `AppRun` takes the same options.
+  unpacks it once into `squashfs-root/`, whose `AppRun` takes the same options. Its `--install`
+  makes the entry start that `AppRun`, even in a terminal that another AppImage program opened, whose
+  `APPIMAGE` names that program.
 - AppImageLauncher and Gear Lever can add it to the menu too, under a name of their own; the
   default-app button then still needs `--install`'s entry. Use one or the other.
 
@@ -291,7 +301,9 @@ fonts), `open-hebrew-fonts.sha256`, `BUILD-INFO.txt`, WordCraft's `NOTICE`, `LIC
 the ArtCraft Team's (`docs/brand/LICENSE-brand.txt`), which keeps them and the links to its community
 for WordCraft's own builds. The edition, a modified version, says in plain text that it is based on
 WordCraft by the ArtCraft team, and has no Discord button, Help › Community Discord or Backstage
-community link (`links_to_artcraft` in `crates/ui-egui/src/lib.rs`); see "Not done" for About.
+community link (`links_to_artcraft` in `crates/ui-egui/src/lib.rs`); see "Not done" for About. For
+the same reason the stock `README.md`, with the ArtCraft logo and those links, is not in the AppImage
+(`packaging/linux/package.sh` leaves it out of an edition with its own desktop id).
 
 ## Building the edition
 
@@ -302,8 +314,9 @@ HEBREW_FONTS_DIR="$HOME/.cache/wordcraft-hebrew-fonts" packaging/hebrew/build-ap
 ```
 
 It writes `dist/release/wordcraft-hebrew-<version>-linux-x86_64.AppImage` and its `.sha256`, then
-runs `packaging/hebrew/test-appimage.sh` on it (below). Every input is pinned, and the script stops
-when one isn't the pinned one:
+runs `packaging/hebrew/test-appimage.sh` on it (below). With `--skip-build` it packages the programs
+built last, and refuses unless their `--version` names Hebrew and the edition's desktop id. Every
+input is pinned, and the script stops when one isn't the pinned one:
 
 | Input | Pin | Checked by |
 |---|---|---|
@@ -339,16 +352,20 @@ programs stop with ``version `GLIBC_2.39' not found``. The two weak functions st
 glibc 2.39's on 24.04. Not checked: a run on a real Ubuntu 22.04 desktop.
 
 **`test-appimage.sh`** checks an AppImage of the edition (it needs no FUSE and writes only to a
-temporary folder): both programs pass `glibc-floor.py --check-only 2.35`; the desktop id, the menu
-entry and the AppStream file validate; the icons are under the edition's id; the bundled fonts match
+temporary folder): the program is the edition's build (its `--version` names Hebrew and the
+edition's desktop id, so programs left from a stock `cargo build` and packaged with `--skip-build`
+fail); both programs pass `glibc-floor.py --check-only 2.35`; the desktop id, the menu entry and the
+AppStream file validate; the icons are under the edition's id; the bundled fonts match
 `open-hebrew-fonts.sha256`; every bundled and embedded font has its licence file, and the notices
-are there; the AppImage has no update information; `--version`, `--help` and `--cli` (which writes a
-Hebrew document and converts it to PDF) work; and, in a throwaway HOME, `--install` run from a path
-with spaces, quotes, `$` and `%` writes an entry that validates, whose command (read as the Desktop
-Entry spec says) is that path and starts the AppImage, in Hebrew, with the Word types in Open With's
-cache and the icons; a second `--install` changes nothing; `--uninstall` removes all of it, succeeds
-when nothing is installed, and leaves (and fails over) an entry it didn't write; `XDG_DATA_HOME` is
-followed.
+are there, without the stock `README.md` or any link to the ArtCraft team's site or community; the
+AppImage has no update information; `--version`, `--help` and `--cli` (which writes a Hebrew
+document and converts it to PDF) work; and, in a throwaway HOME, `--install` run from a path with
+spaces, quotes, `$` and `%` writes an entry that validates, whose command (read as the Desktop Entry
+spec says) is that path and starts the AppImage, in Hebrew, with the Word types in Open With's cache
+and the icons; a second `--install` changes nothing; `--uninstall` removes all of it and succeeds
+when nothing is installed; an entry of that name that `--install` didn't write, and its icons, are
+left by both options, which fail; `XDG_DATA_HOME` is followed; and the extracted folder's `AppRun`,
+given another program's `APPIMAGE` and `APPDIR`, makes the entry start itself.
 
 **`BUILD-INFO.txt`**, in the AppImage, records the source commit and its date, the craft-i18n,
 craft-fonts and google/fonts revisions, the supplement's SHA-256, `rustc` and `cargo`, and the build
@@ -371,10 +388,12 @@ source and Cargo home folders are the same too: the binaries carry some of their
   formats, and Hebrew hyphenation (no pattern file exists for it).
 - Windows and macOS builds of the edition.
 - The About window (Help › Help) still says the program is part of the Crafting Apps from the
-  ArtCraft team and links to getartcraft.com and the ArtCraft Discord. The brand licence keeps those
-  for WordCraft's own builds, so a copy of the edition that is passed on should say instead, in plain
-  text, that it is based on WordCraft by the ArtCraft team, without the links. The window is drawn in
-  `crates/ui-egui/src/dialogs/dispatch.rs`, which this change did not touch.
+  ArtCraft team and links to the ArtCraft team's site and Discord. The brand licence keeps those
+  for WordCraft's own builds, so a copy of the edition that is passed on must say instead, in plain
+  text, that it is based on WordCraft by the ArtCraft team, without the links. That page is ready as
+  `crate::credits::about_ui` (its Hebrew row is in the supplement), but the window, drawn in
+  `crates/ui-egui/src/dialogs/dispatch.rs`, doesn't call it yet: its About tab's own text has to give
+  way to `about_ui` before the AppImage is passed on.
 - The AppImage on a real Ubuntu 22.04 desktop: its glibc needs were checked as above, and its menu
   entry with `desktop-file-validate` and a throwaway HOME, not in GNOME's menu, dock and search.
 - Not mirrored yet: the mini toolbar, the results of the title bar's command search (each label
@@ -406,3 +425,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-27 | minor | Mirrored task panes, balloons, directional icons and lists; Hebrew letters on Bold, Italic, Underline and Spelling; mixed Hebrew and Latin text in order; lengths number first; Hebrew in monospace text |
 | 2026-11-27 | minor | Engine messages through the catalog (rows and `@msg` templates); supplement rows correct published ones; Accessibility pane from rule ids; translated style, style set, Unicode subset, icon and Language data names; Language pack licence, confirmation and network failures; WordCraft's own file browser by default in the edition; Mailings on the region's paper |
 | 2026-11-27 | minor | Installing on Ubuntu (`--install`, `--uninstall`, `--cli`), the edition's own desktop id, Hebrew menu entry and AppStream text; no self-update and no Check for Updates button; the licence of every font in the AppImage; pinned and checked build inputs, `BUILD-INFO.txt`, `test-appimage.sh`; programs held to glibc 2.35 (Ubuntu 22.04) |
+| 2026-11-27 | minor | `--install` and `--uninstall` leave an entry they didn't write and its icons; the extracted folder's `--install` ignores another program's `APPIMAGE`; `--version` names the edition, which `test-appimage.sh` and `build-appimage.sh --skip-build` check; no stock README in the AppImage; Add Font… takes several files in WordCraft's own browser; the edition's About page (`credits::about_ui`), not yet in the window |

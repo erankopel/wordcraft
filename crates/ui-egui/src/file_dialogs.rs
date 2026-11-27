@@ -213,7 +213,7 @@ impl WordApp {
 
     /// Do what the dialog was for with the picked paths (none: the user cancelled). Only Add Font
     /// takes more than one; the others use the first.
-    fn finish_picks(&mut self, after: AfterPick, picked: Vec<String>) -> Result<Value, String> {
+    pub(crate) fn finish_picks(&mut self, after: AfterPick, picked: Vec<String>) -> Result<Value, String> {
         match after {
             AfterPick::Font if !picked.is_empty() => self.add_fonts(picked),
             after => self.finish_pick(after, picked.into_iter().next()),

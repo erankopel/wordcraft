@@ -825,3 +825,5 @@ icons	Map Pin	סיכת מפה
 	this edition of WordCraft has no community link	במהדורה זו של WordCraft אין קישור לקהילה
 	Complex script font:	גופן לטקסט בכתב מורכב:
 	Complex script size:	גודל לטקסט בכתב מורכב:
+	A free, open-source word processor written from scratch in Rust.\nBased on WordCraft by the ArtCraft team.	מעבד תמלילים חינמי בקוד פתוח, שנכתב מאפס ב-Rust.\nמבוסס על WordCraft של צוות ArtCraft.
+@plural	{n} file selected|{n} files selected	{n} קובץ נבחר|{n} קבצים נבחרו|{n} קבצים נבחרו

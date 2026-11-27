@@ -18,7 +18,8 @@
 # Hebrew one, which is built as an AppImage only):
 #   WORDCRAFT_APP_ID           its desktop id (default ai.storyteller.wordcraft): the name of the
 #                              desktop entry, the AppStream file and the icons; the binaries must be
-#                              built with the same WORDCRAFT_APP_ID
+#                              built with the same WORDCRAFT_APP_ID. The package of an edition with
+#                              its own id leaves out the stock README.md
 #   WORDCRAFT_DESKTOP_ENTRY    its desktop entry, WORDCRAFT_METAINFO its AppStream template
 #   WORDCRAFT_PACKAGE_NAME     the start of the file names (default wordcraft)
 #   WORDCRAFT_EXTRA_FONTS_DIR  folders of .ttf/.otf files, each with its OFL.txt, staged to
@@ -46,7 +47,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1; shift ;;
     --formats) FORMATS="$2"; shift 2 ;;
-    -h | --help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -100,6 +101,12 @@ if [[ "$APP_ID" != "$STOCK_ID" ]]; then
 fi
 mkdir -p "$STAGE/usr/share/doc/wordcraft"
 copy_docs "$STAGE/usr/share/doc/wordcraft"
+if [[ "$APP_ID" != "$STOCK_ID" ]]; then
+  # An edition is a modified version of WordCraft. The stock README shows the ArtCraft logo and
+  # links to the ArtCraft team's site and community, which docs/brand/LICENSE-brand.txt keeps for
+  # WordCraft's own builds; the edition's documents come through WORDCRAFT_EXTRA_DOCS.
+  rm -f "$STAGE/usr/share/doc/wordcraft/README.md"
+fi
 IFS=: read -r -a extra_docs <<<"${WORDCRAFT_EXTRA_DOCS:-}"
 for f in "${extra_docs[@]}"; do
   [[ -n "$f" ]] || continue

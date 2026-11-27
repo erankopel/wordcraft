@@ -89,3 +89,4 @@ icons	Power	לחצן הפעלה	the power button symbol ⏻; 'הפעלה וכי�
 @msg	{id} isn't installed (an AppImage needs desktop integration first)	{id} אינו מותקן (יש לשלב קודם את קובץ ה-AppImage בשולחן העבודה)	'desktop integration' (adding an AppImage to the menu) has no settled Hebrew term; 'שילוב בשולחן העבודה' is a rendering
 	Complex script font:	גופן לטקסט בכתב מורכב:	Font dialog row for the font of Hebrew, Arabic and other complex-script text (w:cs); "כתב מורכב" renders the technical term "complex script"; a reviewer may prefer an everyday wording such as "גופן לעברית ולטקסט מימין לשמאל:"
 	Complex script size:	גודל לטקסט בכתב מורכב:	the size row under it (w:szCs); same term as the font row
+@plural	{n} file selected|{n} files selected	{n} קובץ נבחר|{n} קבצים נבחרו|{n} קבצים נבחרו	@plural: the 'two' form repeats the 'other' form, as the existing rows do; WordCraft's own file browser shows it from 2 files up, for Add Font…; 'נבחרו {n} קבצים' is the alternative word order

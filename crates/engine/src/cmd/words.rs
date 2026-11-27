@@ -11,6 +11,11 @@ use crate::Session;
 
 pub use wordcraft_doc::words::{caption_labels, is_hebrew, page_x_of_y, word};
 
+/// The words Design › Watermark offers, in English. A watermark is the document's text, so the
+/// gallery writes each in the language of the text at the caret ([`word`] of [`caret_lang`]),
+/// and shows it as it writes it: טיוטה for DRAFT in Hebrew text, whatever the interface language.
+pub const WATERMARKS: [&str; 6] = ["DRAFT", "CONFIDENTIAL", "DO NOT COPY", "SAMPLE", "ASAP", "URGENT"];
+
 /// The language of text inserted at the caret (at the start of a selection, which it replaces),
 /// with the formatting typing gives it.
 pub fn caret_lang(s: &Session) -> Option<String> {

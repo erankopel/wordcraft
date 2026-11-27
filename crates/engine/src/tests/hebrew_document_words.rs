@@ -276,3 +276,28 @@ fn decorative_text_in_hebrew_text_has_a_hebrew_placeholder() {
     let part = run(&mut s, "insert.wordArt", json!({}));
     assert!(latin(&part_text(&s, &part)));
 }
+
+/// The words of Design › Watermark in a Hebrew document are Hebrew (טיוטה for DRAFT). Such a
+/// watermark keeps its text through a DOCX round trip, and every letter of it is drawn: the default
+/// watermark font, Aptos, is drawn in Carlito, which has no Hebrew letters, so they come from the
+/// faces body text takes them from, and strict export finds nothing missing (each letter was an
+/// empty box). English text keeps the English words.
+#[test]
+fn a_hebrew_watermark_keeps_its_text_and_draws_its_letters() {
+    use crate::cmd::words::{WATERMARKS, caret_lang, word};
+    let mut s = hebrew_document();
+    let words: Vec<&str> = WATERMARKS.iter().map(|w| word(caret_lang(&s).as_deref(), w)).collect();
+    assert!(words.iter().all(|w| hebrew(w) && !latin(w)), "{words:?}");
+    let english = Session::new(Document::new());
+    assert!(WATERMARKS.iter().all(|w| word(caret_lang(&english).as_deref(), w) == *w), "English text, English words");
+    let draft = words.first().copied().unwrap_or_default();
+    run(&mut s, "design.watermark", json!({"text": draft}));
+    let saved = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    assert_eq!(saved.settings.watermark.map(|w| w.text).as_deref(), Some(draft), "the text after a reopen");
+    if wordcraft_fonts::FontDb::global().fallback_for('ט', 0).is_none() {
+        eprintln!("skipped the drawing: no font with Hebrew letters installed");
+        return;
+    }
+    let report = run(&mut s, "file.strictReport", json!({}));
+    assert_eq!(report["strict"], "passed", "{report}");
+}

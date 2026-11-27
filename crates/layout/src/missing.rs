@@ -12,6 +12,11 @@ use crate::DocLayout;
 use crate::display::{DisplayOptions, Draw, page_display};
 use crate::para::draws_something;
 
+// The watermark text as laid out for output, which the PDF export and the page raster both draw
+// (`display::watermark_run`); the crate root exports it from here. Strict export checks these same
+// glyphs (`missing_watermark_glyphs`), so the check and the exporters can't drift.
+pub use crate::display::watermark_run;
+
 /// Most distinct code points [`DocLayout::missing_glyphs`] lists: a hostile file full of unmapped
 /// characters can't make the report unbounded.
 pub const MAX_MISSING_GLYPHS: usize = 256;
@@ -132,21 +137,6 @@ impl DocLayout {
     }
 }
 
-/// How the watermark text is shaped for output, as the PDF export and the page raster both do:
-/// its first `max_chars` characters in the font its name resolves to (no fallback face), so a
-/// character that font lacks shapes to glyph id 0. Strict export checks these same glyphs
-/// ([`missing_watermark_glyphs`]), so the check and the exporters can't drift. `None` for a
-/// blank watermark.
-pub fn watermark_run(wm: &wordcraft_doc::Watermark, max_chars: usize) -> Option<(wordcraft_fonts::FaceRef, String, Vec<ShapedGlyph>)> {
-    if wm.text.trim().is_empty() {
-        return None;
-    }
-    let face = wordcraft_fonts::word::resolve(&wm.font, false, false).face;
-    let text: String = wm.text.chars().take(max_chars).collect();
-    let shaped = wordcraft_fonts::shape(&face, &text, &[], |c| c);
-    Some((face, text, shaped))
-}
-
 /// How a metafile text run is shaped for output, as the PDF export and the page raster both do:
 /// in the face its font name resolves to (no fallback face), so a character that face lacks shapes
 /// to glyph id 0. Strict export checks these same glyphs, so the check and the exporters can't
@@ -245,14 +235,13 @@ pub fn layout_metafile_text(
     Some(MetafileTextLayout { em, baseline, glyphs, cell })
 }
 
-/// The characters of the watermark that draw as an empty box (glyph id 0), counted as
-/// [`DocLayout::missing_glyphs`] counts them; sorted by code point. The watermark is on every
-/// page, so it counts once.
-pub fn missing_watermark_glyphs(wm: &wordcraft_doc::Watermark, max_chars: usize) -> MissingGlyphs {
+/// The characters of `doc`'s watermark `wm` that draw as an empty box (glyph id 0): those no face
+/// its text is laid out in has ([`watermark_run`]), counted as [`DocLayout::missing_glyphs`]
+/// counts them; sorted by code point. The watermark is on every page, so it counts once.
+pub fn missing_watermark_glyphs(doc: &Document, wm: &wordcraft_doc::Watermark, max_chars: usize) -> MissingGlyphs {
     let mut found = Found::default();
-    if let Some((face, text, shaped)) = watermark_run(wm, max_chars) {
-        let ranges = cluster_ranges(&text, &shaped);
-        found.run(&face, shaped.iter().map(|g| g.gid), &text, &ranges);
+    for r in watermark_run(doc, wm, max_chars).map(|t| t.runs).unwrap_or_default() {
+        found.run(&r.face, r.glyphs.iter().map(|g| g.0), &r.text, &r.ranges);
     }
     found.finish()
 }

@@ -20,6 +20,7 @@ mod objects;
 mod options;
 mod page;
 mod paint;
+mod watermark;
 
 pub(crate) use glyphs::author_order;
 pub use glyphs::{CHECK_BOX_INSET, check_box, text_color, upright_in_vertical};
@@ -32,6 +33,7 @@ pub use options::{BalloonMode, ChangeBar, CommentDisplay, DeleteMark, DisplayOpt
 pub(crate) use page::rule_width;
 pub use page::{CHANGE_BAR, ItemDisplay, MOVE_COLOR, object_display, page_display, page_layers, revision_color};
 pub use paint::{Paint, Stroke, paint_for};
+pub use watermark::{WatermarkRun, WatermarkText, watermark_run};
 
 #[derive(Clone, Debug)]
 pub enum Draw {

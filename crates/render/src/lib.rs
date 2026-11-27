@@ -305,7 +305,7 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     }
     let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64)).inflate(40.0, 40.0);
     if let Some(wm) = &doc.settings.watermark {
-        draw_watermark(&mut ctx, view, page, wm, opts);
+        draw_watermark(&mut ctx, view, doc, page, wm, opts);
     }
     // A dimmed layer is drawn whole, then faded once, so its overlaps don't darken.
     for (alpha, items) in page_layers(doc, page, &opts.display) {
@@ -458,22 +458,37 @@ pub fn render_text_line(face: &wordcraft_fonts::FontFace, text: &str, size: f32,
     Rendered { width: w16 as u32, height: h16 as u32, pixels }
 }
 
-fn draw_watermark(ctx: &mut RenderContext, view: Affine, page: &Page, wm: &wordcraft_doc::Watermark, opts: &RenderOptions) {
-    let Some((face, _, glyphs)) = wordcraft_layout::watermark_run(wm, usize::MAX) else { return };
-    let upem = face.upem.max(1.0);
-    let raw_w: f64 = glyphs.iter().map(|g| g.x_advance as f64).sum::<f64>() / upem;
-    if raw_w <= 0.0 {
+fn draw_watermark(ctx: &mut RenderContext, view: Affine, doc: &Document, page: &Page, wm: &wordcraft_doc::Watermark, opts: &RenderOptions) {
+    let glyphs = watermark_glyphs(doc, page, wm);
+    if glyphs.is_empty() {
         return;
     }
-    // The document page, not a Print Markup area beside it. The text stretched over its box
-    // (Word's `v:textpath fitshape`): its advance across the box, its em down it with the em's foot
-    // on the box's bottom; the box centred on the margins and, when diagonal, turned 45°.
+    ctx.set_paint(color(opts.ink(wm.color), if wm.semitransparent { 0.35 } else { 0.8 }));
+    let db = FontDb::global();
+    for (face, gid, at) in &glyphs {
+        ctx.set_transform(view * *at);
+        ctx.fill_path(&db.outline(face, *gid));
+    }
+}
+
+/// Where each glyph of the watermark goes on `page`: its face, its glyph id and the map from its
+/// outline (font units) to page points. The glyphs are where layout placed them
+/// ([`wordcraft_layout::watermark_run`]: fallback faces, right-to-left text in visual order), and
+/// the line is stretched over the watermark's box (Word's `v:textpath fitshape`): its advance
+/// across the box, its em down it with the em's foot on the box's bottom; the box centred on the
+/// margins and, when diagonal, turned 45°, as the PDF export stretches and turns the same glyphs.
+fn watermark_glyphs(doc: &Document, page: &Page, wm: &wordcraft_doc::Watermark) -> Vec<(wordcraft_fonts::FaceRef, u32, Affine)> {
+    let Some(text) = wordcraft_layout::watermark_run(doc, wm, usize::MAX) else { return Vec::new() };
+    let raw_w = f64::from(text.width);
+    if !(raw_w.is_finite() && raw_w > 0.0) {
+        return Vec::new();
+    }
+    // The document page, not a Print Markup area beside it.
     let pw = (page.w - page.markup.max(0.0)).max(1.0) as f64;
     let [bw, bh] = wm.frame(pw as f32, page.h).map(f64::from);
     let size = bh.min(2000.0);
-    let k = size / upem;
     let stretch = bw / (raw_w * size);
-    let descent = (wordcraft_fonts::word::line_metrics(&face).1 / upem).clamp(0.0, 1.0);
+    let descent = f64::from(text.descent).clamp(0.0, 1.0);
     let angle = if wm.diagonal { -std::f64::consts::FRAC_PI_4 } else { 0.0 };
     let b = page.body;
     let (cx, cy) =
@@ -482,15 +497,14 @@ fn draw_watermark(ctx: &mut RenderContext, view: Affine, page: &Page, wm: &wordc
         * Affine::rotate(angle)
         * Affine::translate((-bw / 2.0, bh / 2.0 - descent * bh))
         * Affine::scale_non_uniform(stretch, 1.0);
-    ctx.set_paint(color(opts.ink(wm.color), if wm.semitransparent { 0.35 } else { 0.8 }));
-    let db = FontDb::global();
-    let mut x = 0.0;
-    for g in &glyphs {
-        let o = db.outline(&face, g.gid);
-        ctx.set_transform(view * base * Affine::translate((x, 0.0)) * Affine::scale(k));
-        ctx.fill_path(&o);
-        x += g.x_advance as f64 * k;
+    let mut out = Vec::new();
+    for run in &text.runs {
+        let k = size / run.face.upem.max(1.0);
+        for &(gid, x, y) in &run.glyphs {
+            out.push((run.face, gid, base * Affine::translate((f64::from(x) * size, f64::from(y) * size)) * Affine::scale(k)));
+        }
     }
+    out
 }
 
 /// Does `view` map page points to device pixels without rotation, skew or mirroring, scaling both

@@ -793,7 +793,12 @@ impl Dialog {
             "bookmark" => Dialog::Bookmark { name: bookmark_at_caret(&app.session), by_location: false, hidden: false, deleted: false },
             "wordCount" => Dialog::WordCount { stats: app.session.run("review.wordCount", &json!({})).unwrap_or_default() },
             "zoom" => Dialog::Zoom { percent: (app.session.view.zoom * 100.0).round() },
-            "watermark" => Dialog::Watermark { text: "CONFIDENTIAL".into(), diagonal: true },
+            // The text goes into the document: in the language of the text at the caret, as the
+            // Watermark gallery's words (חסוי in Hebrew text).
+            "watermark" => {
+                let lang = wordcraft_engine::cmd::words::caret_lang(&app.session);
+                Dialog::Watermark { text: wordcraft_engine::cmd::words::word(lang.as_deref(), "CONFIDENTIAL").into(), diagonal: true }
+            }
             "phonetic" => {
                 let v = wordcraft_engine::cmd::phonetic::state(&app.session);
                 let f = |k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(0.0) as f32;

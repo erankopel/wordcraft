@@ -248,6 +248,28 @@ Labels start on the region's paper (a DL envelope and A4 label sheets). Starting
 - **Checked and already right:** the caret steps over a letter with all its points as one stop;
   Ctrl+arrow crosses a pointed word in one step in reading order; the word count is the same with
   or without points; typed Hebrew is never underlined as misspelled English.
+- **Watermarks:** Design › Watermark writes its words in the language of the text at the caret, as
+  the engine writes its own words (`cmd::words::caret_lang`): in Hebrew text טיוטה, חסוי, אין
+  להעתיק, דוגמה, בהקדם האפשרי and דחוף for DRAFT, CONFIDENTIAL, DO NOT COPY, SAMPLE, ASAP and
+  URGENT (the catalog's words, kept with the document's other words in `wordcraft_doc::words`), in
+  other text the English ones. Each item shows the word it writes, whatever the interface language,
+  so an English interface shows טיוטה over Hebrew text and a Hebrew one DRAFT over English text
+  (`cmd::words::WATERMARKS`; the interface no longer translates these labels, in any language).
+  Custom Watermark starts from חסוי in Hebrew text, CONFIDENTIAL elsewhere. Scripts and agents pass
+  the word they want to `design.watermark` as before.
+  - **Drawing:** the watermark's text is laid out once, in layout (`display::watermark_run` in
+    `crates/layout/src/display/watermark.rs`), by the paragraph layout body text goes through, and
+    the page, PNG export, PDF export and printing draw what it placed; strict export checks the same
+    glyphs. Its Hebrew letters are drawn in the watermark's font when it has every one of them, else
+    in the document's complex-script font, as body text's are (David's stand-in in the edition's
+    documents), and a letter neither has comes from the fallback faces: the default watermark font,
+    Aptos (drawn with Carlito, which has no Hebrew), no longer draws boxes.
+    The line is ordered by the Unicode Bidirectional Algorithm, reading the way its first strong
+    letter does: סודי reads right to left (it was drawn ידוס), and Latin words and numbers beside
+    Hebrew stand where they read (in סודי DRAFT 2026, DRAFT 2026 is drawn to the left of the
+    Hebrew word). Points and other marks sit where the font puts them.
+  - **Saved:** the text, Hebrew included, round-trips through DOCX (Word's `v:textpath`), with the
+    watermark's font, which is kept and drawn as before.
 
 ## Installing on Ubuntu
 
@@ -433,16 +455,12 @@ source and Cargo home folders are the same too: the binaries carry some of their
   bar's source link is the pack's archive until the engine reads the index's `source`.
 - A Hebrew Markdown or text file opens left to right: these formats carry no direction, and only new
   blank documents take the edition's right-to-left default.
-- Watermarks in Hebrew text: Design › Watermark's words and Custom Watermark's `CONFIDENTIAL` are
-  still written in English, even where the menu shows them in Hebrew, because a Hebrew watermark is
-  not drawn right yet. Its text is shaped in the watermark's own font with no fallback
-  (`watermark_run` in `crates/layout/src/missing.rs`), and the default watermark font, Aptos, is
-  drawn with its stand-in Carlito (craft-fonts), which has no Hebrew letters, so they show as
-  boxes; and the page, PNG and PDF
-  (`crates/render`, `crates/pdf`) draw its letters in typing order, so with a font that has them a
-  Hebrew word reads backwards (סודי comes out as ידוס). A Hebrew watermark typed into Custom
-  Watermark shows the same. Once those draw Hebrew right, the gallery and the dialog can write the
-  words in the language of the text at the caret, as the engine does for its own words.
+- Watermarks: Custom Watermark offers no font, so a watermark's font comes only from a file that has
+  one (`design.watermark` takes none either). A watermark reads the way its first letter does
+  (UAX #9's rules P2 and P3), not the way its document does, so DRAFT סודי reads left to right in a
+  Hebrew document. The gallery's words follow the text at the caret, not the document as a whole.
+  How Word orders and draws a Hebrew watermark (its direction, the face of its letters, its points)
+  was not observed.
 - Find and Replace has no Match diacritics check box. The searches take `matchDiacritics`
   (`edit.find` and the others; off by default, so שלום finds שָׁלוֹם), but the dialog's searches
   don't send it, so they keep whatever the last search that sent it set: after a script's
@@ -463,3 +481,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-27 | minor | `--install` and `--uninstall` leave an entry they didn't write and its icons; the extracted folder's `--install` ignores another program's `APPIMAGE`; `--version` names the edition, which `test-appimage.sh` and `build-appimage.sh --skip-build` check; no stock README in the AppImage; Add Font… takes several files in WordCraft's own browser; the edition's About page (`credits::about_ui`), not yet in the window |
 | 2026-11-27 | minor | The File view's templates open in Hebrew, right to left, where new documents do; New Style, New Table Style and Customize Ribbon name what they make in the interface language (New Style no longer offers a taken name); untitled recovery copies named in it; the pane's Ignore Once leaves the word until its paragraph changes; why watermarks stay English in Hebrew text; the Find dialog keeps Match diacritics |
 | 2026-11-27 | minor | File › Recover's Discard question names an untitled copy as the Recover page does; corrects the row above: Find and Replace has no Match diacritics, and its searches keep the setting the last search sent |
+| 2026-11-27 | minor | Hebrew watermarks: drawn like body text on the page, in PNG, PDF and print (fallback faces, the document's complex-script font for Hebrew, the bidirectional order) and checked so by strict export; Design › Watermark and Custom Watermark write Hebrew words in Hebrew text and show the word they write; DOCX keeps the text (removed from "Not done", what is left noted there) |

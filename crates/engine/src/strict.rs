@@ -161,7 +161,7 @@ pub fn strict_report(
             StrictOutput::Pdf => wordcraft_pdf::WATERMARK_MAX_CHARS,
             StrictOutput::Png => usize::MAX,
         };
-        missing.merge(wordcraft_layout::missing_watermark_glyphs(wm, max));
+        missing.merge(wordcraft_layout::missing_watermark_glyphs(doc, wm, max));
     }
     let (undecodable, mut pictures_truncated, undecodable_total) = wordcraft_layout::undecodable_pictures(doc, lay, pages, display, output);
     pictures_truncated |= doc.missing_pictures.truncated;

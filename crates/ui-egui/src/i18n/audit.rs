@@ -233,7 +233,7 @@ impl<'a> Exempt<'a> {
             || numbered(plain, "Style") || numbered(plain, "Table Style ") // a new style's default name (`Style1`)
             || plain.contains('┬') || plain.contains('\u{2061}') // equation input (UnicodeMath), drawn as math
             || matches!(plain, "WordCraft" | "WordCraft User" | "Discord" | "https://" | "auto" | "I. II. III." | "i. ii. iii." | "I, II, III, …" | "i, ii, iii, …")
-            || plain == "CONFIDENTIAL" // the watermark dialog's text: document content, kept as typed
+            || wordcraft_engine::cmd::words::WATERMARKS.contains(&plain) // the watermark menu's and dialog's text: document content
             || plain == "Figure 1" // the caption dialog's sample: the label goes into the document as is
             || crate::dialogs_insert::date_time_preview_matches(plain)
     }

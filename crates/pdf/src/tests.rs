@@ -3325,3 +3325,81 @@ fn chart_and_equation_text_keep_their_pdf_bytes() {
         ["B", "o", "d", "y", " ", "t", "e", "x", "R", "v", "n", "u", "2", "0", "4", "+", "1", "\u{1D465}"].into_iter().map(String::from).collect();
     assert_eq!(shown, expected);
 }
+
+/// Each glyph drawn as text: the text it reads back as (U+FFFD for none, as an empty box reads),
+/// its origin's x and its vertical scale, in page space.
+fn glyph_texts(bytes: &[u8]) -> Vec<(String, f64, f64)> {
+    use hayro_interpret::font::Glyph;
+    use hayro_interpret::{
+        BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask,
+        interpret_page,
+    };
+    use hayro_syntax::Pdf;
+    struct Texts(Vec<(String, f64, f64)>);
+    impl Device<'_> for Texts {
+        fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+        fn set_blend_mode(&mut self, _: BlendMode) {}
+        fn draw_path(&mut self, _: &kurbo::BezPath, _: kurbo::Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+        fn push_clip_path(&mut self, _: &ClipPath) {}
+        fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+        fn draw_glyph(&mut self, g: &Glyph<'_>, transform: kurbo::Affine, glyph: kurbo::Affine, _: &Paint<'_>, _: &GlyphDrawMode) {
+            let [_, _, c, d, e, _] = (transform * glyph).as_coeffs();
+            let text = match g.as_unicode() {
+                Some(hayro_cmap::BfString::Char(c)) => c.to_string(),
+                Some(hayro_cmap::BfString::String(s)) => s,
+                None => '\u{FFFD}'.to_string(),
+            };
+            self.0.push((text, e, c.hypot(d)));
+        }
+        fn draw_image(&mut self, _: Image<'_, '_>, _: kurbo::Affine) {}
+        fn pop_clip_path(&mut self) {}
+        fn pop_transparency_group(&mut self) {}
+    }
+    let pdf = Pdf::new(bytes.to_vec()).expect("parse");
+    let cache = InterpreterCache::new();
+    let mut t = Texts(Vec::new());
+    for page in pdf.pages().iter() {
+        let mut ctx = Context::new(kurbo::Affine::IDENTITY, kurbo::Rect::new(0.0, 0.0, 1.0, 1.0), &cache, pdf.xref(), InterpreterSettings::default());
+        interpret_page(page, &mut ctx, &mut t);
+    }
+    t.0
+}
+
+/// A Hebrew watermark in the PDF (and so in print): every letter from a face that has it, so each
+/// reads back as its letter (the default watermark font, Aptos, is drawn in Carlito, which has no
+/// Hebrew letters: they were empty boxes), written where it reads: ס rightmost (typing order wrote
+/// ידוס), and DRAFT and 2026 left to right, to the left of the Hebrew word, where the
+/// bidirectional algorithm puts them.
+#[test]
+fn a_hebrew_watermark_is_written_right_to_left() {
+    if wordcraft_fonts::FontDb::global().fallback_for('ס', 0).is_none() {
+        eprintln!("skipped: no font with Hebrew letters installed");
+        return;
+    }
+    let mut d = Document::new();
+    d.body = vec![para_block(Paragraph::with_text("Body", CharProps::default()))];
+    let wm = Watermark { text: "סודי DRAFT 2026".into(), diagonal: false, ..Default::default() };
+    let [_, size] = wm.frame(d.last_section.page_w, d.last_section.page_h);
+    d.settings.watermark = Some(wm);
+    // The watermark's glyphs: those one box high (glyph space is a thousandth of the size).
+    let glyphs: Vec<(String, f64)> = glyph_texts(&export(&d, &PdfOptions::default()).unwrap())
+        .into_iter()
+        .filter(|(t, _, scale)| (scale * 1000.0 - f64::from(size)).abs() < 0.5 && t.as_str() != " ")
+        .map(|(t, x, _)| (t, x))
+        .collect();
+    let mut read: Vec<String> = glyphs.iter().map(|g| g.0.clone()).collect();
+    read.sort();
+    let mut want: Vec<String> = "סודיDRAFT2026".chars().map(String::from).collect();
+    want.sort();
+    assert_eq!(read, want, "each letter reads back once, none as an empty box");
+    let xs = |keep: fn(char) -> bool| -> Vec<f64> {
+        let order = "סודיDRAFT2026";
+        order.chars().filter(|c| keep(*c)).filter_map(|c| glyphs.iter().find(|g| g.0 == c.to_string()).map(|g| g.1)).collect()
+    };
+    let (he, latin) = (xs(|c| ('\u{5D0}'..='\u{5EA}').contains(&c)), xs(|c| c.is_ascii_alphabetic()));
+    assert!(he.windows(2).all(|w| w[0] > w[1]), "ס rightmost: {glyphs:?}");
+    assert!(latin.windows(2).all(|w| w[0] < w[1]), "DRAFT left to right: {glyphs:?}");
+    let digits: Vec<f64> = glyphs.iter().filter(|g| g.0.chars().all(|c| c.is_ascii_digit())).map(|g| g.1).collect();
+    let (max, min) = (|v: &[f64]| v.iter().copied().fold(f64::MIN, f64::max), |v: &[f64]| v.iter().copied().fold(f64::MAX, f64::min));
+    assert!(max(&latin) < min(&digits) && max(&digits) < min(&he), "DRAFT, 2026, then the Hebrew word: {glyphs:?}");
+}

@@ -16,6 +16,8 @@ mod draw;
 mod nav;
 mod text;
 
+use text::GlyphPaint;
+
 pub(crate) struct Exporter<'a> {
     pub(crate) doc: &'a Document,
     pub(crate) lay: &'a DocLayout,
@@ -354,67 +356,31 @@ impl Exporter<'_> {
     }
 
     /// The watermark text stretched over its box (Word's `v:textpath fitshape`): its advance across
-    /// the box's width, its em down the box's height with the em's foot (the font's descent below
-    /// the baseline) on the box's bottom; the box centred on the margins (`area`, else the page)
-    /// and, when diagonal, turned 45° counterclockwise.
+    /// the box's width, its em down the box's height with the em's foot (the descent below the
+    /// baseline of the faces it is drawn in) on the box's bottom; the box centred on the margins
+    /// (`area`, else the page) and, when diagonal, turned 45° counterclockwise. The glyphs are where
+    /// layout placed them ([`wordcraft_layout::watermark_run`]: fallback faces, right-to-left text
+    /// in visual order), written as body text's are.
     fn watermark(&mut self, s: &mut Surface, wm: &wordcraft_doc::Watermark, w: f32, h: f32, area: Rect) {
-        let Some((face, text, shaped)) = wordcraft_layout::watermark_run(wm, super::WATERMARK_MAX_CHARS) else { return };
-        let upem = face.upem.max(1.0) as f32;
-        let raw_w: f32 = shaped.iter().map(|g| g.x_advance as f32).sum::<f32>() / upem;
+        let Some(text) = wordcraft_layout::watermark_run(self.doc, wm, super::WATERMARK_MAX_CHARS) else { return };
+        let raw_w = text.width;
         if raw_w <= 0.0 || !raw_w.is_finite() {
             return;
         }
         let [bw, bh] = wm.frame(w, h);
         let size = bh.min(2000.0);
         let stretch = bw / (raw_w * size);
-        let descent = (wordcraft_fonts::word::line_metrics(&face).1 / face.upem.max(1.0)) as f32;
+        let descent = text.descent.clamp(0.0, 1.0);
         let angle = if wm.diagonal { -std::f32::consts::FRAC_PI_4 } else { 0.0 };
         let (c, sn) = (angle.cos(), angle.sin());
-        let (dx, dy) = (-bw / 2.0, bh / 2.0 - descent.clamp(0.0, 1.0) * bh);
+        let (dx, dy) = (-bw / 2.0, bh / 2.0 - descent * bh);
         let (cx, cy) = if area.w > 0.0 && area.h > 0.0 { (area.x + area.w / 2.0, area.y + area.h / 2.0) } else { (w / 2.0, h.min(2000.0) / 2.0) };
-        let font = self.font(&face);
-        if font.is_none() && !self.outlined.contains(&face.id()) {
-            return;
-        }
-        let ends = cluster_ends(&shaped.iter().map(|g| g.cluster).collect::<Vec<_>>(), text.len());
-        let glyphs: Vec<KrillaGlyph> = shaped
-            .iter()
-            .enumerate()
-            .map(|(i, g)| {
-                let end = ends.get(i).copied().unwrap_or(text.len());
-                let start = g.cluster.min(end);
-                KrillaGlyph::new(
-                    glyph_id(g.gid),
-                    g.x_advance as f32 / upem,
-                    g.x_offset as f32 / upem,
-                    g.y_offset as f32 / upem,
-                    0.0,
-                    start..end,
-                    None,
-                )
-            })
-            .collect();
         s.push_transform(&Transform::from_row(c * stretch, sn * stretch, -sn, c, c * dx - sn * dy + cx, sn * dx + c * dy + cy));
-        s.set_stroke(None);
-        s.set_fill(Some(fill(wm.color, if wm.semitransparent { 0.5 } else { 1.0 })));
-        match font {
-            Some(font) => {
-                s.draw_glyphs(Point::from_xy(0.0, 0.0), &glyphs, font, &text, size, false);
-            }
-            None => {
-                let k = size / upem;
-                let mut x = 0.0;
-                let mut pen = Vec::with_capacity(shaped.len());
-                for g in &shaped {
-                    pen.push((g.gid, x + g.x_offset as f32 * k, -(g.y_offset as f32) * k));
-                    x += g.x_advance as f32 * k;
-                }
-                if let Some(path) = glyph_outlines(&face, size, &pen) {
-                    s.draw_path(&path);
-                }
-            }
+        let paint = GlyphPaint { color: wm.color, alpha: if wm.semitransparent { 0.5 } else { 1.0 }, bold: false, italic: false };
+        for run in &text.runs {
+            let glyphs: Vec<(u32, f32, f32)> = run.glyphs.iter().map(|&(g, x, y)| (g, x * size, y * size)).collect();
+            self.glyphs(s, &run.face, size, &glyphs, paint, (&run.text, &run.ranges));
         }
-        s.set_fill(None);
         s.pop();
     }
 }

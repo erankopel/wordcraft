@@ -29,6 +29,12 @@ const HEBREW: &[(&str, &str)] = &[
     ("Your text here", "הטקסט שלכם כאן"),
     ("[Document title]", "[כותרת המסמך]"),
     ("[Type here]", "[הקלידו כאן]"),
+    ("DRAFT", "טיוטה"),
+    ("CONFIDENTIAL", "חסוי"),
+    ("DO NOT COPY", "אין להעתיק"),
+    ("SAMPLE", "דוגמה"),
+    ("ASAP", "בהקדם האפשרי"),
+    ("URGENT", "דחוף"),
 ];
 
 /// `english` in the language `lang`: its Hebrew in Hebrew text, else the English itself (also

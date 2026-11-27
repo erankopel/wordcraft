@@ -2269,3 +2269,45 @@ fn a_picture_too_large_to_decode_says_so_in_its_box() {
     assert!(grid.iter().flatten().any(|p| *p == Some(false)), "a damaged picture keeps its grey placeholder");
     assert!(!grid.iter().flatten().any(|p| *p == Some(true)), "with no size message");
 }
+
+/// A Hebrew watermark is drawn as layout placed it: every letter from a face that has it (the
+/// default watermark font, Aptos, is drawn in Carlito, which has no Hebrew letters: they were
+/// empty boxes) and reading right to left on the page, ס rightmost (typing order drew ידוס). DRAFT
+/// and 2026 read left to right, to the left of the Hebrew word, where the bidirectional algorithm
+/// puts them.
+#[test]
+fn a_hebrew_watermark_draws_its_letters_right_to_left() {
+    if FontDb::global().fallback_for('ס', 0).is_none() {
+        eprintln!("skipped: no font with Hebrew letters installed");
+        return;
+    }
+    let mut d = Document::new();
+    d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Body", wordcraft_doc::CharProps::default()))];
+    let wm = wordcraft_doc::Watermark { text: "סודי DRAFT 2026".into(), diagonal: false, ..Default::default() };
+    d.settings.watermark = Some(wm.clone());
+    let lay = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+    // Each glyph's character, from layout's text, beside where the raster puts it (in the same order).
+    let text = wordcraft_layout::watermark_run(&d, &wm, usize::MAX).unwrap();
+    let chars: Vec<(char, u32, bool)> = text
+        .runs
+        .iter()
+        .flat_map(|r| {
+            r.glyphs.iter().zip(&r.ranges).map(move |(g, range)| {
+                let c = r.text[range.clone()].chars().next().unwrap();
+                (c, g.0, r.face.covers(c))
+            })
+        })
+        .collect();
+    let placed = watermark_glyphs(&d, &lay.pages[0], &wm);
+    assert_eq!(placed.len(), chars.len(), "every glyph is drawn");
+    assert!(chars.iter().all(|(c, gid, covered)| *c == ' ' || (*gid != 0 && *covered)), "a face that has it draws each: {chars:?}");
+    let xs = |keep: fn(char) -> bool| -> Vec<f64> {
+        chars.iter().zip(&placed).filter(|((c, ..), _)| keep(*c)).map(|(_, (_, _, at))| at.as_coeffs()[4]).collect()
+    };
+    let (he, latin, digits) = (xs(|c| ('\u{5D0}'..='\u{5EA}').contains(&c)), xs(|c| c.is_ascii_alphabetic()), xs(|c| c.is_ascii_digit()));
+    assert_eq!((he.len(), latin.len(), digits.len()), (4, 5, 4));
+    assert!(he.windows(2).all(|w| w[0] > w[1]), "ס rightmost: {he:?}");
+    assert!(latin.windows(2).all(|w| w[0] < w[1]) && digits.windows(2).all(|w| w[0] < w[1]), "{latin:?} {digits:?}");
+    let (max, min) = (|v: &[f64]| v.iter().copied().fold(f64::MIN, f64::max), |v: &[f64]| v.iter().copied().fold(f64::MAX, f64::min));
+    assert!(max(&latin) < min(&digits) && max(&digits) < min(&he), "DRAFT, 2026, then the Hebrew word");
+}

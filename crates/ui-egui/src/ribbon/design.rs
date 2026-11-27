@@ -95,14 +95,7 @@ pub(super) fn design(app: &mut WordApp, ui: &mut Ui) {
             ui,
             app,
             crate::widgets::MenuButtonOptions::new("watermark", Some("Watermark"), "Watermark", true, "design.watermark"),
-            |ui, app| {
-                for w in ["DRAFT", "CONFIDENTIAL", "DO NOT COPY", "SAMPLE", "ASAP", "URGENT"] {
-                    mi(ui, app, w, "design.watermark", json!({"text": w}));
-                }
-                ui.separator();
-                mi(ui, app, "Custom Watermark…", "ui.dialog", json!({"name": "watermark"}));
-                mi(ui, app, "Remove Watermark", "design.watermark", json!({"remove": true}));
-            },
+            watermark_menu,
         );
         menu_button(
             ui,
@@ -116,4 +109,18 @@ pub(super) fn design(app: &mut WordApp, ui: &mut Ui) {
         );
         big(ui, app, "pageBorders", "Page\nBorders", "design.pageBorders", json!({}), false);
     });
+}
+
+/// Design › Watermark's menu. A watermark is the document's text, so each word is written in the
+/// language of the text at the caret, as the engine writes its own words (טיוטה for DRAFT in Hebrew
+/// text), and the item shows the word it writes, whatever the interface language.
+pub(super) fn watermark_menu(ui: &mut Ui, app: &mut WordApp) {
+    let lang = wordcraft_engine::cmd::words::caret_lang(&app.session);
+    for w in wordcraft_engine::cmd::words::WATERMARKS {
+        let text = wordcraft_engine::cmd::words::word(lang.as_deref(), w);
+        mi_text(ui, app, text, "design.watermark", json!({"text": text}));
+    }
+    ui.separator();
+    mi(ui, app, "Custom Watermark…", "ui.dialog", json!({"name": "watermark"}));
+    mi(ui, app, "Remove Watermark", "design.watermark", json!({"remove": true}));
 }

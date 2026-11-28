@@ -931,6 +931,66 @@ fn a_follow_up_about_the_same_selection_does_not_send_it_again() {
     assert_eq!(body.matches("brave").count(), 1, "the text goes once: {body}");
 }
 
+/// A long chat lets its oldest turns go a run at a time, as the requests do: most follow-ups still start with the
+/// request before them, which the service then reads from its prompt cache, and the pane keeps no more turns than a
+/// request sends.
+#[test]
+fn a_long_chat_lets_its_oldest_turns_go_a_run_at_a_time() {
+    let ctx = egui::Context::default();
+    let (mut app, sent) = app("Hello brave world", Some(script(false, Ok(reply("kind")))));
+    app.run("select.text", json!({"text": "brave"})).unwrap();
+    for n in 0..24 {
+        ask(&mut app, &ctx, &format!("Question {n}"));
+        settle(&mut app, &ctx);
+    }
+    assert!(app.assistant.history.len() <= wordcraft_assistant::MAX_HISTORY_TURNS, "{} turns kept", app.assistant.history.len());
+    let bodies: Vec<String> = sent.lock().unwrap().iter().map(|r| wordcraft_assistant::build_body(r, "m").unwrap()).collect();
+    let starts: Vec<bool> = bodies.windows(2).map(|pair| pair[0].strip_suffix("]}").is_some_and(|before| pair[1].starts_with(before))).collect();
+    let first_cut = starts.iter().position(|starts| !starts).expect("the chat reached its bound");
+    let after = &starts[first_cut..];
+    let kept = after.iter().filter(|&&starts| starts).count();
+    assert!(kept * 2 > after.len(), "{kept} of {} follow-ups after the first cut start with the request before", after.len());
+}
+
+/// Settings never shows another request's token use as the last one's: a request that failed after some of its
+/// rounds were answered shows what those used, and one that got no answer, or that the person stopped waiting for,
+/// says that its use is not known.
+#[test]
+fn the_token_use_shown_is_the_last_request_s() {
+    use super::Spent;
+    let ctx = egui::Context::default();
+    let earlier = || Some(Spent::All { model: "earlier".into(), usage: Usage { input_tokens: 1, output_tokens: 1, ..Usage::default() } });
+    // A request that changes the document, answered once and then failing.
+    let mut first = Step::tools(&[("get_text", json!({}))]);
+    first.usage = Usage { input_tokens: 2000, cache_read_tokens: 0, cache_write_tokens: 1990, output_tokens: 40 };
+    let busy = Error::Http { status: 529, kind: "overloaded_error".into(), message: "busy".into() };
+    let mut app = edit_app("Hello world", edit_script(false, vec![Ok(first), Err(busy)]));
+    app.assistant.last_usage = earlier();
+    ask(&mut app, &ctx, "Change it");
+    settle(&mut app, &ctx);
+    assert!(app.assistant.error.is_some());
+    assert!(
+        matches!(&app.assistant.last_usage, Some(Spent::Before { usage, .. }) if usage.input_tokens == 2000 && usage.cache_write_tokens == 1990),
+        "the answered round's tokens: {:?}",
+        app.assistant.last_usage
+    );
+    // A text request that fails.
+    let (mut failing, _) = self::app("Some text", Some(script(false, Err(Error::Network("down".into())))));
+    failing.assistant.last_usage = earlier();
+    ask(&mut failing, &ctx, "Summarise");
+    settle(&mut failing, &ctx);
+    assert_eq!(failing.assistant.last_usage, Some(Spent::Unknown));
+    // A request the person stopped waiting for.
+    let held = script(false, Ok(reply("Late")));
+    held.hold.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (mut stopped, _) = self::app("Some text", Some(held.clone()));
+    stopped.assistant.last_usage = earlier();
+    ask(&mut stopped, &ctx, "Summarise");
+    stopped.assistant_act(Act::Stop, &ctx);
+    held.hold.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(stopped.assistant.last_usage, Some(Spent::Unknown));
+}
+
 /// Keeping the key on this computer: only when asked, only once the key has worked, in a file of its own that
 /// the next run reads, and gone when the person forgets it.
 #[cfg(not(target_arch = "wasm32"))]
@@ -1242,6 +1302,56 @@ mod saved_key {
         let h = super::drawn::open(app);
         assert!(h.query_by_label("API key:").is_none() && h.query_by_label_contains("Ask for a change").is_none(), "no setup");
         h.get_by_role_and_label(egui::accesskit::Role::Button, "Settings");
+    }
+
+    /// A saved key cleared from the key box is no longer a key that needs no typing: the request finds no key, and
+    /// the setup, with the key box, shows again (unless the environment has a key).
+    #[test]
+    fn a_saved_key_cleared_from_the_key_box_brings_the_setup_back() {
+        let ctx = egui::Context::default();
+        let folder = Folder::new();
+        folder.file().save(KEY).unwrap();
+        std::fs::write(
+            folder.0.join(crate::assistant_pane::saved::FILE_NAME),
+            r#"{"edits": false, "agreed": {"recipient": "example.test", "model": "test-model"}}"#,
+        )
+        .unwrap();
+        let (mut app, _) = app("Some text", None);
+        app.use_saved_assistant_key(&folder.0);
+        assert!(app.assistant_run.setup_done(), "a saved key and an agreement");
+        typed(&mut app, "");
+        ask(&mut app, &ctx, "Summarise");
+        assert_eq!(app.assistant.error, Some(Error::MissingKey));
+        assert_eq!(app.assistant_run.setup_done(), super::super::env_key(), "the setup shows again unless the environment has a key");
+    }
+
+    /// When the agreement cannot be saved, the pane says so where it is seen. The agreement step said it is kept for
+    /// later runs, and once it is given the setup ends and Settings is closed.
+    #[test]
+    fn an_agreement_that_could_not_be_saved_is_said_outside_settings() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{NodeT, Queryable};
+        let ctx = egui::Context::default();
+        let folder = Folder::new();
+        folder.file().save(KEY).unwrap();
+        // The choices cannot be written: a folder with something in it is where their file would go.
+        std::fs::create_dir_all(folder.0.join(crate::assistant_pane::saved::FILE_NAME).join("inside")).unwrap();
+        let (mut app, _) = app("Some text", Some(script(true, Ok(reply("Done")))));
+        app.use_saved_assistant_key(&folder.0);
+        app.assistant_run.choices.edits = false;
+        app.run("select.all", json!({})).unwrap();
+        let mut h = super::drawn::open(app);
+        h.state_mut().assistant.prompt = "Summarise".into();
+        h.state_mut().assistant_act(Act::Send, &ctx);
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("Your agreement is kept in WordCraft's settings").is_some(), "the promise the step makes");
+        h.state_mut().assistant_act(Act::Agree, &ctx);
+        settle(h.state_mut(), &ctx);
+        h.run_steps(3);
+        assert!(h.state().assistant_run.setup_done(), "the setup is done");
+        assert_eq!(h.get_by_role_and_label(Role::Button, "Settings").accesskit_node().data().is_expanded(), Some(false), "Settings is closed");
+        let said = h.query_all_by_label_contains("Your agreement could not be saved").count();
+        assert!(said >= 1, "the pane says the agreement lasts for this run only");
     }
 }
 
@@ -1616,6 +1726,26 @@ mod drawn {
         let chars = drawn_chars(&h, "Word היא תוכנה");
         let (word, hebrew, last) = (x_of(&chars, 'W', 0), x_of(&chars, 'י', 0), x_of(&chars, 'ת', 0));
         assert!(word > hebrew && hebrew > last, "right to left, the English word first: {word} {hebrew} {last}");
+    }
+
+    /// In the Hebrew interface the empty instruction box, its hint showing, has its caret at its right edge, inside
+    /// the box, where the typing starts: where the keyboard focus shows and an input method puts its window.
+    #[test]
+    fn in_the_hebrew_interface_the_empty_instruction_box_has_its_caret_at_its_right_edge() {
+        let (app, _) = app("Some text", None);
+        let mut h = open_in(app, Some("he"));
+        let label = tl!("Instruction:");
+        h.get_by_label(label).focus();
+        h.run_steps(3);
+        assert!(h.get_by_label(label).is_focused(), "the box has the keyboard");
+        assert!(h.state().assistant.prompt.is_empty() && !drawn_chars(&h, tl!("For example: make this paragraph shorter")).is_empty());
+        let field = h.get_by_label(label).rect();
+        // Where the box draws its caret, and the part of the box the text and the caret are drawn in.
+        let (caret, inside) =
+            h.output().platform_output.ime.as_ref().map(|ime| (ime.cursor_rect, ime.rect)).expect("the focused box says where its caret is");
+        let x = caret.center().x;
+        assert!(x <= inside.max.x + 1.0 && x <= field.max.x, "the caret inside the box: {caret:?} in {inside:?}, {field:?}");
+        assert!(field.max.x - x < 16.0, "the caret at the box's right edge: {caret:?} in {field:?}");
     }
 
     /// In an English interface each line of the instruction box starts at its own side: an English line at the

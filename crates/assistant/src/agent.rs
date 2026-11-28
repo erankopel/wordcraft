@@ -176,6 +176,26 @@ pub struct Outcome {
     pub fallback_used: bool,
 }
 
+/// A tool conversation that ended in an error, and what the rounds answered before it used: the service counts
+/// those all the same.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failed {
+    pub error: Error,
+    /// The rounds that got an answer before the error.
+    pub rounds: usize,
+    /// The tokens those rounds used, summed.
+    pub usage: Usage,
+    /// The model that answered the last of them.
+    pub model: String,
+}
+
+impl From<Error> for Failed {
+    /// An error before any round got an answer.
+    fn from(error: Error) -> Failed {
+        Failed { error, rounds: 0, usage: Usage::default(), model: String::new() }
+    }
+}
+
 /// What one tool conversation is about.
 pub struct Task<'a> {
     /// The tool definitions the model may call. They stay the same for the whole conversation.
@@ -305,20 +325,21 @@ fn message(role: &str, content: &Value) -> String {
 /// model asks for with `host`, one at a time in the order asked, send their results back, until the
 /// model finishes, a limit is reached, or `cancel` is set (then [`Error::Interrupted`]). Tools run
 /// only when the model's turn asks for them; a turn that ends otherwise ends the conversation, and
-/// its [`Outcome::stop`] says how. `progress` hears what happens.
+/// its [`Outcome::stop`] says how. `progress` hears what happens. An error ends it with what the rounds
+/// before it used ([`Failed`]).
 pub fn run(
     provider: &mut dyn Provider,
     host: &mut dyn ToolHost,
     task: &Task,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
-) -> Result<Outcome, Error> {
+) -> Result<Outcome, Failed> {
     let instruction = task.instruction;
     if instruction.trim().is_empty() {
-        return Err(Error::EmptyInstruction);
+        return Err(Error::EmptyInstruction.into());
     }
     if instruction.len() > MAX_INSTRUCTION_BYTES {
-        return Err(Error::TooLarge { what: "the instruction", bytes: instruction.len(), limit: MAX_INSTRUCTION_BYTES });
+        return Err(Error::TooLarge { what: "the instruction", bytes: instruction.len(), limit: MAX_INSTRUCTION_BYTES }.into());
     }
     let mut messages: Vec<String> = usable_history(task.history).iter().map(|t| message(role(t.role), &json!(t.text))).collect();
     // As a block, so a later round can put a cache breakpoint on it.
@@ -329,7 +350,7 @@ pub fn run(
     // Too much to send at all (a very large selection, say) is refused before anything is sent.
     let size = messages.iter().map(String::len).sum::<usize>();
     if size > MAX_CONVERSATION_BYTES {
-        return Err(Error::TooLarge { what: "the request", bytes: size, limit: MAX_CONVERSATION_BYTES });
+        return Err(Error::TooLarge { what: "the request", bytes: size, limit: MAX_CONVERSATION_BYTES }.into());
     }
     let mut out = Outcome {
         text: String::new(),
@@ -342,9 +363,11 @@ pub fn run(
         fallback_used: false,
     };
     let mut last_text = String::new();
+    // An error ends the conversation with what the rounds answered so far used.
+    let failed = |error: Error, out: &Outcome| Failed { error, rounds: out.rounds, usage: out.usage, model: out.model.clone() };
     for round in 1..=MAX_ROUNDS {
         if cancel.load(Ordering::SeqCst) {
-            return Err(Error::Interrupted);
+            return Err(failed(Error::Interrupted, &out));
         }
         if messages.iter().map(String::len).sum::<usize>() > MAX_CONVERSATION_BYTES {
             out.text = last_text;
@@ -353,7 +376,10 @@ pub fn run(
         }
         progress(Progress::Round(round));
         let last_round = round == MAX_ROUNDS;
-        let step = provider.send_tools(&ToolRequest { system: SYSTEM_PROMPT, tools: task.tools, messages: &messages, mark })?;
+        let step = match provider.send_tools(&ToolRequest { system: SYSTEM_PROMPT, tools: task.tools, messages: &messages, mark }) {
+            Ok(step) => step,
+            Err(error) => return Err(failed(error, &out)),
+        };
         mark = Some(ours);
         out.rounds = round;
         out.usage.add(step.usage);
@@ -368,7 +394,7 @@ pub fn run(
                 let mut results = Vec::with_capacity(step.calls.len() + 1);
                 for call in &step.calls {
                     if cancel.load(Ordering::SeqCst) {
-                        return Err(Error::Interrupted);
+                        return Err(failed(Error::Interrupted, &out));
                     }
                     let command = call.input.get("command").and_then(Value::as_str).map(str::to_string);
                     progress(Progress::Tool { name: call.name.clone(), command });

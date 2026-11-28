@@ -841,3 +841,7 @@ icons	Map Pin	סיכת מפה
 	The setup is done. The key and the options are now under Settings.	ההגדרה הראשונית הושלמה. המפתח והאפשרויות נמצאים עכשיו תחת הגדרות.
 	Last request ({model}): {input} tokens in, of which {read} were read from the cache and {written} were written to it; {output} tokens out.	הבקשה האחרונה ({model}): {input} אסימונים נכנסו, ומתוכם {read} נקראו מהמטמון ו-{written} נכתבו אליו; {output} אסימונים יצאו.
 	The pane's settings could not be saved, so they last for this run only.	לא ניתן היה לשמור את הגדרות החלונית, ולכן הן תקפות להפעלה הזו בלבד.
+	The request failed before it finished: these are the tokens of its rounds that got an answer.	הבקשה נכשלה לפני שהסתיימה: אלה האסימונים של הסבבים שלה שקיבלו תשובה.
+	The last request ended without an answer, so its token use is not known.	הבקשה האחרונה הסתיימה בלי תשובה, ולכן השימוש שלה באסימונים אינו ידוע.
+	Your agreement could not be saved in WordCraft's settings, so it lasts for this run only: the next run asks for it again.	לא ניתן היה לשמור את האישור שלכם בהגדרות של WordCraft, ולכן הוא תקף להפעלה הזו בלבד: ההפעלה הבאה תבקש אותו שוב.
+	Your withdrawal could not be saved in WordCraft's settings, so a later run may still send requests without asking first. Withdraw your agreement again in that run.	לא ניתן היה לשמור את ביטול האישור בהגדרות של WordCraft, ולכן הפעלה מאוחרת יותר עלולה עדיין לשלוח בקשות בלי לבקש אישור קודם. בטלו את האישור שוב בהפעלה ההיא.

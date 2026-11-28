@@ -22,7 +22,7 @@ fn task<'a>(tools: &'a [Value], instruction: &'a str) -> Task<'a> {
     Task { tools, instruction, overview: "[0] (Normal) Hello world", selection: "world", history: &[] }
 }
 
-fn run_with(mock: &mut MockProvider, host: &mut Echo, instruction: &str) -> Result<Outcome, Error> {
+fn run_with(mock: &mut MockProvider, host: &mut Echo, instruction: &str) -> Result<Outcome, Failed> {
     let tools = [json!({"name": "select_text", "description": "d", "input_schema": {"type": "object"}})];
     let cancel = AtomicBool::new(false);
     run(mock, host, &task(&tools, instruction), &cancel, &mut |_| {})
@@ -114,7 +114,7 @@ fn a_cancelled_conversation_sends_nothing_more() {
     let mut host = Echo::default();
     let tools = [json!({"name": "t"})];
     let cancel = AtomicBool::new(true);
-    assert_eq!(run(&mut mock, &mut host, &task(&tools, "x"), &cancel, &mut |_| {}), Err(Error::Interrupted));
+    assert_eq!(run(&mut mock, &mut host, &task(&tools, "x"), &cancel, &mut |_| {}).map_err(|f| f.error), Err(Error::Interrupted));
     assert!(mock.tool_requests().is_empty() && host.calls.is_empty());
 }
 
@@ -160,7 +160,7 @@ fn a_provider_without_tools_is_unavailable() {
     let mut host = Echo::default();
     let tools = [json!({"name": "t"})];
     let cancel = AtomicBool::new(false);
-    assert_eq!(run(&mut Plain, &mut host, &task(&tools, "x"), &cancel, &mut |_| {}), Err(Error::Unavailable));
+    assert_eq!(run(&mut Plain, &mut host, &task(&tools, "x"), &cancel, &mut |_| {}).map_err(|f| f.error), Err(Error::Unavailable));
 }
 
 /// The model's turn goes back byte for byte, its escapes included, and every earlier message stays
@@ -272,7 +272,7 @@ fn a_request_too_large_to_send_is_refused_before_sending() {
     let task = Task { tools: &tools, instruction: "Shorten it", overview: "", selection: &big, history: &[] };
     let cancel = AtomicBool::new(false);
     let result = run(&mut mock, &mut host, &task, &cancel, &mut |_| {});
-    assert!(matches!(result, Err(Error::TooLarge { .. })), "{result:?}");
+    assert!(matches!(result, Err(Failed { error: Error::TooLarge { .. }, rounds: 0, .. })), "{result:?}");
     assert!(mock.tool_requests().is_empty(), "nothing was sent");
 }
 
@@ -294,4 +294,23 @@ fn cached_prompt_tokens_count_as_tokens_in_and_add_up_over_the_rounds() {
     mock.push_step(Ok(first)).push_step(Ok(step));
     let outcome = run_with(&mut mock, &mut Echo::default(), "two rounds").unwrap();
     assert_eq!(outcome.usage, Usage { input_tokens: 3105, cache_read_tokens: 1000, cache_write_tokens: 2090, output_tokens: 47 });
+}
+
+/// A round that fails after others were answered ends the conversation with what those rounds used: the service
+/// counted them, so whoever shows the request's token use can show them.
+#[test]
+fn a_failed_round_keeps_what_the_rounds_before_it_used() {
+    let mut first = Step::tools(&[("select_text", json!({"text": "a"}))]);
+    first.usage = Usage { input_tokens: 2000, cache_read_tokens: 0, cache_write_tokens: 1990, output_tokens: 40 };
+    first.model = "m-1".into();
+    let mut second = Step::tools(&[("select_text", json!({"text": "b"}))]);
+    second.usage = Usage { input_tokens: 2100, cache_read_tokens: 1990, cache_write_tokens: 100, output_tokens: 30 };
+    second.model = "m-1".into();
+    let busy = Error::Http { status: 529, kind: "overloaded_error".into(), message: "busy".into() };
+    let mut mock = MockProvider::new();
+    mock.push_step(Ok(first)).push_step(Ok(second)).push_step(Err(busy.clone()));
+    let Err(failed) = run_with(&mut mock, &mut Echo::default(), "three rounds") else { panic!("the third round failed") };
+    assert_eq!(failed.error, busy);
+    assert_eq!((failed.rounds, failed.model.as_str()), (2, "m-1"), "the rounds that got an answer");
+    assert_eq!(failed.usage, Usage { input_tokens: 4100, cache_read_tokens: 1990, cache_write_tokens: 2090, output_tokens: 70 });
 }

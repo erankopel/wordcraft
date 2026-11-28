@@ -43,10 +43,15 @@ pub const KEY_ENV: &str = "ANTHROPIC_API_KEY";
 pub const MAX_CONTEXT_BYTES: usize = 600_000;
 /// Longest instruction, in bytes.
 pub const MAX_INSTRUCTION_BYTES: usize = 20_000;
-/// Most earlier turns of a chat sent with a new instruction (the oldest go first).
+/// Most earlier turns of a chat sent with a new instruction. The oldest go first, a run of exchanges at a time
+/// ([`history_start`]).
 pub const MAX_HISTORY_TURNS: usize = 24;
-/// Most bytes of earlier turns sent (the oldest go first).
+/// Most bytes of the earlier turns' own text (the instructions and the replies) sent with a new instruction.
 pub const MAX_HISTORY_BYTES: usize = 300_000;
+/// Most bytes of document text the earlier instructions of a text answer carry again (an instruction whose text
+/// is the same as the one before it carries none). As much as one request may share, so the newest exchange
+/// always goes with the text it was about.
+pub const MAX_HISTORY_DOCUMENT_BYTES: usize = MAX_CONTEXT_BYTES;
 /// The reply limit of a request. A reply is read whole, so this stays inside HTTP timeouts.
 pub const MAX_REPLY_TOKENS: u32 = 16_000;
 /// Most bytes of an answer read from the network.
@@ -304,14 +309,14 @@ pub trait Provider: Send {
     fn set_cancel(&mut self, _flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {}
 }
 
-/// The chat turns that can be sent: whole exchanges, alternating user and assistant from a user turn and
-/// ending with an assistant turn (the new instruction follows).
-fn exchanges(history: &[Turn]) -> Vec<&Turn> {
-    let mut kept: Vec<&Turn> = Vec::new();
-    for turn in history {
+/// The chat turns that can be sent, by their place in `history`: whole exchanges, alternating user and
+/// assistant from a user turn and ending with an assistant turn (the new instruction follows).
+fn exchanges(history: &[Turn]) -> Vec<usize> {
+    let mut kept = Vec::new();
+    for (at, turn) in history.iter().enumerate() {
         let expected = if kept.len().is_multiple_of(2) { Role::User } else { Role::Assistant };
         if turn.role == expected && !turn.text.trim().is_empty() {
-            kept.push(turn);
+            kept.push(at);
         }
     }
     if !kept.len().is_multiple_of(2) {
@@ -320,10 +325,18 @@ fn exchanges(history: &[Turn]) -> Vec<&Turn> {
     kept
 }
 
+/// The turns of `history` that can be sent ([`exchanges`]).
+fn sendable(history: &[Turn]) -> Vec<&Turn> {
+    exchanges(history).into_iter().filter_map(|at| history.get(at)).collect()
+}
+
 /// The chat turns a tool conversation sends, as their text: whole exchanges, at most [`MAX_HISTORY_TURNS`]
-/// and [`MAX_HISTORY_BYTES`], the oldest dropped first.
+/// and [`MAX_HISTORY_BYTES`], the oldest dropped first. (A tool request sends no earlier document text, and its
+/// earlier turns are not read from the cache from one request to the next however they are cut: the request's
+/// own instruction goes with the overview and the selection, which that turn does not carry when it is sent
+/// again, so the next request differs from it there, before any point the service cached.)
 pub(crate) fn usable_history(history: &[Turn]) -> Vec<&Turn> {
-    let mut kept = exchanges(history);
+    let mut kept = sendable(history);
     while kept.len() > MAX_HISTORY_TURNS || kept.iter().map(|t| t.text.len()).sum::<usize>() > MAX_HISTORY_BYTES {
         // Drop a whole exchange so the turns still start with the user's.
         kept.drain(..kept.len().min(2));
@@ -331,36 +344,108 @@ pub(crate) fn usable_history(history: &[Turn]) -> Vec<&Turn> {
     kept
 }
 
+/// The document text an earlier instruction went with, if any.
+fn shared_text(turn: &Turn) -> Option<&Shared> {
+    turn.shared.as_ref().filter(|s| !s.text.trim().is_empty())
+}
+
+/// What one earlier exchange of a text answer takes of the bounds when it is sent again.
+struct Weight {
+    /// The bytes of its instruction and its reply.
+    text: usize,
+    /// The bytes of the document text its instruction carried.
+    document: usize,
+    /// That text is the same as the one the instruction before it carried: sent after that one, it goes as the
+    /// unchanged tag, and takes nothing.
+    repeats: bool,
+}
+
+/// The weight of each exchange of `kept` (the turns that can be sent: an instruction, then its reply).
+fn weights(kept: &[&Turn]) -> Vec<Weight> {
+    let mut before: Option<&Shared> = None;
+    kept.chunks(2)
+        .map(|exchange| {
+            let shared = exchange.first().copied().and_then(shared_text);
+            let repeats = shared.is_some() && shared == before;
+            before = shared;
+            Weight { text: exchange.iter().map(|t| t.text.len()).sum(), document: shared.map_or(0, |s| s.text.len()), repeats }
+        })
+        .collect()
+}
+
+/// What the exchanges of `run` take when they are sent together, the first of them first: their turns, their own
+/// text and the document text they carry (the first carries its own in full).
+fn load(run: &[Weight]) -> (usize, usize, usize) {
+    let documents = run.iter().enumerate().map(|(i, w)| if i > 0 && w.repeats { 0 } else { w.document }).sum();
+    (run.len() * 2, run.iter().map(|w| w.text).sum(), documents)
+}
+
+/// Are the exchanges of `run`, sent together, within the bounds?
+fn fits(run: &[Weight]) -> bool {
+    let (turns, text, documents) = load(run);
+    turns <= MAX_HISTORY_TURNS && text <= MAX_HISTORY_BYTES && documents <= MAX_HISTORY_DOCUMENT_BYTES
+}
+
+/// Do the exchanges of `run`, sent together, take half of a bound or more?
+fn half_full(run: &[Weight]) -> bool {
+    let (turns, text, documents) = load(run);
+    turns * 2 >= MAX_HISTORY_TURNS || text * 2 >= MAX_HISTORY_BYTES || documents * 2 >= MAX_HISTORY_DOCUMENT_BYTES
+}
+
+/// The first of the earlier exchanges a text request sends, as an index into `weights`. The oldest go first, and a
+/// run at a time: from the oldest exchange on, the history is cut into runs, each ending where it reaches half of
+/// a bound, and the first run from which the rest is within the bounds is where the sending starts. So the start
+/// moves only when the bounds need it, and then by a run: the requests after a cut start with the same exchange,
+/// and the service reads what they share from its prompt cache. (Dropping one exchange each time would change the
+/// first message of every request, and the whole history would be written to the cache again each time.) When even
+/// the newest run is too much, its oldest exchanges go one by one; the newest exchange always fits.
+fn first_sent(weights: &[Weight]) -> usize {
+    let mut runs = vec![0];
+    let mut start = 0;
+    for end in 1..weights.len() {
+        if weights.get(start..end).is_some_and(half_full) {
+            runs.push(end);
+            start = end;
+        }
+    }
+    let rest_fits = |from: &usize| weights.get(*from..).is_some_and(fits);
+    runs.into_iter().find(rest_fits).or_else(|| (start..weights.len()).find(rest_fits)).unwrap_or(weights.len())
+}
+
+/// Where the earlier turns a text request sends begin in `history`. The turns before it are not sent again by this
+/// request or by a later one that only adds to the chat, so a chat can let them go, and a chat that does keeps the
+/// same start as the requests that read its cache: the pane does, after each exchange.
+pub fn history_start(history: &[Turn]) -> usize {
+    let kept = exchanges(history);
+    let turns: Vec<&Turn> = kept.iter().filter_map(|&at| history.get(at)).collect();
+    let from = first_sent(&weights(&turns)) * 2;
+    kept.get(from).copied().unwrap_or(history.len())
+}
+
 /// The earlier turns of a text request as messages (their JSON text), each as it was sent: an instruction
 /// with the document text it carried, or with the unchanged tag when that text is the same as the one of
-/// the instruction before it. At most [`MAX_HISTORY_TURNS`] turns and [`MAX_HISTORY_BYTES`] of messages,
-/// the oldest whole exchanges dropped first; the first instruction kept carries its text in full, so no tag
-/// points at text that is no longer sent. Also the shared text of the last instruction kept, for the new
-/// one to compare with.
+/// the instruction before it. Within [`MAX_HISTORY_TURNS`], [`MAX_HISTORY_BYTES`] of their own text and
+/// [`MAX_HISTORY_DOCUMENT_BYTES`] of document text, the oldest whole exchanges dropped first, a run at a time
+/// ([`first_sent`]); the first instruction kept carries its text in full, so no tag points at text that is no
+/// longer sent. Also the shared text of the last instruction kept, for the new one to compare with.
 fn sent_history(history: &[Turn]) -> (Vec<String>, Option<&Shared>) {
-    let mut kept = exchanges(history);
-    loop {
-        let mut messages = Vec::with_capacity(kept.len());
-        let mut before: Option<&Shared> = None;
-        for turn in &kept {
-            let content = match turn.role {
-                Role::User => {
-                    let shared = turn.shared.as_ref().filter(|s| !s.text.trim().is_empty());
-                    let content = user_message(&turn.text, shared, shared.is_some() && shared == before);
-                    before = shared;
-                    content
-                }
-                Role::Assistant => turn.text.clone(),
-            };
-            messages.push(json!({"role": turn.role.as_str(), "content": content}).to_string());
-        }
-        let bytes = messages.iter().map(String::len).sum::<usize>();
-        if kept.is_empty() || (kept.len() <= MAX_HISTORY_TURNS && bytes <= MAX_HISTORY_BYTES) {
-            return (messages, before);
-        }
-        // Drop a whole exchange so the turns still start with the user's.
-        kept.drain(..kept.len().min(2));
+    let kept = sendable(history);
+    let from = first_sent(&weights(&kept)) * 2;
+    let mut messages = Vec::with_capacity(kept.len().saturating_sub(from));
+    let mut before: Option<&Shared> = None;
+    for &turn in kept.get(from..).unwrap_or_default() {
+        let content = match turn.role {
+            Role::User => {
+                let shared = shared_text(turn);
+                let content = user_message(&turn.text, shared, shared.is_some() && shared == before);
+                before = shared;
+                content
+            }
+            Role::Assistant => turn.text.clone(),
+        };
+        messages.push(json!({"role": turn.role.as_str(), "content": content}).to_string());
     }
+    (messages, before)
 }
 
 /// `text` with every `<document` and `<instruction` tag, opening or closing and in any letter
@@ -427,7 +512,9 @@ pub(crate) fn with_messages(head: &Value, messages: &[impl AsRef<str>]) -> Resul
 /// to the last message for five minutes): the earlier turns go again exactly as they went, each instruction
 /// with the document text it carried, so a follow-up starts with the last request's text and reads that
 /// part from the cache. A follow-up whose document text is the same as the last instruction's does not send
-/// it again: its `<document unchanged="true"/>` tag says so.
+/// it again: its `<document unchanged="true"/>` tag says so. The earlier turns are bounded by
+/// [`MAX_HISTORY_TURNS`], [`MAX_HISTORY_BYTES`] and [`MAX_HISTORY_DOCUMENT_BYTES`], the oldest let go a run of
+/// exchanges at a time ([`history_start`]), so the requests after a cut share their start again.
 pub fn build_body(request: &Request, model: &str) -> Result<String, Error> {
     if request.instruction.trim().is_empty() {
         return Err(Error::EmptyInstruction);

@@ -195,15 +195,16 @@ The edition includes Review › AI › **AI Assistant** (see [the AI assistant](
 all in Hebrew: the pane, its agreement step, its errors, the ribbon group and button, the command names and
 what a screen reader is told. Only the abbreviations AI, API and KB, the name of the environment variable
 `ANTHROPIC_API_KEY`, the file names `assistant-key` and `assistant.json` and the model names stay in Latin
-letters. The rows are in `packaging/hebrew/he-supplement.tsv` (13 more for the one-time agreement, Settings
-(הגדרות, the catalog's word), the withdrawal and the cache's token use); the least certain are in
-`he-uncertain.tsv`. The pane is mirrored like the rest of the interface, its buttons starting at the right, but
+letters. The rows are in `packaging/hebrew/he-supplement.tsv` (17 more for the one-time agreement, Settings
+(הגדרות, the catalog's word), the withdrawal, the cache's token use, a failed or stopped request's token use
+(סבב for a round, as in the progress line) and an agreement or a withdrawal that could not be saved); the least
+certain are in `he-uncertain.tsv`. The pane is mirrored like the rest of the interface, its buttons starting at the right, but
 it docks at the window's right, not at the end edge (the left) where Comments docks; Dock Left moves it like
 any pane. After the one-time setup the pane shows only the conversation and a
 Settings button. The instruction box is right to left in every paragraph, whatever letter the paragraph starts
 with (as Word's text boxes are in its Hebrew interface): a Hebrew line, a short one included, ends at the box's
 right edge, a sentence that starts with an English word (Word היא תוכנה) keeps that word at the right, and the
-hint and the caret of the empty box are at the right. The reply the model writes is in whatever language it
+hint and the caret of the empty box are at the right edge, inside the box. The reply the model writes is in whatever language it
 writes in, each paragraph laid out in its own direction: a Hebrew one from the right, an English one from the
 left.
 

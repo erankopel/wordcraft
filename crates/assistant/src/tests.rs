@@ -362,7 +362,8 @@ fn a_dropped_turn_leaves_no_tag_for_text_that_is_no_longer_sent() {
     }
     let body = body_of(&r);
     let first = content(&body, 0);
-    assert!(first.contains("question 1") && first.contains("The shared") && !first.contains("unchanged"), "{first}");
+    assert!(!first.contains("question 0\n"), "the oldest exchange went: {first}");
+    assert!(first.contains("The shared") && !first.contains("unchanged"), "{first}");
     assert_eq!(first.matches("</document>").count(), 1, "defused: {first}");
     assert!(content(&body, 2).contains("unchanged=\"true\""), "later turns point back at it");
     let messages = body["messages"].as_array().unwrap();
@@ -378,4 +379,78 @@ fn a_reply_reports_what_the_cache_served_and_took() {
     });
     let usage = parse_reply(200, &answer.to_string()).unwrap().usage;
     assert_eq!(usage, Usage { input_tokens: 1105, cache_read_tokens: 1000, cache_write_tokens: 100, output_tokens: 7 });
+}
+
+/// A shared text larger than the bound on the turns' own text does not cost the chat its history: the document
+/// text the earlier turns carry again has a bound of its own, as large as one request may share, so a follow-up
+/// about a long document still carries the exchange before it, whether the document is unchanged or edited since.
+#[test]
+fn a_follow_up_after_a_large_shared_text_still_carries_the_exchange_before_it() {
+    let document = "word ".repeat(70_000);
+    assert!(document.len() > MAX_HISTORY_BYTES && document.len() <= MAX_CONTEXT_BYTES, "{}", document.len());
+    let earlier = vec![
+        Turn::user("Summarize the document", Some(Shared { scope: Scope::Document, text: document.clone() })),
+        Turn::assistant("A short summary."),
+    ];
+    for now in [document.clone(), format!("{document}and more")] {
+        let follow_up = Request { instruction: "Make it shorter".into(), context: now, scope: Scope::Document, history: earlier.clone() };
+        let body = body_of(&follow_up);
+        assert_eq!(body["messages"].as_array().map(Vec::len), Some(3), "the earlier exchange goes with the follow-up");
+        assert!(content(&body, 0).contains("Summarize the document") && content(&body, 0).contains("word word"));
+        assert_eq!(content(&body, 1), "A short summary.");
+    }
+}
+
+/// One request of a long chat in `regime`: its instruction, the document text it shares, and the reply it gets.
+fn chat_turn(regime: &str, n: usize) -> (String, String, String) {
+    let instruction = format!("Question {n}");
+    match regime {
+        // Short turns about the same selection: the bound on the number of turns is reached first.
+        "turns" => (instruction, "The same selected paragraph.".into(), format!("Answer {n}")),
+        // The whole document, edited between requests: the bound on the document text sent again.
+        "documents" => (instruction, format!("{n} {}", "d".repeat(100_000)), format!("Answer {n}")),
+        // Long replies: the bound on the turns' own text.
+        _ => (instruction, "The same selected paragraph.".into(), format!("{n} {}", "r".repeat(40_000))),
+    }
+}
+
+/// Past the bounds, the oldest turns go a run at a time, so most follow-ups still start with the request before
+/// them (cache breakpoints aside) and the service reads that part from its cache, instead of each request dropping
+/// one exchange and writing the whole history again. So it is whichever bound is reached, and whether the chat
+/// lets the turns it no longer sends go (as the pane does, with `history_start`) or keeps them all; and each
+/// request stays within the bounds, with the newest exchange.
+#[test]
+fn past_the_bounds_most_follow_ups_still_start_with_the_request_before_them() {
+    for regime in ["turns", "documents", "text"] {
+        for trims in [true, false] {
+            let mut history: Vec<Turn> = Vec::new();
+            let mut bodies: Vec<String> = Vec::new();
+            for n in 0..40 {
+                let (instruction, context, reply) = chat_turn(regime, n);
+                let request =
+                    Request { instruction: instruction.clone(), context: context.clone(), scope: Scope::Document, history: history.clone() };
+                let body = build_body(&request, DEFAULT_MODEL).unwrap();
+                let value: Value = serde_json::from_str(&body).unwrap();
+                let sent = value["messages"].as_array().map_or(0, Vec::len) - 1;
+                assert!(sent <= MAX_HISTORY_TURNS, "{regime}: {sent} turns");
+                assert!(n == 0 || sent >= 2, "{regime}: the newest exchange goes");
+                bodies.push(body);
+                history.push(Turn::user(instruction, Some(Shared { scope: Scope::Document, text: context })));
+                history.push(Turn::assistant(reply));
+                if trims {
+                    let start = history_start(&history);
+                    history.drain(..start);
+                }
+            }
+            let starts: Vec<bool> = bodies.windows(2).map(|pair| without_breakpoints(&pair[1]).starts_with(&open_prefix(&pair[0]))).collect();
+            let first_cut = starts.iter().position(|starts| !starts).unwrap_or_else(|| panic!("{regime}: the chat reached a bound"));
+            let after = &starts[first_cut..];
+            let kept = after.iter().filter(|&&starts| starts).count();
+            assert!(
+                kept * 2 > after.len(),
+                "{regime} (trimmed: {trims}): {kept} of {} follow-ups after the first cut start with the request before",
+                after.len()
+            );
+        }
+    }
 }

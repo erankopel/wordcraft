@@ -97,7 +97,8 @@ pub fn field_align() -> Align2 {
 /// wrapped at `wrap_width`; in a right-to-left interface every paragraph is right to left, whatever letter it
 /// starts with (as the text boxes of a right-to-left word processor are), elsewhere each paragraph takes the
 /// direction of its first strong letter; and a right-to-left paragraph's rows end at the field's right edge,
-/// also when they are short. Mixed scripts, numbers and punctuation are ordered by the bidi algorithm, and the
+/// also when they are short (an empty text is left as narrow as it is: [`field_align`] puts it, and its caret,
+/// at the right). Mixed scripts, numbers and punctuation are ordered by the bidi algorithm, and the
 /// caret moves as it does in the document. The text is in the field's own colour and body font.
 pub fn field_galley(ui: &Ui, text: &str, wrap_width: f32) -> Arc<Galley> {
     let font = egui::TextStyle::Body.resolve(ui.style());
@@ -114,8 +115,11 @@ pub fn field_galley(ui: &Ui, text: &str, wrap_width: f32) -> Arc<Galley> {
         section.format.line_height = Some(line_height);
     }
     let galley = ui.fonts_mut(|f| f.layout_job(job));
-    // Right-to-left rows end at the widest row; as wide as the field, they end at its right edge.
-    if galley.rows.iter().any(|row| row.rtl_paragraph) { as_wide_as(galley, wrap_width) } else { galley }
+    // Right-to-left rows end at the widest row; as wide as the field, they end at its right edge. An empty text
+    // stays as narrow as it is: the field sets it, with its caret, against the side `field_align` names, and
+    // while it is empty the field measures it against the hint, not against its whole width, so a galley as
+    // wide as the field would put the caret that far past the hint, out of the field.
+    if !text.is_empty() && galley.rows.iter().any(|row| row.rtl_paragraph) { as_wide_as(galley, wrap_width) } else { galley }
 }
 
 /// Read-only text whose paragraphs keep their own direction (each from its first strong letter, as UAX #9
@@ -465,15 +469,14 @@ mod tests {
     }
 
     /// A field in a right-to-left interface lays out every paragraph right to left against its right edge, a
-    /// line that starts with an English word included, and puts an empty field's caret there; elsewhere each
-    /// paragraph starts at its own side.
+    /// line that starts with an English word included; elsewhere each paragraph starts at its own side. (Where an
+    /// empty field's caret is drawn depends on the field around it: the AI pane's tests check it on the drawn
+    /// pane.)
     #[test]
     fn a_field_starts_each_paragraph_at_its_side() {
         set_current(fixture_lang("he", "\tHome\tבית\n"));
-        let (empty, short, mixed) = (field(""), field("שלום"), field("Word היא"));
+        let (short, mixed) = (field("שלום"), field("Word היא"));
         set_current(Lang::EN);
-        let caret = empty.pos_from_cursor(egui::text::CCursor::default()).min.x;
-        assert!((caret - 300.0).abs() < 1.0, "an empty field's caret at the right: {caret}");
         assert!(300.0 - ink(&short, 0).1 < 1.0, "a short line at the right edge: {:?}", ink(&short, 0));
         let x = |c: char| mixed.rows[0].glyphs.iter().find(|g| g.chr == c).map_or(f32::NAN, |g| mixed.rows[0].pos.x + g.pos.x);
         assert!(x('W') > x('ה'), "right to left, the English word first: {} {}", x('W'), x('ה'));

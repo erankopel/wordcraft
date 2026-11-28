@@ -25,8 +25,7 @@ use egui::{Frame, Margin, RichText, Stroke, TextEdit, Ui};
 use serde_json::{Value, json};
 use wordcraft_assistant::agent as conversation;
 use wordcraft_assistant::{
-    DEFAULT_MODEL, Disclosure, Error, MAX_HISTORY_TURNS, MAX_INSTRUCTION_BYTES, Provider, Reply, Request, Scope, Shared, Stop, Turn, Usage,
-    build_body,
+    DEFAULT_MODEL, Disclosure, Error, MAX_INSTRUCTION_BYTES, Provider, Reply, Request, Scope, Shared, Stop, Turn, Usage, build_body, history_start,
 };
 use wordcraft_engine::Password;
 use wordcraft_engine::agent as workspace;
@@ -108,8 +107,8 @@ enum Msg {
     Reply(Result<Reply, Error>),
     /// What a request that changes the document is doing.
     Progress(conversation::Progress),
-    /// How a request that changes the document ended.
-    Edited(Result<Edited, Error>),
+    /// How a request that changes the document ended: an error comes with what the rounds before it used.
+    Edited(Result<Edited, conversation::Failed>),
 }
 
 /// The end of a request that changes the document: how the conversation ended, and the steps to apply.
@@ -187,6 +186,17 @@ enum Focus {
     Settings,
 }
 
+/// What the last request used, as far as the pane knows: Settings says it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Spent {
+    /// The request ended with an answer: the tokens of all its rounds, and the model that answered.
+    All { model: String, usage: Usage },
+    /// It failed after some of its rounds were answered: what those used (the service counts them all the same).
+    Before { model: String, usage: Usage },
+    /// It got no answer, or the person stopped waiting for it: what it used is not known.
+    Unknown,
+}
+
 /// How strongly a notice speaks, and so how it is drawn and announced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Tone {
@@ -206,8 +216,8 @@ pub(crate) struct AssistantRun {
     /// Where the choices are kept. `None`: nowhere, so they last for the run.
     #[cfg(not(target_arch = "wasm32"))]
     choices_file: Option<std::path::PathBuf>,
-    /// The choices could not be written: they last for the run.
-    choices_unsaved: bool,
+    /// The choices whose last change could not be written: they last for the run.
+    unsaved: Vec<Choice>,
     /// The service answered a request made in this run (an answer that is not an authentication error), so
     /// the key works.
     accepted: bool,
@@ -264,33 +274,38 @@ impl AssistantRun {
         self.rejected = !accepted;
     }
 
-    /// Keep `which` of the choices where the app said, if it said, over what is kept there now: a failure is
-    /// reported in Settings, and the choices last for the run.
+    /// Keep `which` of the choices where the app said, if it said, over what is kept there now. A failure is said
+    /// in the pane, outside Settings ([`unsaved_notices`]), and that choice lasts for the run.
     fn save_choices(&mut self, which: Choice) {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(path) = &self.choices_file {
-            self.choices_unsaved = saved::save(path, &self.choices, which).is_err();
+            let failed = saved::save(path, &self.choices, which).is_err();
+            self.unsaved.retain(|choice| *choice != which);
+            if failed {
+                self.unsaved.push(which);
+            }
         }
         #[cfg(target_arch = "wasm32")]
         let _ = which;
     }
 
     /// Read the agreement again where the choices are kept: another WordCraft process may have given or
-    /// withdrawn it since this one read it. Choices this run could not save stay as they are in memory.
+    /// withdrawn it since this one read it. An agreement, or a withdrawal, this run could not save stays as it is
+    /// in memory.
     fn refresh_agreement(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(path) = &self.choices_file
-            && !self.choices_unsaved
+            && !self.unsaved.contains(&Choice::Agreement)
             && let Some(kept) = saved::load(path)
         {
             self.choices.agreed = kept.agreed;
         }
     }
 
-    /// Are the choices kept between runs?
+    /// Are the choices kept between runs? Not when the last attempt to write one failed.
     #[cfg(not(target_arch = "wasm32"))]
     fn choices_kept(&self) -> bool {
-        self.choices_file.is_some() && !self.choices_unsaved
+        self.choices_file.is_some() && self.unsaved.is_empty()
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -403,8 +418,8 @@ pub(crate) struct AssistantState {
     setup_ids: Vec<egui::Id>,
     /// Whether the keyboard focus was on the Settings button when it was last drawn.
     settings_focused: bool,
-    /// The last request's token use, and the model that answered it, for Settings.
-    last_usage: Option<(String, Usage)>,
+    /// What the last request used, for Settings.
+    last_usage: Option<Spent>,
     /// The earlier turns of this chat, oldest first.
     history: Vec<Turn>,
     reply: Option<Reply>,
@@ -478,19 +493,23 @@ impl AssistantState {
             factory: old.factory,
             settings_open: old.settings_open,
             shown_setup: old.shown_setup,
-            last_usage: old.last_usage.clone(),
+            // A request still running is let go, and what it used will not be known: the use shown is not the
+            // request's before it.
+            last_usage: if old.waiting.is_some() { Some(Spent::Unknown) } else { old.last_usage.clone() },
             ..AssistantState::default()
         }
     }
 
-    /// Add an instruction and its reply to the chat. Only the newest [`MAX_HISTORY_TURNS`] turns can go with a
-    /// request, so older ones are let go, whole exchanges at a time: with the document text an instruction
-    /// carried, they would only take memory.
+    /// Add an instruction and its reply to the chat, and let go the turns no later request sends
+    /// ([`wordcraft_assistant::history_start`]): with the document text an instruction carried, they would only
+    /// take memory. They go as the requests let them go, a run of exchanges at a time, not one exchange with
+    /// every request, so the requests after a cut start with the same turns and the service reads them from
+    /// its prompt cache.
     fn add_exchange(&mut self, instruction: Turn, reply: Turn) {
         self.history.push(instruction);
         self.history.push(reply);
-        let over = self.history.len().saturating_sub(MAX_HISTORY_TURNS).next_multiple_of(2).min(self.history.len());
-        self.history.drain(..over);
+        let start = history_start(&self.history);
+        self.history.drain(..start);
     }
 
     /// Ask for the keyboard focus on a control for the next few frames.
@@ -605,6 +624,8 @@ impl WordApp {
                 // Letting the request go stops its worker before its next step.
                 self.assistant.waiting = None;
                 self.assistant.stopped = true;
+                // Its answer, and what it used, will not be read: Settings does not show the request before as this one.
+                self.assistant.last_usage = Some(Spent::Unknown);
                 self.assistant.want(Focus::Send);
                 let said = if editing { tl!("You stopped the assistant. Nothing was changed.") } else { tl!("You stopped waiting for the reply.") };
                 self.assistant_say(said.to_owned(), ctx);
@@ -686,15 +707,7 @@ impl WordApp {
         let basis =
             (scope == Scope::Selection && !context.trim().is_empty()).then(|| Basis { rev: self.session.rev(), selection: self.session.sel.clone() });
         let key = self.assistant_run.typed_key().map(Password::new);
-        let provider = match (self.assistant.factory)(self.assistant_run.typed_key()) {
-            Ok(provider) => provider,
-            Err(error) => {
-                // No key at all: the setup, with the key box, shows again.
-                self.assistant_run.accepted &= error != Error::MissingKey;
-                self.assistant.error = Some(error);
-                return;
-            }
-        };
+        let Some(provider) = self.assistant_provider() else { return };
         let request = Request { instruction, context, scope, history: self.assistant.history.clone() };
         // Too large or empty is found here, before anything is asked of the person or the network.
         if let Err(error) = build_body(&request, DEFAULT_MODEL) {
@@ -705,6 +718,23 @@ impl WordApp {
         let chars = request.context.chars().count();
         let ready = Ready { provider, request, edit: None, disclosure, chars, basis, key };
         self.assistant_agree_or_send(ready, ctx);
+    }
+
+    /// The provider for a request, made with the key typed or saved; `None` when it cannot be made, and the pane
+    /// then says why. With no key at all, the key box holds no saved key any more (the person cleared or changed
+    /// it) and no key was accepted, so the setup, with the key box, shows again.
+    fn assistant_provider(&mut self) -> Option<Box<dyn Provider>> {
+        match (self.assistant.factory)(self.assistant_run.typed_key()) {
+            Ok(provider) => Some(provider),
+            Err(error) => {
+                if error == Error::MissingKey {
+                    self.assistant_run.accepted = false;
+                    self.assistant_run.from_file = false;
+                }
+                self.assistant.error = Some(error);
+                None
+            }
+        }
     }
 
     /// Send `ready`, or hold it for the person's agreement when it needs one.
@@ -733,15 +763,7 @@ impl WordApp {
             return;
         }
         let key = self.assistant_run.typed_key().map(Password::new);
-        let provider = match (self.assistant.factory)(self.assistant_run.typed_key()) {
-            Ok(provider) => provider,
-            Err(error) => {
-                // No key at all: the setup, with the key box, shows again.
-                self.assistant_run.accepted &= error != Error::MissingKey;
-                self.assistant.error = Some(error);
-                return;
-            }
-        };
+        let Some(provider) = self.assistant_provider() else { return };
         let history = self.assistant.history.clone();
         let request = Request { instruction, context, scope: Scope::Document, history: history.clone() };
         let disclosure = provider.disclosure();
@@ -841,7 +863,7 @@ impl WordApp {
                     ctx.request_repaint_after(Duration::from_millis(250));
                     return;
                 }
-                Err(TryRecvError::Disconnected) if waiting.edit.is_some() => Msg::Edited(Err(Error::Interrupted)),
+                Err(TryRecvError::Disconnected) if waiting.edit.is_some() => Msg::Edited(Err(Error::Interrupted.into())),
                 Err(TryRecvError::Disconnected) => Msg::Reply(Err(Error::Interrupted)),
             };
             match msg {
@@ -892,7 +914,7 @@ impl WordApp {
         self.assistant_run.note_answer(result.as_ref().map(|_| ()));
         match result {
             Ok(mut reply) => {
-                self.assistant.last_usage = Some((reply.model.clone(), reply.usage));
+                self.assistant.last_usage = Some(Spent::All { model: reply.model.clone(), usage: reply.usage });
                 // A declined reply and a blank one have no text to place, whatever else came with them.
                 if matches!(reply.stop, Stop::Refusal { .. }) || reply.text.trim().is_empty() {
                     reply.text.clear();
@@ -911,9 +933,11 @@ impl WordApp {
                 self.assistant_say(said, ctx);
             }
             // An error shows in an alert, which a screen reader reads out when it appears; what the status
-            // line said while waiting is no longer true.
+            // line said while waiting is no longer true. An error has no token count, and the request before's is
+            // not this one's.
             Err(error) => {
                 self.assistant.said.clear();
+                self.assistant.last_usage = Some(Spent::Unknown);
                 self.assistant.error = Some(error);
             }
         }
@@ -922,24 +946,29 @@ impl WordApp {
     /// A request that changes the document ended. Its changes are applied, as one undo step, only when the
     /// assistant finished and the document is as it was when it began; otherwise nothing changes, and the
     /// person is told why.
-    fn assistant_edited(&mut self, result: Result<Edited, Error>, ctx: &egui::Context) {
+    fn assistant_edited(&mut self, result: Result<Edited, conversation::Failed>, ctx: &egui::Context) {
         let Some(waiting) = self.assistant_end_wait() else { return };
         let Some(base) = waiting.edit.as_ref() else { return };
         // What the status line said while the assistant worked is no longer true, whatever happens now.
         self.assistant.said.clear();
         let edited = match result {
             Ok(edited) => edited,
-            Err(error) => {
-                self.assistant_run.note_answer(Err(&error));
-                let text = error_text(&error);
-                self.assistant.error = Some(error);
+            Err(failed) => {
+                self.assistant_run.note_answer(Err(&failed.error));
+                // The rounds answered before the error were counted all the same: Settings shows them.
+                self.assistant.last_usage =
+                    Some(if failed.rounds > 0 { Spent::Before { model: failed.model, usage: failed.usage } } else { Spent::Unknown });
+                let text = error_text(&failed.error);
+                self.assistant.error = Some(failed.error);
                 self.assistant_show_outcome(&text);
                 return;
             }
         };
         if edited.outcome.rounds > 0 {
             self.assistant_run.note_answer(Ok(()));
-            self.assistant.last_usage = Some((edited.outcome.model.clone(), edited.outcome.usage));
+            self.assistant.last_usage = Some(Spent::All { model: edited.outcome.model.clone(), usage: edited.outcome.usage });
+        } else {
+            self.assistant.last_usage = Some(Spent::Unknown);
         }
         let mut said = String::new();
         self.assistant.applied = None;
@@ -1322,6 +1351,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, act: &mut Option<Act>) {
         settings(app, ui, busy, act, false);
     }
     status_line(app, ui);
+    unsaved_notices(app, ui);
     if app.assistant.stopped {
         notice(ui, Tone::Info, tl!("You stopped waiting. The request was already sent, and the service may still process it."), None);
     }
@@ -1400,11 +1430,8 @@ fn settings(app: &mut WordApp, ui: &mut Ui, busy: bool, act: &mut Option<Act>, s
         app.assistant_run.save_choices(which);
     }
     agreement_state(app, ui, busy, act, setup, &mut ids);
-    if app.assistant_run.choices_unsaved {
-        notice(ui, Tone::Warn, tl!("The pane's settings could not be saved, so they last for this run only."), None);
-    }
-    if let Some((model, usage)) = &app.assistant.last_usage {
-        muted(ui, usage_words(model, usage));
+    if let Some(spent) = &app.assistant.last_usage {
+        muted(ui, spent_words(spent));
     }
     app.assistant.setup_ids = ids;
 }
@@ -1427,6 +1454,21 @@ fn agreement_state(app: &mut WordApp, ui: &mut Ui, busy: bool, act: &mut Option<
         }
         None if !setup => muted(ui, tl!("You have not agreed yet: the next request asks before anything is sent.")),
         None => {}
+    }
+}
+
+/// What Settings says the last request used.
+fn spent_words(spent: &Spent) -> String {
+    match spent {
+        Spent::All { model, usage } => usage_words(model, usage),
+        Spent::Before { model, usage } => {
+            format!(
+                "{} {}",
+                usage_words(model, usage),
+                tl!("The request failed before it finished: these are the tokens of its rounds that got an answer.")
+            )
+        }
+        Spent::Unknown => tl!("The last request ended without an answer, so its token use is not known.").to_owned(),
     }
 }
 
@@ -1480,6 +1522,26 @@ fn settings_button(ui: &mut Ui, app: &mut WordApp) -> bool {
     focus_if_asked(ui, app, &response, Focus::Settings);
     app.assistant.settings_focused = ui.ctx().memory(|m| m.has_focus(response.id));
     response.clicked()
+}
+
+/// What of the pane's choices could not be saved, said where the person sees it whatever shows (Settings, where
+/// it was chosen, may be closed by now: agreeing ends the setup) and announced when it appears. The agreement step
+/// said the agreement is kept for later runs; when it could not be, this says so.
+fn unsaved_notices(app: &WordApp, ui: &mut Ui) {
+    let run = &app.assistant_run;
+    if run.unsaved.contains(&Choice::Agreement) {
+        let text = if run.choices.agreed.is_some() {
+            tl!("Your agreement could not be saved in WordCraft's settings, so it lasts for this run only: the next run asks for it again.")
+        } else {
+            tl!(
+                "Your withdrawal could not be saved in WordCraft's settings, so a later run may still send requests without asking first. Withdraw your agreement again in that run."
+            )
+        };
+        notice(ui, Tone::Warn, text, Some((Live::Polite, false)));
+    }
+    if run.unsaved.iter().any(|choice| *choice != Choice::Agreement) {
+        notice(ui, Tone::Warn, tl!("The pane's settings could not be saved, so they last for this run only."), Some((Live::Polite, false)));
+    }
 }
 
 /// The status line: a live region, so what happens away from the keyboard is spoken.

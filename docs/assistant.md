@@ -1,13 +1,13 @@
 # AI assistant
 
-> **Last reviewed:** 2026-11-27 · **Last updated:** 2026-11-27 · **Change:** major (the pane opens on the right, keeps its setup under Settings, asks for the agreement once, lays out right-to-left text, and uses prompt caching) · **Target:** WordCraft 0.19.1 Hebrew edition
+> **Last reviewed:** 2026-11-28 · **Last updated:** 2026-11-28 · **Change:** minor (review fixes: the empty instruction box's caret, a chat's history bounded and let go a run at a time, the token use of failed and stopped requests, a choice that could not be saved said outside Settings, a cleared saved key) · **Target:** WordCraft 0.19.1 Hebrew edition
 
 Review › AI › **AI Assistant** opens a side pane, docked on the right of the window, where you ask for a change
 to your document, or a question about it. The text is sent to the Claude Messages API with your own API key.
 Nothing is sent until you have agreed to it in the pane, once.
 
-The pane opens on the window's right in every interface language, the Hebrew one included, where the other
-end-side panes (Comments, Styles) open on the left. You can move it like any pane (Dock Left, Dock Right,
+The pane opens on the window's right in every interface language, the Hebrew one included, where Comments and
+the other panes that open at the end edge open on the left. You can move it like any pane (Dock Left, Dock Right,
 Float, or drag it), and the place you choose is kept. Only a place you chose is saved in `ui.json`
 (`panePlaces.assistant.dock`; resizing the pane saves no place), so an AI pane you never moved opens on the
 right after updating from a build that opened it on the left.
@@ -36,8 +36,9 @@ on this computer**, **Forget Saved Key**, the two options, what you agreed to wi
 the last request's token use. Its state (expanded or collapsed) is exposed to screen readers, and drawn as an
 arrow that points down while it is open. When the setup goes, the keyboard stays where it was (Send after Stop Waiting, or the
 instruction box when it was on a control that goes) and the status line, a live region, says that the key and
-the options are now under Settings. A key the service refuses, or a problem with the saved key's file, brings
-the setup back with its message.
+the options are now under Settings. A key the service refuses, a problem with the saved key's file, or a request
+that finds no key at all (a saved key cleared from the key box, with no `ANTHROPIC_API_KEY`) brings the setup
+back with its message.
 
 1. Select the text, or tick **Use the whole document instead of the selection** (text answers only; when the
    assistant makes changes it can read the whole document). The two options are kept between runs (see
@@ -69,7 +70,13 @@ the setup back with its message.
    The agreement is kept, with the two options, in the file `assistant.json` in WordCraft's settings folder
    (on Linux `~/.config/wordcraft`), so later requests, documents and runs send without asking, each when you
    press Send. A run with `WORDCRAFT_NO_PREFS` keeps them for the run only, and so does a run that cannot
-   write the file (Settings then says so). The agreement names the recipient and the model: a request to
+   write the file: the pane then says so under the status line, also while Settings is closed (agreeing ends
+   the setup, so Settings is closed then), and a withdrawal that could not be written is said too, since a
+   later run may then still send without asking. The file is not `ui.json`: resetting WordCraft's settings by
+   removing `ui.json` keeps the agreement and the options; withdraw it in the pane, or remove `assistant.json`
+   too. (The choices are kept apart because each is written the moment it changes and read again before a
+   request goes without asking, while `ui.json` is mostly written when WordCraft quits.) The agreement names the
+   recipient and the model: a request to
    another one asks again. Settings says what you agreed to, and **Withdraw Agreement** takes it back: the
    next request asks again. When several WordCraft processes run at once (opening a file from the file
    manager starts another), each change is written over what the file holds, one choice at a time, so one
@@ -157,8 +164,15 @@ what the model reads.
   For text answers the conversation is cached for five minutes: a follow-up sends the earlier turns exactly as
   they went, each instruction with the document text it carried, so it starts with the last request and reads
   it from the cache; when the selected text (or the whole document) is the same as the last instruction's, it
-  is not sent again (the new turn says it is unchanged). When the oldest turns are dropped (at most 24 turns
-  and 300 KB), the first instruction kept carries its text in full.
+  is not sent again (the new turn says it is unchanged). The earlier turns sent are bounded: at most 24 turns,
+  300 KB of their own text (instructions and replies) and 600 KB of the document text they carry again (as much
+  as one request may share, so the last exchange always goes with its text). Past a bound the oldest turns go a
+  run at a time, not one exchange with every request: the chat is cut into runs from its oldest exchange on, a
+  run ending where it reaches half of a bound, and whole runs go, so the requests after a cut start with the same
+  turns and read them from the cache again (dropping one exchange each time would change every request's first
+  message, and the whole history would be written to the cache again each time, at more than it costs
+  uncached). The first instruction kept carries its text in full, and the pane keeps only the turns a request
+  can still send.
 - **What keeps it working.** The system prompt, the tools (in a fixed order, with their keys in a fixed
   order), the thinking and effort settings and the tool choice are the same in every request and every
   round, and earlier messages go again byte for byte; the messages come last in the body, so each request
@@ -166,12 +180,18 @@ what the model reads.
   short exchange is not cached at all.
 - **Where to see it.** Settings shows the last request's token use: the tokens in, how many of them were read
   from the cache and how many were written to it, and the tokens out, summed over the rounds of a request that
-  changed the document.
+  changed the document. A request that changes the document and fails after some of its rounds were answered
+  shows what those rounds used, and says so; a request that got no answer, or that was let go (**Stop
+  Waiting**, or another document opened while it ran), says that its token use is not known (never the
+  request before's numbers).
 
 ## What leaves the machine
 
-- Your instruction, the earlier turns of this chat (at most 24 turns and 300 KB) and the text of the scope you
-  chose (at most 600 KB). Too much is refused with a message, never cut.
+- Your instruction, the earlier turns of this chat (at most 24 turns and 300 KB of their own text), and the text
+  of the scope you chose (at most 600 KB). Too much is refused with a message, never cut. For text answers the
+  earlier instructions go again with the document text each carried (at most 600 KB of it in all; a text the same
+  as the one before it goes once), so that a follow-up repeats the last request and is read from the cache (see
+  [Prompt caching](#prompt-caching)); the oldest turns past these bounds are not sent.
 - When the assistant makes the changes itself: your instruction, the selected text, an overview of the
   document's paragraphs (at most 60 KB), and whatever its tools read: any part of the document, including
   headers, footers, notes, comments with their authors' names and the document's properties. The one-time
@@ -239,20 +259,24 @@ GUI; this one step cannot, by design).
 against a server on this machine, including retries, Stop during a retry wait, that it refuses plain HTTP and
 never prints the key; and the caching, without the network: the breakpoints of each body, that each round's
 body starts with the last one's, the last round included, that a follow-up starts with the last request and
-does not repeat unchanged text, that a dropped turn leaves no tag pointing at text no longer sent, and the
-cache fields of the usage), `crates/engine/src/tests/assistant.rs` (the commands), `crates/engine/src/agent/tests.rs`
+does not repeat unchanged text, that a dropped turn leaves no tag pointing at text no longer sent, that a long
+document's text does not cost a follow-up its history, that past each bound most follow-ups still start with the
+request before them, the cache fields of the usage, and the usage of the rounds before a failed one),
+`crates/engine/src/tests/assistant.rs` (the commands), `crates/engine/src/agent/tests.rs`
 (what the assistant may run, the replay, the limits, Track Changes, fields, what it reads),
 `crates/ui-egui/src/assistant_pane/tests.rs` (the one-time agreement and its withdrawal, kept between runs and
 honoured across processes, the setup and Settings, the key's acceptance and refusal, scope, key and saved key, stop, announcements, focus,
-placement guard, changes made by the assistant, drawn states, the pane's side, and on real layout in the Hebrew
-interface the instruction box and a reply, right to left), `crates/ui-egui/src/assistant_pane/saved.rs` (the
-choices file, written one choice at a time) and `crates/ui-egui/src/rtl.rs` (a field's paragraphs and an empty
-field's caret).
+placement guard, changes made by the assistant, drawn states, the pane's side, a long chat let go a run at a
+time, the last request's token use, an agreement that could not be saved, a cleared saved key, and on real
+layout in the Hebrew interface the instruction box (its text, and the caret of the empty box at its right edge)
+and a reply, right to left), `crates/ui-egui/src/assistant_pane/saved.rs` (the choices file, written one choice
+at a time) and `crates/ui-egui/src/rtl.rs` (a field's paragraphs).
 
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-28 | minor | Review fixes: the empty instruction box's caret at its right edge in a right-to-left interface; a chat's earlier document text bounded on its own (600 KB) and the oldest turns let go a run at a time, so follow-ups keep reading the cache; the token use of a failed or stopped request; an agreement or a withdrawal that could not be saved said outside Settings; a saved key cleared from the key box brings the setup back |
 | 2026-11-27 | major | The pane opens on the right in every interface; after the one-time setup it shows the conversation and a Settings button; the agreement is asked once and kept (`assistant.json`, one choice at a time, read again before sending), with a way to withdraw it; the instruction box and the reply lay out right-to-left text; prompt caching (an hour for the tools and system prompt, five minutes for the conversation, follow-ups that repeat the last request) and the cache's token use in Settings |
 | 2026-11-27 | minor | Second review: moves recorded as places, a final replay check, the whole selection kept when a call fails, the Web Layout width replayed, more readers kept from deleted text, comments allowed and field changes refused under Track Changes, properties count as changes, no keyboard taken by a reopened pane |
 | 2026-11-27 | minor | Review fixes: replay from where the assistant started, calls that fail leave no trace, untracked changes refused, per-document agreement, limits, fields and pastes that reach out refused, tracked deletions never read, Stop ends a retry wait |

@@ -4,11 +4,14 @@
 //!
 //! The conversation is kept as the JSON text of each message, never parsed and printed again: the
 //! model's turns go back exactly as they came (thinking blocks, their signatures and the escapes in
-//! tool inputs included), as the Messages API requires for tool use, and the system prompt, the
-//! tools and the earlier messages stay byte for byte the same from round to round, so the cache
-//! keeps working (until the last round, which bars tools: a new `tool_choice` starts the messages'
-//! cache again). Tool results go back in one user turn per round, one result per call, in the
-//! calls' order.
+//! tool inputs included), as the Messages API requires for tool use. Tool results go back in one user
+//! turn per round, one result per call, in the calls' order.
+//!
+//! Prompt caching ([`build_tool_body`]): every request of a conversation starts with the same bytes as the
+//! one before it, the system prompt, the tools, the settings (`tool_choice` included, in every round) and
+//! the earlier messages, and only adds messages at the end. The tools and the system prompt are cached for
+//! an hour, so a request a person makes minutes after the last reads them from the cache; the conversation
+//! is cached for five minutes, so each round reads the rounds before it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,11 +21,12 @@ use serde_json::{Value, json};
 
 use crate::{
     Error, MAX_INSTRUCTION_BYTES, MAX_REPLY_TOKENS, Provider, Role, Stop, Turn, Usage, defuse, short, text_of, usable_history, usage_of,
-    used_fallback,
+    used_fallback, with_messages,
 };
 
-/// Most rounds (a model turn and the tool results that answer it) of one request. The last one asks
-/// for a summary and lets the model call no tool.
+/// Most rounds (a model turn and the tool results that answer it) of one request. The model is told
+/// with the results before the last one to call no more tools and sum up; a tool it still asks for in
+/// the last round is not run.
 pub const MAX_ROUNDS: usize = 25;
 /// Most bytes the conversation of one request may grow to; it ends there.
 pub const MAX_CONVERSATION_BYTES: usize = 1_500_000;
@@ -131,8 +135,11 @@ pub struct ToolRequest<'a> {
     pub system: &'a str,
     pub tools: &'a [Value],
     pub messages: &'a [String],
-    /// The model may call no tool in this turn: the summary after the last round.
-    pub no_tools: bool,
+    /// The index of the last of WordCraft's own messages (the first message, or a round's tool results) in
+    /// the request before this one, if there was one. Its last block gets a cache breakpoint, so this request
+    /// reads what that one cached there however many blocks the model's turn in between added (a breakpoint
+    /// otherwise finds an earlier entry only within 20 blocks).
+    pub mark: Option<usize>,
 }
 
 /// Runs the tools the model asks for. Returns the result text and whether it is an error.
@@ -169,6 +176,26 @@ pub struct Outcome {
     pub fallback_used: bool,
 }
 
+/// A tool conversation that ended in an error, and what the rounds answered before it used: the service counts
+/// those all the same.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failed {
+    pub error: Error,
+    /// The rounds that got an answer before the error.
+    pub rounds: usize,
+    /// The tokens those rounds used, summed.
+    pub usage: Usage,
+    /// The model that answered the last of them.
+    pub model: String,
+}
+
+impl From<Error> for Failed {
+    /// An error before any round got an answer.
+    fn from(error: Error) -> Failed {
+        Failed { error, rounds: 0, usage: Usage::default(), model: String::new() }
+    }
+}
+
 /// What one tool conversation is about.
 pub struct Task<'a> {
     /// The tool definitions the model may call. They stay the same for the whole conversation.
@@ -196,8 +223,15 @@ pub fn first_message(overview: &str, selection: &str, instruction: &str) -> Stri
 }
 
 /// The JSON body of one request of a tool conversation on `model`: like [`crate::build_body`] it
-/// names no sampling parameters, asks for adaptive thinking and the server-side fallback, and caches
-/// the conversation's prefix. The messages are spliced in as they are.
+/// names no sampling parameters and asks for adaptive thinking and the server-side fallback. The
+/// messages are spliced in as they are, after everything else, so each round's body starts with the
+/// last one's.
+///
+/// Its cache breakpoints (three of the four a request may have): the system prompt, sent as one text
+/// block, keeps itself and the tools before it for an hour (`ttl: 1h`, the longer entry, which must come
+/// first); the request-level `cache_control` keeps the conversation up to its last message for five
+/// minutes; and [`ToolRequest::mark`] puts one on the message where the last request ended. `tool_choice`
+/// is the same in every round, since changing it starts the conversation's cache again.
 pub fn build_tool_body(request: &ToolRequest, model: &str) -> Result<String, Error> {
     let head = json!({
         "model": model,
@@ -206,20 +240,31 @@ pub fn build_tool_body(request: &ToolRequest, model: &str) -> Result<String, Err
         "output_config": {"effort": "medium"},
         "fallbacks": "default",
         "cache_control": {"type": "ephemeral"},
-        "system": request.system,
+        "system": [{"type": "text", "text": request.system, "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
         "tools": request.tools,
-        "tool_choice": {"type": if request.no_tools { "none" } else { "auto" }},
+        "tool_choice": {"type": "auto"},
     });
-    let mut text = serde_json::to_string(&head).map_err(|e| Error::BadReply(e.to_string()))?;
-    // `head` is an object with fields, so its text ends with the closing brace.
-    if !text.ends_with('}') {
-        return Err(Error::BadReply("the request could not be built".into()));
-    }
-    text.pop();
-    text.push_str(",\"messages\":[");
-    text.push_str(&request.messages.join(","));
-    text.push_str("]}");
-    Ok(text)
+    let marked = request.mark.and_then(|i| request.messages.get(i)).map(String::as_str).and_then(with_breakpoint);
+    let messages: Vec<&str> = request
+        .messages
+        .iter()
+        .enumerate()
+        .map(|(i, m)| match (&marked, request.mark) {
+            (Some(marked), Some(at)) if at == i => marked.as_str(),
+            _ => m.as_str(),
+        })
+        .collect();
+    with_messages(&head, &messages)
+}
+
+/// `message` (one of WordCraft's own messages, as its JSON text) with a cache breakpoint on its last content
+/// block; `None` when its content is not a list of blocks. WordCraft wrote the message from a value, so the
+/// text written again is the same apart from the breakpoint.
+fn with_breakpoint(message: &str) -> Option<String> {
+    let mut value: Value = serde_json::from_str(message).ok()?;
+    let block = value.get_mut("content")?.as_array_mut()?.last_mut()?.as_object_mut()?;
+    block.insert("cache_control".into(), json!({"type": "ephemeral"}));
+    serde_json::to_string(&value).ok()
 }
 
 fn step_stop(value: &Value) -> StepStop {
@@ -280,27 +325,32 @@ fn message(role: &str, content: &Value) -> String {
 /// model asks for with `host`, one at a time in the order asked, send their results back, until the
 /// model finishes, a limit is reached, or `cancel` is set (then [`Error::Interrupted`]). Tools run
 /// only when the model's turn asks for them; a turn that ends otherwise ends the conversation, and
-/// its [`Outcome::stop`] says how. `progress` hears what happens.
+/// its [`Outcome::stop`] says how. `progress` hears what happens. An error ends it with what the rounds
+/// before it used ([`Failed`]).
 pub fn run(
     provider: &mut dyn Provider,
     host: &mut dyn ToolHost,
     task: &Task,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
-) -> Result<Outcome, Error> {
+) -> Result<Outcome, Failed> {
     let instruction = task.instruction;
     if instruction.trim().is_empty() {
-        return Err(Error::EmptyInstruction);
+        return Err(Error::EmptyInstruction.into());
     }
     if instruction.len() > MAX_INSTRUCTION_BYTES {
-        return Err(Error::TooLarge { what: "the instruction", bytes: instruction.len(), limit: MAX_INSTRUCTION_BYTES });
+        return Err(Error::TooLarge { what: "the instruction", bytes: instruction.len(), limit: MAX_INSTRUCTION_BYTES }.into());
     }
     let mut messages: Vec<String> = usable_history(task.history).iter().map(|t| message(role(t.role), &json!(t.text))).collect();
-    messages.push(message("user", &json!(first_message(task.overview, task.selection, instruction))));
+    // As a block, so a later round can put a cache breakpoint on it.
+    messages.push(message("user", &json!([{"type": "text", "text": first_message(task.overview, task.selection, instruction)}])));
+    // The last of WordCraft's own messages: the next request marks it.
+    let mut ours = messages.len() - 1;
+    let mut mark = None;
     // Too much to send at all (a very large selection, say) is refused before anything is sent.
     let size = messages.iter().map(String::len).sum::<usize>();
     if size > MAX_CONVERSATION_BYTES {
-        return Err(Error::TooLarge { what: "the request", bytes: size, limit: MAX_CONVERSATION_BYTES });
+        return Err(Error::TooLarge { what: "the request", bytes: size, limit: MAX_CONVERSATION_BYTES }.into());
     }
     let mut out = Outcome {
         text: String::new(),
@@ -313,9 +363,11 @@ pub fn run(
         fallback_used: false,
     };
     let mut last_text = String::new();
+    // An error ends the conversation with what the rounds answered so far used.
+    let failed = |error: Error, out: &Outcome| Failed { error, rounds: out.rounds, usage: out.usage, model: out.model.clone() };
     for round in 1..=MAX_ROUNDS {
         if cancel.load(Ordering::SeqCst) {
-            return Err(Error::Interrupted);
+            return Err(failed(Error::Interrupted, &out));
         }
         if messages.iter().map(String::len).sum::<usize>() > MAX_CONVERSATION_BYTES {
             out.text = last_text;
@@ -323,11 +375,14 @@ pub fn run(
             return Ok(out);
         }
         progress(Progress::Round(round));
-        let no_tools = round == MAX_ROUNDS;
-        let step = provider.send_tools(&ToolRequest { system: SYSTEM_PROMPT, tools: task.tools, messages: &messages, no_tools })?;
+        let last_round = round == MAX_ROUNDS;
+        let step = match provider.send_tools(&ToolRequest { system: SYSTEM_PROMPT, tools: task.tools, messages: &messages, mark }) {
+            Ok(step) => step,
+            Err(error) => return Err(failed(error, &out)),
+        };
+        mark = Some(ours);
         out.rounds = round;
-        out.usage.input_tokens += step.usage.input_tokens;
-        out.usage.output_tokens += step.usage.output_tokens;
+        out.usage.add(step.usage);
         out.model = step.model.clone();
         out.fallback_used |= step.fallback_used;
         if !step.text.trim().is_empty() {
@@ -335,11 +390,11 @@ pub fn run(
         }
         messages.push(format!("{{\"role\":\"assistant\",\"content\":{}}}", step.content));
         match step.stop {
-            StepStop::ToolUse if !no_tools => {
+            StepStop::ToolUse if !last_round => {
                 let mut results = Vec::with_capacity(step.calls.len() + 1);
                 for call in &step.calls {
                     if cancel.load(Ordering::SeqCst) {
-                        return Err(Error::Interrupted);
+                        return Err(failed(Error::Interrupted, &out));
                     }
                     let command = call.input.get("command").and_then(Value::as_str).map(str::to_string);
                     progress(Progress::Tool { name: call.name.clone(), command });
@@ -351,13 +406,15 @@ pub fn run(
                     results.push(json!({"type": "text", "text": LAST_ROUND}));
                 }
                 messages.push(message("user", &Value::Array(results)));
+                ours = messages.len() - 1;
             }
             // The service paused a long turn: sending the conversation back lets it go on.
             StepStop::PauseTurn => {}
             StepStop::End => {
                 out.text = step.text;
                 out.stop = Stop::End;
-                out.cut_short = no_tools;
+                // Told to sum up with the last results, it did: its words say what is left.
+                out.cut_short = last_round;
                 return Ok(out);
             }
             StepStop::Refusal { category } => {
@@ -371,6 +428,7 @@ pub fn run(
                 out.stop = Stop::MaxTokens;
                 return Ok(out);
             }
+            // The last round: told to stop, the model asked for tools all the same. None of them runs.
             StepStop::ToolUse => {
                 out.text = last_text;
                 out.stop = Stop::Other("the request used all its rounds".into());

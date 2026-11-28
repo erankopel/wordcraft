@@ -1,6 +1,6 @@
 # Hebrew interface and the Hebrew edition
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (Find and Replace's Match diacritics; dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored; Modify Style's complex script font; controls for the direction keys and gershayim) · **Target:** WordCraft 0.19.1
+> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-28 · **Change:** minor (a built-in Hebrew AutoCorrect list); previously minor (Find and Replace's Match diacritics; dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored; Modify Style's complex script font; controls for the direction keys and gershayim) · **Target:** WordCraft 0.19.1
 
 WordCraft has a Hebrew (`he`) interface language, mirrored right to left like the Arabic one, and a
 Hebrew edition: a build of the same program that starts in Hebrew, starts new documents right to
@@ -267,6 +267,16 @@ Labels start on the region's paper (a DL envelope and A4 label sheets). Starting
   (`file.options` `directionKeys`) turns those keys on and off, with a note to turn them off where
   Ctrl+Shift switches the keyboard layout (they start off on Linux and the BSDs). Both are described
   in [typing parity](typing-parity.md).
+- **AutoCorrect (HE-16, done):** Hebrew text has a built-in AutoCorrect list of 96 entries of our
+  own, listed for review in [the Hebrew AutoCorrect list](autocorrect-he.md): a final letter typed
+  in its ordinary form (שלהמ → שלהם), most of them also after one to three of the prefix letters
+  ו ה ב כ ל מ ש, which stay as typed (ושלהמ → ושלהם), and other common slips (עכישו → עכשיו). It
+  applies to a word of Hebrew letters alone (no points, geresh, gershayim or quote mark) in text
+  that proofing reads as Hebrew, never in Yiddish or Ladino text. AutoCorrect Options (אפשרויות
+  תיקון אוטומטי) list the entries; each can be deleted or replaced with one's own, and Replace text
+  as you type turns all replacements off. The list was written from scratch and checked entry by
+  entry by independent reviews; no native speaker has reviewed it yet. See also
+  [typing parity](typing-parity.md).
 - **Styles:** Modify Style shows a style's complex script font and size (David in a Hebrew
   document) on rows of their own, beside the Latin text font and size, in the Hebrew interface or
   for a style right-to-left text uses (`para::style_used_for_rtl`). OK sets each script's font and
@@ -423,7 +433,8 @@ source and Cargo home folders are the same too: the binaries carry some of their
 
 ## Not done, or not checked
 
-- A native-speaker review of the catalog, the supplement and the Hebrew sample text.
+- A native-speaker review of the catalog, the supplement, the Hebrew sample text and the Hebrew
+  AutoCorrect list.
 - Hebrew spelling on the very first launch with no network (see Spelling), and the quality of the
   `he` pack inside WordCraft's affix engine, which was not examined.
 - The tables created by Convert to Table, Draw Table, autoformat and mail-merge labels are not
@@ -486,3 +497,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-27 | minor | The File view's templates open in Hebrew, right to left, where new documents do; New Style, New Table Style and Customize Ribbon name what they make in the interface language (New Style no longer offers a taken name); untitled recovery copies named in it; the pane's Ignore Once leaves the word until its paragraph changes; why watermarks stay English in Hebrew text; the Find dialog keeps Match diacritics |
 | 2026-11-27 | minor | File › Recover's Discard question names an untitled copy as the Recover page does; corrects the row above: Find and Replace has no Match diacritics, and its searches keep the setting the last search sent |
 | 2026-11-27 | minor | Find and Replace's Match diacritics box, sent with the dialog's searches; the dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored, the Find and Create Source fields from the right; Modify Style's complex script font and size and its Automatic colour, New Style's Based on by translated names; check boxes for the direction keys (Options › Advanced) and gershayim (AutoCorrect Options) |
+| 2026-11-28 | minor | A built-in Hebrew AutoCorrect list for Hebrew text (HE-16): 96 entries of our own, most final-letter ones also after prefix letters, listed in [autocorrect-he.md](autocorrect-he.md) for review |

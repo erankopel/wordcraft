@@ -1,4 +1,4 @@
-use super::autocorrect::{AUTOCORRECT, AutoCap, AutoCorrectPrefs, SMILEYS};
+use super::autocorrect::{AUTOCORRECT, AutoCap, AutoCorrectPrefs, SMILEYS, TextLang};
 use super::{CmdError, Pos, Selection, Session};
 
 /// Apply AutoCorrect to the word just before the caret (called after typing a space/punctuation):
@@ -43,11 +43,16 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
     }
     // The word's language (run, paragraph style, document default) picks the replacement list
     // (#835) and the case mapping (#1923). Text with no language at all is in the editing
-    // language (a Polish interface writes Polish), else English.
-    let lang: Option<String> = s.doc.para_at(&f).and_then(|p| {
-        let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(start));
-        rc.lang.clone()
-    });
+    // language (a Polish interface writes Polish), else English. Hebrew letters may carry the
+    // language of complex-script text instead.
+    let (lang, bidi) = s
+        .doc
+        .para_at(&f)
+        .map(|p| {
+            let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(start));
+            (rc.lang, rc.lang_bidi)
+        })
+        .unwrap_or_default();
     let lang = lang.or_else(|| s.editing_lang.clone());
     let turkic = is_turkic(lang.as_deref());
     // TWo INitial CApitals and cAPS LOCK come first, so "TEh" is still a replacement's typo.
@@ -81,12 +86,12 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
         s.sel = Selection::caret(f.clone());
         word = format!("{}{fixed}{}", word.get(..at).unwrap_or(""), word.get(at + letters.len()..).unwrap_or(""));
     }
-    // A whole-word replacement, else "wait..." → "wait…". Proofing decides what is English the
-    // same way (#835); every English (en-GB, en-CA…) counts (#1281).
-    let english = s.doc.para_at(&f).is_none_or(|_| wordcraft_proof::ProofLang::from_tag(lang.as_deref()).is_english());
-    let found = if ac.replace_text { ac.replacement_in(&word, english) } else { None };
+    // A whole-word replacement (a Hebrew one may leave the word's prefix letters as typed), else
+    // "wait..." → "wait…". The text's language picks the built-in lists ([`TextLang::of`]).
+    let text_lang = TextLang::of(lang.as_deref(), bidi.as_deref(), s.prefs.detect_language);
+    let found = if ac.replace_text { ac.replacement_at(&word, text_lang) } else { None };
     let (from, rep) = match found {
-        Some(r) => (start, Some(r)),
+        Some((at, r)) => (start + at, Some(r)),
         None if ac.replace_text && word.len() > 3 && word.ends_with("...") => (start + word.len() - 3, Some("…".to_string())),
         None if ac.replace_text => match SMILEYS.iter().find(|m| word.len() > m.len() && word.ends_with(**m)) {
             // "ok:)" → "ok☺": only the smiley at the end of the word is replaced.

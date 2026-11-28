@@ -1,6 +1,8 @@
 use super::typing::{INITIAL_CAPS_EXCEPTIONS, NOT_SENTENCE_END};
 use super::{CmdError, CmdResult, Deserialize, Pos, Serialize, Session, Value, json, p};
 
+mod hebrew;
+
 /// Smileys replaced even when typed straight after a word ("ok:)"), as Word does.
 pub(super) const SMILEYS: &[&str] = &[":-)", ":-(", ":)", ":(", ":|"];
 
@@ -53,6 +55,47 @@ pub const AUTOCORRECT: &[(&str, &str)] = &[
 /// A built-in entry that is an English word (letters and apostrophes only), not a symbol.
 fn is_english_entry(from: &str) -> bool {
     from.chars().any(char::is_alphabetic) && from.chars().all(|c| c.is_alphabetic() || c == '\'')
+}
+
+/// The text a built-in replacement applies to: the built-in lists are kept by language.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BuiltInLang {
+    /// Text in any language: symbols, arrows, smileys and fractions.
+    Any,
+    /// English text (#835): the English words.
+    English,
+    /// Hebrew text, to a word of Hebrew letters alone; with `prefixes`, also after one to three
+    /// prefix letters ([`hebrew::HEBREW`]).
+    Hebrew { prefixes: bool },
+}
+
+/// Every built-in replacement, `(typed, replacement, the text it applies to)`: [`AUTOCORRECT`]'s
+/// English words and symbols, then the Hebrew list. An entry of [`AUTOCORRECT`] is English when it
+/// is a word ([`is_english_entry`]), a test that would take Hebrew letters for English ones too,
+/// so the Hebrew entries are kept apart from it.
+fn built_ins() -> impl Iterator<Item = (&'static str, &'static str, BuiltInLang)> {
+    let common = AUTOCORRECT.iter().map(|&(a, b)| (a, b, if is_english_entry(a) { BuiltInLang::English } else { BuiltInLang::Any }));
+    common.chain(hebrew::HEBREW.iter().map(|&(a, b, prefixes)| (a, b, BuiltInLang::Hebrew { prefixes })))
+}
+
+/// The language of the text a finished word is in, as the built-in lists read it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TextLang {
+    /// English text: the built-in English words apply (#835).
+    pub english: bool,
+    /// Hebrew text: the built-in Hebrew words apply, to a word of Hebrew letters alone.
+    pub hebrew: bool,
+}
+
+impl TextLang {
+    /// The language of text whose language is `lang` (the run's, its style's or the document's
+    /// `w:lang`; the editing language for text with none) and whose complex-script language is
+    /// `bidi` (`w:lang/@w:bidi`), with Detect language automatically `detect`. English is decided
+    /// as proofing decides it (#835), every English (en-GB, en-CA…) counting (#1281); Hebrew as
+    /// proofing reads Hebrew letters, never in Yiddish or Ladino text.
+    pub(super) fn of(lang: Option<&str>, bidi: Option<&str>, detect: bool) -> TextLang {
+        TextLang { english: wordcraft_proof::ProofLang::from_tag(lang).is_english(), hebrew: hebrew::is_hebrew_text(lang, bidi, detect) }
+    }
 }
 
 /// AutoCorrect Options (Word keeps them per user; the front end saves them with its preferences).
@@ -197,35 +240,63 @@ impl AutoCorrectPrefs {
     /// The replacement for `word` in text that is (`english`) or isn't English: the built-in
     /// English words ("teh", "i", "dont") apply only to English text, as Word keeps a list per
     /// language (#835: Polish "i" means "and"); symbols, fractions and the user's entries apply
-    /// whatever the language.
+    /// whatever the language. The Hebrew words are left out ([`AutoCorrectPrefs::replacement_at`]
+    /// has them).
     pub fn replacement_in(&self, word: &str, english: bool) -> Option<String> {
+        self.replacement_at(word, TextLang { english, hebrew: false }).map(|(_, r)| r)
+    }
+
+    /// What AutoCorrect does to a finished `word` in text of language `lang`: the byte offset in
+    /// `word` where the part it replaces starts, and the text that replaces that part (to the end
+    /// of the word). The user's entry for the whole word comes first; then a built-in entry the
+    /// user has neither deleted nor replaced with one of their own: the English words in English
+    /// text (a lowercase one also matches the word capitalised, "Teh" → "The"), the symbols in any
+    /// text, and in Hebrew text the Hebrew words, for a word of Hebrew letters alone. A Hebrew entry
+    /// matches the whole word, or, when it allows prefixes, the word after one to three prefix
+    /// letters, which stay as typed ("ושלהמ" → "ו" and "שלהם"); the longest typed form wins.
+    pub fn replacement_at(&self, word: &str, lang: TextLang) -> Option<(usize, String)> {
         if let Some((_, b)) = self.entries.iter().find(|(a, _)| a == word) {
-            return Some(b.clone());
+            return Some((0, b.clone()));
         }
-        AUTOCORRECT
-            .iter()
-            .filter(|(a, _)| english || !is_english_entry(a))
-            .filter(|(a, _)| !self.removed.iter().any(|r| r == a) && !self.entries.iter().any(|(e, _)| e == a))
-            .filter(|(a, _)| self.fractions || !FRACTIONS.contains(a))
-            .find(|(a, _)| {
+        let live = |a: &str| !self.removed.iter().any(|r| r == a) && !self.entries.iter().any(|(e, _)| e == a);
+        let common = built_ins()
+            .filter(|(_, _, l)| match l {
+                BuiltInLang::Any => true,
+                BuiltInLang::English => lang.english,
+                BuiltInLang::Hebrew { .. } => false,
+            })
+            .filter(|(a, _, _)| live(a))
+            .filter(|(a, _, _)| self.fractions || !FRACTIONS.contains(a))
+            .find(|(a, _, _)| {
                 *a == word || (a.chars().all(char::is_lowercase) && word.to_lowercase() == *a && word.chars().next().is_some_and(char::is_uppercase))
             })
-            .map(|(a, b)| {
-                if *a != word && b.chars().next().is_some_and(char::is_lowercase) {
+            .map(|(a, b, _)| {
+                if a != word && b.chars().next().is_some_and(char::is_lowercase) {
                     let mut c = b.chars();
                     c.next().map(|x| x.to_uppercase().chain(c).collect::<String>()).unwrap_or_default()
                 } else {
                     b.to_string()
                 }
-            })
+            });
+        if let Some(r) = common {
+            return Some((0, r));
+        }
+        if !lang.hebrew || !hebrew::is_hebrew_word(word) {
+            return None;
+        }
+        hebrew::prefix_splits(word).find_map(|(at, rest)| {
+            built_ins()
+                .find(|&(a, _, l)| a == rest && live(a) && matches!(l, BuiltInLang::Hebrew { prefixes } if at == 0 || prefixes))
+                .map(|(_, b, _)| (at, b.to_string()))
+        })
     }
 
-    /// The replacement list as the dialog shows it, sorted: `(from, to, built in)`.
+    /// The replacement list as the dialog shows it, sorted: `(from, to, built in)`. The built-in
+    /// entries are those of every language, the Hebrew words too.
     pub fn list(&self) -> Vec<(String, String, bool)> {
-        let mut v: Vec<(String, String, bool)> = AUTOCORRECT
-            .iter()
-            .filter(|(a, _)| !self.removed.iter().any(|r| r == a) && !self.entries.iter().any(|(e, _)| e == a))
-            .map(|(a, b)| (a.to_string(), b.to_string(), true))
+        let mut v: Vec<(String, String, bool)> = built_ins()
+            .filter(|(a, _, _)| !self.removed.iter().any(|r| r == a) && !self.entries.iter().any(|(e, _)| e == a))
+            .map(|(a, b, _)| (a.to_string(), b.to_string(), true))
             .chain(self.entries.iter().map(|(a, b)| (a.clone(), b.clone(), false)))
             .collect();
         v.sort_by(|x, y| x.0.to_lowercase().cmp(&y.0.to_lowercase()).then(x.0.cmp(&y.0)));
@@ -386,7 +457,7 @@ pub(super) fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(f) = p::str(v, "delete") {
         let n = ac.entries.len();
         ac.entries.retain(|(a, _)| a != f);
-        if AUTOCORRECT.iter().any(|(a, _)| *a == f) && !ac.removed.iter().any(|r| r == f) {
+        if built_ins().any(|(a, _, _)| a == f) && !ac.removed.iter().any(|r| r == f) {
             ac.removed.push(f.to_string());
         } else if n == ac.entries.len() {
             return Err(CmdError::Params(format!("no AutoCorrect entry {f:?}")));

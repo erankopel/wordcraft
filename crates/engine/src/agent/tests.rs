@@ -474,3 +474,53 @@ fn a_save_is_no_change_and_a_new_title_is() {
     retitled.core.title = "Quarterly Report".into();
     assert!(!unchanged_since(&retitled, &s.doc));
 }
+
+/// Hidden text the person does not show is in no tool's result, and a phrase that spans it is found and
+/// selected by the text the model read, at the right place in the stored text: an edit made there lands
+/// where the model meant, around the hidden text, on the workspace and in the replay.
+#[test]
+fn the_assistant_does_not_read_hidden_text_and_edits_around_it() {
+    let mut s = session("The fee is confidential-figure due now\nLast line");
+    s.run("select.text", &json!({"text": "confidential-figure "})).unwrap();
+    s.run("format.hidden", &json!({"value": true})).unwrap();
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    let mut seen = tools.overview();
+    for (tool, input) in [
+        ("get_text", json!({})),
+        ("inspect_document", json!({"parts": true})),
+        ("execute", json!({"command": "select.all"})),
+        ("get_selection", json!({})),
+        ("execute", json!({"command": "document.inspect"})),
+        ("execute", json!({"command": "document.text"})),
+        ("execute", json!({"command": "edit.copy"})),
+    ] {
+        seen.push_str(&tools.call(tool, &input).content);
+    }
+    assert!(!seen.contains("confidential-figure"), "{seen}");
+    assert!(seen.contains("The fee is due now"), "the text around it is read as one: {seen}");
+
+    // "is due" is two words apart in the stored text: the selection covers the hidden text between them.
+    assert!(!tools.call("select_text", &json!({"text": "is due"})).is_error);
+    assert!(!tools.call("type_text", &json!({"text": "was paid"})).is_error);
+    assert_eq!(body(tools.workspace()), "The fee was paid now\nLast line", "the edit replaced exactly the words read");
+    let replayed = replay(Seed::of(&s, ""), tools.steps()).unwrap();
+    assert_eq!(body(&replayed), body(tools.workspace()), "the replay places it the same way");
+    // A word after the hidden text is placed past it.
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    assert!(!tools.call("select_text", &json!({"text": "due"})).is_error);
+    assert!(!tools.call("type_text", &json!({"text": "owed"})).is_error);
+    assert!(tools.workspace().doc.plain_text(StoryRef::Body).contains("confidential-figure owed now"));
+}
+
+/// With hidden text shown on screen (Show/Hide ¶ or Options › Display › Hidden text), the assistant reads
+/// it as the person sees it.
+#[test]
+fn shown_hidden_text_is_read() {
+    let mut s = session("The fee is confidential-figure due now");
+    s.run("select.text", &json!({"text": "confidential-figure "})).unwrap();
+    s.run("format.hidden", &json!({"value": true})).unwrap();
+    s.prefs.marks.hidden = true;
+    let mut tools = Toolbox::new(Seed::of(&s, ""));
+    assert!(tools.overview().contains("confidential-figure"));
+    assert!(tools.call("get_text", &json!({})).content.contains("confidential-figure"));
+}

@@ -350,6 +350,9 @@ pub struct Seed {
     doc: Document,
     sel: Selection,
     view: crate::view::ViewState,
+    /// Options › Display › Hidden text: with Show/Hide ¶ in the view, whether hidden text is shown, and so
+    /// whether the assistant may read it.
+    hidden_text_shown: bool,
     author: String,
     system_region: wordcraft_geom::Region,
     editing_lang: Option<String>,
@@ -370,6 +373,7 @@ impl Seed {
             doc: s.doc.clone(),
             sel: s.sel.clone(),
             view: s.view.clone(),
+            hidden_text_shown: s.prefs.marks.hidden,
             author: if author.is_empty() { DEFAULT_AUTHOR.to_string() } else { author.chars().take(100).collect() },
             system_region: s.system_region.clone(),
             editing_lang: s.editing_lang.clone(),
@@ -444,6 +448,7 @@ impl Seed {
         let mut w = Session::new(self.doc);
         w.sel = self.sel;
         w.view = self.view;
+        w.prefs.marks.hidden = self.hidden_text_shown;
         w.author = self.author;
         w.system_region = self.system_region;
         w.editing_lang = self.editing_lang;
@@ -602,11 +607,12 @@ fn text_bytes(doc: &Document) -> usize {
         .sum()
 }
 
-/// A paragraph's text as it reads with every tracked change accepted (as [`wordcraft_doc::Paragraph::final_text`]),
-/// with, for each of its bytes, where the character it comes from starts and ends in the paragraph's stored
-/// text. An object's text maps to the whole object.
-fn final_with_offsets(p: &wordcraft_doc::Paragraph) -> (String, Vec<usize>, Vec<usize>) {
-    let deleted = p.deleted_ranges();
+/// A paragraph's text as the assistant reads it (every tracked change accepted, hidden text left out unless
+/// shown: [`crate::cmd::assistant::shared_para_text`]), with, for each of its bytes, where the character it
+/// comes from starts and ends in the paragraph's stored text, so a place found in what the model read is the
+/// right place in the paragraph, past any text it was not given. An object's text maps to the whole object.
+fn shared_with_offsets(styles: &wordcraft_doc::StyleSheet, p: &wordcraft_doc::Paragraph, shown: bool) -> (String, Vec<usize>, Vec<usize>) {
+    let deleted = crate::cmd::assistant::unshared_ranges(styles, p, shown);
     let (mut text, mut starts, mut ends) = (String::new(), Vec::new(), Vec::new());
     let mut object = 0;
     for (i, c) in p.text.char_indices() {
@@ -806,9 +812,20 @@ impl Toolbox {
         &self.ws
     }
 
-    /// The selected text as it reads with every tracked change accepted: what the model is told is selected.
+    /// The selected text as it reads with every tracked change accepted, hidden text left out unless it is
+    /// shown: what the model is told is selected.
     pub fn selection_text(&self) -> String {
-        crate::cmd::assistant::selected_final_text(&self.ws)
+        crate::cmd::assistant::selected_shared_text(&self.ws)
+    }
+
+    /// Whether the model may read hidden text: it is shown in the view the request was made from.
+    fn hidden_shown(&self) -> bool {
+        crate::cmd::assistant::hidden_shown(&self.ws)
+    }
+
+    /// A story's text as the model reads it ([`crate::cmd::assistant::shared_story_text`]).
+    fn story_text(&self, story: StoryRef) -> String {
+        crate::cmd::assistant::shared_story_text(&self.ws.doc, story, self.hidden_shown())
     }
 
     /// The document in brief for the first message: its body paragraphs and tables by block index,
@@ -816,11 +833,17 @@ impl Toolbox {
     /// bytes; it says when it is cut.
     pub fn overview(&mut self) -> String {
         let mut out = String::new();
-        let blocks = &self.ws.doc.body;
+        let shown = self.hidden_shown();
+        let doc = &self.ws.doc;
+        let blocks = &doc.body;
         for (index, block) in blocks.iter().enumerate() {
             let line = match &**block {
                 Block::Table(t) => format!("[{index}] table {}x{}\n", t.rows.len(), t.cols()),
-                Block::Para(p) => format!("[{index}] ({}) {}\n", p.props.style.as_deref().unwrap_or("Normal"), p.final_text()),
+                Block::Para(p) => format!(
+                    "[{index}] ({}) {}\n",
+                    p.props.style.as_deref().unwrap_or("Normal"),
+                    crate::cmd::assistant::shared_para_text(&doc.styles, p, shown)
+                ),
             };
             if out.len() + line.len() > OVERVIEW_BUDGET {
                 out.push_str(&format!("… [the overview stops at block {index} of {}; use inspect_document with from]\n", blocks.len()));
@@ -836,11 +859,11 @@ impl Toolbox {
         let pos = json!({"type": "object", "description": "A position: {\"block\": body block index, \"off\": byte offset in that paragraph's stored text}, or {\"story\": \"body\", \"path\": [...], \"off\": n} as find, get_selection and inspect_document report it."});
         let story = json!({"description": "The story to read: \"body\" (the default) or {\"part\": id} for a header, footer, note or text box, as inspect_document lists them with parts: true."});
         vec![
-            json!({"name": "get_text", "description": "The text of the body, or of the story you name, as it reads with every tracked change accepted (text deleted with Track Changes on is left out).", "input_schema": {"type": "object", "properties": {"story": story}}}),
-            json!({"name": "inspect_document", "description": "The document's structure: body blocks by index (paragraphs with style, text, list, paragraph properties and formatted runs; tables with their cells' text), the selection, sections, whether Track Changes is on, the word count. Text reads as with every tracked change accepted. Offsets (runs, selection ends) count the paragraph's stored text, which also holds text deleted with Track Changes on and one character for each object, so select by words with select_text rather than by computing offsets. Returns at most 150 blocks from `from`; parts (headers, footers, notes, comments, text boxes) only with parts: true.", "input_schema": {"type": "object", "properties": {"from": {"type": "integer", "minimum": 0, "description": "First body block index (default 0)."}, "count": {"type": "integer", "minimum": 1, "maximum": 150, "description": "How many blocks (default 150)."}, "parts": {"type": "boolean", "description": "Include headers, footers, notes, comments and text boxes."}}}}),
-            json!({"name": "get_selection", "description": "The current selection: its ends, its text as it reads with every tracked change accepted, and its formatting.", "input_schema": {"type": "object", "properties": {}}}),
-            json!({"name": "select_text", "description": "Select an occurrence of text as the document reads (text deleted with Track Changes on is skipped), in the story the selection is in, usually the body. 1-based occurrence, default the first.", "input_schema": {"type": "object", "properties": {"text": {"type": "string"}, "occurrence": {"type": "integer", "minimum": 1}}, "required": ["text"]}}),
-            json!({"name": "find", "description": "Find text in the story the selection is in, usually the body, and select the first match after the caret. Returns the match ranges (at most 200). It searches the stored text, in which text deleted with Track Changes on is still kept, so prefer select_text to select words you read.", "input_schema": {"type": "object", "properties": {"text": {"type": "string"}, "matchCase": {"type": "boolean"}, "wholeWord": {"type": "boolean"}, "regex": {"type": "boolean"}}, "required": ["text"]}}),
+            json!({"name": "get_text", "description": "The text of the body, or of the story you name, as it reads with every tracked change accepted (text deleted with Track Changes on is left out), and without text formatted as hidden unless the person shows hidden text.", "input_schema": {"type": "object", "properties": {"story": story}}}),
+            json!({"name": "inspect_document", "description": "The document's structure: body blocks by index (paragraphs with style, text, list, paragraph properties and formatted runs; tables with their cells' text), the selection, sections, whether Track Changes is on, the word count. Text reads as with every tracked change accepted, and without hidden text unless the person shows it. Offsets (runs, selection ends) count the paragraph's stored text, which also holds text deleted with Track Changes on, hidden text and one character for each object, so select by words with select_text rather than by computing offsets. Returns at most 150 blocks from `from`; parts (headers, footers, notes, comments, text boxes) only with parts: true.", "input_schema": {"type": "object", "properties": {"from": {"type": "integer", "minimum": 0, "description": "First body block index (default 0)."}, "count": {"type": "integer", "minimum": 1, "maximum": 150, "description": "How many blocks (default 150)."}, "parts": {"type": "boolean", "description": "Include headers, footers, notes, comments and text boxes."}}}}),
+            json!({"name": "get_selection", "description": "The current selection: its ends, its text as it reads with every tracked change accepted (hidden text left out unless the person shows it), and its formatting.", "input_schema": {"type": "object", "properties": {}}}),
+            json!({"name": "select_text", "description": "Select an occurrence of text as the document reads (text deleted with Track Changes on, and hidden text you were not given, is skipped), in the story the selection is in, usually the body. 1-based occurrence, default the first.", "input_schema": {"type": "object", "properties": {"text": {"type": "string"}, "occurrence": {"type": "integer", "minimum": 1}}, "required": ["text"]}}),
+            json!({"name": "find", "description": "Find text in the story the selection is in, usually the body, and select the first match after the caret. Returns the match ranges (at most 200). It searches the stored text, in which text deleted with Track Changes on and hidden text are still kept, so prefer select_text to select words you read.", "input_schema": {"type": "object", "properties": {"text": {"type": "string"}, "matchCase": {"type": "boolean"}, "wholeWord": {"type": "boolean"}, "regex": {"type": "boolean"}}, "required": ["text"]}}),
             json!({"name": "select_range", "description": "Select from anchor to focus. A collapsed range puts the caret there.", "input_schema": {"type": "object", "properties": {"anchor": pos, "focus": pos}, "required": ["anchor", "focus"]}}),
             json!({"name": "type_text", "description": "Type text at the selection, replacing what is selected, exactly as given (no AutoCorrect). With paragraphs: true each line becomes its own paragraph. Tracked as an insertion (and a deletion of what it replaces) when Track Changes is on.", "input_schema": {"type": "object", "properties": {"text": {"type": "string"}, "paragraphs": {"type": "boolean"}}, "required": ["text"]}}),
             json!({"name": "replace_all", "description": "Replace every match of `text` with `with` in the story the selection is in, usually the body. Tracked when Track Changes is on.", "input_schema": {"type": "object", "properties": {"text": {"type": "string"}, "with": {"type": "string"}, "matchCase": {"type": "boolean"}, "wholeWord": {"type": "boolean"}, "regex": {"type": "boolean"}}, "required": ["text", "with"]}}),
@@ -871,7 +894,12 @@ impl Toolbox {
         let result = match name {
             "get_text" => {
                 let story = input.get("story").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!("body"));
-                self.run("document.text", json!({"story": story}))
+                let params = json!({"story": story});
+                // `document.text` reads the text with hidden text; the model reads it as the pane shares it.
+                self.run("document.text", params.clone()).map(|mut value| {
+                    value["text"] = json!(self.story_text(crate::cmd::story_param(&self.ws, &params)));
+                    value
+                })
             }
             "get_selection" => self.selection(),
             "inspect_document" => self.inspect(input),
@@ -907,7 +935,7 @@ impl Toolbox {
                 });
                 if leaks {
                     return ToolResult::error(
-                        "this result would show text deleted with Track Changes on, which you may not read; read the document with get_text, inspect_document or get_selection",
+                        "this result would show text deleted with Track Changes on or formatted as hidden, which you may not read; read the document with get_text, inspect_document or get_selection",
                     );
                 }
                 shown
@@ -992,7 +1020,12 @@ impl Toolbox {
     fn shown(&self, id: &str, mut value: Value) -> Value {
         match id {
             "edit.copy" | "edit.cut" => {
-                json!({"done": id, "copied": self.ws.clipboard.as_ref().map_or(0, |c| c.to_document().final_text(StoryRef::Body).chars().count())})
+                let copied = self.ws.clipboard.as_ref().map_or(0, |c| {
+                    let mut d = c.to_document();
+                    d.styles = self.ws.doc.styles.clone();
+                    crate::cmd::assistant::shared_story_text(&d, StoryRef::Body, self.hidden_shown()).chars().count()
+                });
+                json!({"done": id, "copied": copied})
             }
             "review.comments" => {
                 if let Some(list) = value.as_array_mut() {
@@ -1003,7 +1036,7 @@ impl Toolbox {
                             .and_then(|id| u32::try_from(id).ok())
                             .and_then(|id| self.ws.doc.comments.get(&id))
                             .map(|c| c.part);
-                        entry["text"] = json!(part.map(|part| self.ws.doc.final_text(StoryRef::Part(part))).unwrap_or_default());
+                        entry["text"] = json!(part.map(|part| self.story_text(StoryRef::Part(part))).unwrap_or_default());
                     }
                 }
                 value
@@ -1012,20 +1045,21 @@ impl Toolbox {
         }
     }
 
-    /// The text deleted with Track Changes on that the document reads nowhere else: no result may carry
-    /// it to the model. Pieces shorter than [`SECRET_MIN_CHARS`] letters are left out, as words that short
-    /// would match too much.
+    /// The text deleted with Track Changes on, and the hidden text unless it is shown, that the document
+    /// reads nowhere else: no result may carry it to the model. Pieces shorter than [`SECRET_MIN_CHARS`]
+    /// letters are left out, as words that short would match too much.
     fn secrets(&mut self) -> &[String] {
         if self.secrets.is_none() {
+            let shown = self.hidden_shown();
             let doc = &self.ws.doc;
             let mut stories = vec![StoryRef::Body];
             stories.extend(doc.parts.keys().map(|id| StoryRef::Part(*id)));
-            let readable: String = stories.iter().map(|st| doc.final_text(*st)).collect::<Vec<_>>().join("\n");
+            let readable: String = stories.iter().map(|st| crate::cmd::assistant::shared_story_text(doc, *st, shown)).collect::<Vec<_>>().join("\n");
             let mut found: Vec<String> = Vec::new();
             for story in &stories {
                 for path in doc.para_paths(*story) {
                     let Some(p) = doc.para(*story, &path) else { continue };
-                    for range in p.deleted_ranges() {
+                    for range in crate::cmd::assistant::unshared_ranges(&doc.styles, p, shown) {
                         let piece: String = p.text.get(range).unwrap_or_default().chars().filter(|c| *c != OBJ).collect();
                         let piece = piece.trim();
                         if piece.chars().filter(|c| c.is_alphanumeric()).count() >= SECRET_MIN_CHARS && !readable.contains(piece) {
@@ -1065,11 +1099,12 @@ impl Toolbox {
         let needle = input.get("text").and_then(Value::as_str).filter(|t| !t.is_empty()).ok_or("select_text needs `text`")?;
         let n = input.get("occurrence").and_then(Value::as_u64).map_or(1, |v| v.max(1) as usize);
         let story = self.ws.sel.focus.story;
+        let shown = self.hidden_shown();
         let mut count = 0;
         let mut found = None;
         'paragraphs: for path in self.ws.doc.para_paths(story) {
             let Some(p) = self.ws.doc.para(story, &path) else { continue };
-            let (text, starts, ends) = final_with_offsets(p);
+            let (text, starts, ends) = shared_with_offsets(&self.ws.doc.styles, p, shown);
             for (i, _) in text.match_indices(needle) {
                 count += 1;
                 if count == n {
@@ -1088,17 +1123,21 @@ impl Toolbox {
 
     fn inspect(&mut self, input: &Value) -> Result<Value, String> {
         let mut full = self.run("document.inspect", json!({"text": true}))?;
+        let shown = self.hidden_shown();
         let doc = &self.ws.doc;
-        // The text as it reads with every tracked change accepted: deleted text goes nowhere.
+        let para_text = |p: &wordcraft_doc::Paragraph| crate::cmd::assistant::shared_para_text(&doc.styles, p, shown);
+        // The text as it reads with every tracked change accepted: deleted text goes nowhere, and hidden
+        // text only where it is shown.
         if let Some(blocks) = full.get_mut("blocks").and_then(Value::as_array_mut) {
             for block in blocks.iter_mut() {
                 let Some(index) = block.get("index").and_then(Value::as_u64).map(|i| i as usize) else { continue };
                 match doc.body.get(index).map(|b| &**b) {
                     Some(Block::Para(p)) => {
-                        block["text"] = json!(p.final_text());
-                        // The objects in deleted text (a field's code and result, an equation) are deleted text too.
+                        block["text"] = json!(para_text(p));
+                        // The objects in deleted or hidden text (a field's code and result, an equation) are
+                        // deleted or hidden text too.
                         if block.get("objects").is_some() {
-                            let deleted = p.deleted_ranges();
+                            let deleted = crate::cmd::assistant::unshared_ranges(&doc.styles, p, shown);
                             let kept: Vec<Value> = p
                                 .text
                                 .char_indices()
@@ -1117,7 +1156,7 @@ impl Toolbox {
                             .map(|r| {
                                 r.cells
                                     .iter()
-                                    .map(|c| c.blocks.iter().filter_map(|b| b.as_para().map(|p| p.final_text())).collect::<Vec<_>>().join("\n"))
+                                    .map(|c| c.blocks.iter().filter_map(|b| b.as_para().map(para_text)).collect::<Vec<_>>().join("\n"))
                                     .collect()
                             })
                             .collect();
@@ -1130,7 +1169,7 @@ impl Toolbox {
         if let Some(parts) = full.get_mut("parts").and_then(Value::as_array_mut) {
             for part in parts.iter_mut() {
                 if let Some(id) = part.get("id").and_then(Value::as_u64).and_then(|id| u32::try_from(id).ok()) {
-                    part["text"] = json!(doc.final_text(StoryRef::Part(id)));
+                    part["text"] = json!(crate::cmd::assistant::shared_story_text(doc, StoryRef::Part(id), shown));
                 }
                 // A part's fields are listed with their codes and results as stored.
                 if let Some(map) = part.as_object_mut() {

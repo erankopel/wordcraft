@@ -196,9 +196,14 @@ what the model reads.
   document's paragraphs (at most 60 KB), and whatever its tools read: any part of the document, including
   headers, footers, notes, comments with their authors' names and the document's properties. The one-time
   agreement says so, whichever way of working is chosen when it is given.
-- Track Changes is read as accepted: text deleted with tracking on is **not** sent, in either scope or mode. Text
-  formatted as hidden **is** sent, and counted. Headers, footers, notes and text boxes are not part of the whole
-  document scope.
+- Track Changes is read as accepted: text deleted with tracking on is **not** sent, in either scope or mode.
+- Text formatted as hidden (Font › Hidden, directly or through a style) is **not** sent either, in either scope
+  or mode, nor counted, unless hidden text is shown in the document (Show/Hide ¶, or Options › Display › Hidden
+  text): then it is sent as you see it. A paragraph that is hidden mark and all takes no line. When the
+  assistant makes changes, its readers leave hidden text out the same way, the tools that find words place
+  the selection past any hidden text between them, and a result that would show hidden text is refused, as
+  for deleted text. Replace Selection replaces the whole selection, hidden text in it included, as typing
+  over a selection does. Headers, footers, notes and text boxes are not part of the whole document scope.
 - The request goes to `api.anthropic.com` over HTTPS and only there: redirects are not followed and a plain HTTP
   endpoint is refused before any connection. The service may have another of its models read the text when the
   first model declines (the request asks for the service's default fallbacks); the agreement step says so.
@@ -276,6 +281,7 @@ at a time) and `crates/ui-egui/src/rtl.rs` (a field's paragraphs).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-28 | minor | Hidden text is not sent (either scope, and the assistant's readers when it makes changes) unless hidden text is shown in the document; words found across hidden text are placed in the stored text |
 | 2026-11-28 | minor | Review fixes: the empty instruction box's caret at its right edge in a right-to-left interface; a chat's earlier document text bounded on its own (600 KB) and the oldest turns let go a run at a time, so follow-ups keep reading the cache; the token use of a failed or stopped request; an agreement or a withdrawal that could not be saved said outside Settings; a saved key cleared from the key box brings the setup back |
 | 2026-11-27 | major | The pane opens on the right in every interface; after the one-time setup it shows the conversation and a Settings button; the agreement is asked once and kept (`assistant.json`, one choice at a time, read again before sending), with a way to withdraw it; the instruction box and the reply lay out right-to-left text; prompt caching (an hour for the tools and system prompt, five minutes for the conversation, follow-ups that repeat the last request) and the cache's token use in Settings |
 | 2026-11-27 | minor | Second review: moves recorded as places, a final replay check, the whole selection kept when a call fails, the Web Layout width replayed, more readers kept from deleted text, comments allowed and field changes refused under Track Changes, properties count as changes, no keyboard taken by a reopened pane |

@@ -232,3 +232,58 @@ fn a_refused_or_failing_step_changes_nothing() {
         assert_ne!(run(&mut s, "format.state", json!({}))["bold"], true, "{bad}: the bold before it did not stay either");
     }
 }
+
+/// Hidden text (Font › Hidden) is not on screen, so the pane does not send it, in either scope, unless the
+/// person shows hidden text (Show/Hide ¶, or Options › Display › Hidden text); a whole hidden paragraph
+/// takes no line.
+#[test]
+fn hidden_text_is_shared_only_while_it_is_shown() {
+    let mut s = session("keep secret keep\nhidden paragraph\nlast line");
+    select(&mut s, "secret ");
+    run(&mut s, "format.hidden", json!({"value": true}));
+    select(&mut s, "hidden paragraph");
+    run(&mut s, "select.paragraph", json!({}));
+    run(&mut s, "format.hidden", json!({"value": true}));
+    run(&mut s, "select.all", json!({}));
+    let text = |s: &mut Session, scope: &str| run(s, "assistant.context", json!({"scope": scope}))["text"].as_str().unwrap_or_default().to_string();
+    for scope in ["document", "selection"] {
+        let shared = text(&mut s, scope);
+        assert!(!shared.contains("secret") && !shared.contains("hidden paragraph"), "{scope}: {shared}");
+        assert!(shared.contains("keep keep") && shared.contains("last line"), "{scope}: the rest is shared: {shared}");
+        assert_eq!(shared.lines().count(), 2, "{scope}: the hidden paragraph takes no line: {shared:?}");
+    }
+    // A selection of only part of the text reads the same way.
+    select(&mut s, "keep secret keep");
+    assert_eq!(text(&mut s, "selection"), "keep keep");
+
+    // Shown on screen, it is shared.
+    run(&mut s, "select.all", json!({}));
+    s.prefs.marks.hidden = true;
+    assert!(text(&mut s, "document").contains("keep secret keep") && text(&mut s, "selection").contains("hidden paragraph"));
+    s.prefs.marks.hidden = false;
+    run(&mut s, "view.marks", json!({"value": true}));
+    assert!(text(&mut s, "document").contains("secret"), "Show/Hide ¶ shows hidden text too");
+}
+
+/// Text hidden by its character style, not by direct formatting, is hidden text too, also in a selection
+/// (read from a copy of the selected text, which resolves through the document's styles).
+#[test]
+fn text_hidden_by_its_style_is_not_shared() {
+    let mut s = session("keep styled keep");
+    let mut styles = (*s.doc.styles).clone();
+    styles.styles.push(wordcraft_doc::Style {
+        id: "Secret".into(),
+        name: "Secret".into(),
+        kind: wordcraft_doc::StyleKind::Character,
+        chr: wordcraft_doc::CharProps { hidden: Some(true), ..Default::default() },
+        ..Default::default()
+    });
+    s.doc.styles = std::sync::Arc::new(styles);
+    select(&mut s, "styled ");
+    run(&mut s, "format.charStyle", json!({"style": "Secret"}));
+    run(&mut s, "select.all", json!({}));
+    for scope in ["document", "selection"] {
+        let shared = run(&mut s, "assistant.context", json!({"scope": scope}));
+        assert_eq!(shared["text"], "keep keep", "{scope}: {shared}");
+    }
+}

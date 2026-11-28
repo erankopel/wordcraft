@@ -37,9 +37,6 @@ struct Cx<'a> {
     drop_first: Option<char>,
     /// The text on the page, when its letters can join across runs (see [`shown_text`]).
     shown: Option<String>,
-    /// The paragraph has right-to-left letters: its runs that don't say their direction are
-    /// saved by their bidi levels, right-to-left pieces as `w:rtl` runs ([`Dir::ParaAuto`]).
-    rtl_text: bool,
 }
 
 /// Where a cluster for an object or a break goes in the paragraph: its text, style and first glyph.
@@ -250,9 +247,7 @@ impl<'a> Shaped<'a> {
 
     /// A run shown: its text, with the breaks and objects in it as clusters of their own.
     fn visible_run(&mut self, cx: &Cx, (rc, props): (&Arc<ResolvedChar>, &CharProps), range: &std::ops::Range<usize>, text: &str) {
-        // A run that doesn't say its direction in a paragraph with right-to-left letters takes the
-        // direction of its levels, as the DOCX writer gives it.
-        let dir = if cx.rtl_text && props.rtl.is_none() { Dir::ParaAuto } else { Dir::Para };
+        let dir = Dir::Para;
         let shown_start = self.shown_at;
         let around = self.next_shown(cx, text.len());
         let mut seg = self.drop_cap_letter(cx, rc, text, range.start);
@@ -678,19 +673,15 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         shown: Vec::new(),
         substituted: Vec::new(),
     };
-    let mut cx = Cx {
-        p,
-        env,
-        rp: &rp,
-        res,
-        math_props: doc.settings.math.clone().unwrap_or_default(),
-        drop_first: drop_cap_char(p, &rp),
-        shown: None,
-        rtl_text: wordcraft_doc::bidi::has_rtl(&p.text),
-    };
+    let mut cx =
+        Cx { p, env, rp: &rp, res, math_props: doc.settings.math.clone().unwrap_or_default(), drop_first: drop_cap_char(p, &rp), shown: None };
     cx.shown = shown_text(&cx);
     let mut sh = Shaped::new(b, env.eq_number);
+    // The paragraph mark is a character too: a mark that says `w:rtl` or `w:cs` takes the
+    // complex-script font, size, bold and italic (ECMA-376 §17.3.2.30, .7), so an empty Hebrew
+    // paragraph, and the last line of one, is as tall as Word makes it.
     let mark_rc = cx.res.char(&p.mark);
+    let mark_rc = if mark_rc.rtl || mark_rc.cs { Arc::new(mark_rc.complex()) } else { mark_rc };
     let mark_style = sh.b.style(&mark_rc, None, false);
     for (range, props) in p.run_ranges() {
         sh.run(&cx, range, props);

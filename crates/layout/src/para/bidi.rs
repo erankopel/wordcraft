@@ -6,13 +6,6 @@ use super::model::{ClKind, Line, VisCl};
 pub(super) enum Dir<'l> {
     /// Paragraph text: the paragraph's levels at the piece's offset.
     Para,
-    /// Paragraph text of a run that doesn't say its direction (`w:rtl`), in a paragraph with
-    /// right-to-left letters: the paragraph's levels, and its characters at a right-to-left level
-    /// take the complex-script font, size, bold and italic. That is how the run is saved: DOCX
-    /// writes those pieces as `w:rtl` runs, whose every character Word formats with the
-    /// complex-script properties (ECMA-376 Part 1 §17.3.2.30), so the punctuation and spaces of
-    /// typed Hebrew text look the same on screen, after a reopen and in Word.
-    ParaAuto,
     /// Text laid out on its own (a field result): these levels, by byte of the text.
     Own(&'l [u8]),
     /// Each strong run in its own direction (list labels, ruby, left-to-right results).

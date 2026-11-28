@@ -1324,3 +1324,25 @@ fn html_export_writes_the_default_direction() {
     let shared = wordcraft_docx::to_shared_model(&ltr_doc).unwrap();
     assert_eq!(ltr, craft_html::doc::export(&shared), "unchanged");
 }
+
+/// HTML has one bold, italic and size for every script: Hebrew letters in a run bold, italic and
+/// 20 pt for its Latin text only are exported regular, upright and at their complex-script size,
+/// as WordCraft and Word show them, while its Latin word keeps them; on the clipboard too.
+#[test]
+fn html_export_formats_hebrew_letters_with_their_own_bold_italic_and_size() {
+    use wordcraft_doc::props::CharProps;
+    let props = CharProps { bold: Some(true), italic: Some(true), size: Some(20.0), size_cs: Some(10.0), ..Default::default() };
+    let mut d = Document::new();
+    d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Latin שלום", props))];
+    for html in [crate::html::export(&d), crate::html::export_fragment(&d)] {
+        let back = crate::html::import(&html);
+        let p = back.body.iter().find_map(|b| b.as_para()).expect("a paragraph");
+        let at = |off: usize| {
+            let (_, c) = p.run_ranges().find(|(r, _)| r.contains(&off)).expect("a run");
+            back.styles.resolve_char(p.props.style.as_deref(), c)
+        };
+        let (latin, hebrew) = (at(0), at(p.text.find('ש').expect("Hebrew")));
+        assert_eq!((latin.bold, latin.italic, latin.size), (true, true, 20.0), "the Latin word: {html}");
+        assert_eq!((hebrew.bold, hebrew.italic, hebrew.size), (false, false, 10.0), "the Hebrew letters: {html}");
+    }
+}

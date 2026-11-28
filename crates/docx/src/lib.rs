@@ -6,6 +6,7 @@
 
 mod fit;
 mod model_bridge;
+mod save;
 
 pub use craft_docx::{
     DEFAULT_SPIN_COUNT, DocxError, EmbeddedFont, Flavor, MAX_PASSWORD_CHARS, MAX_SOURCES, MAX_XML_FILE, PASSWORD_REQUIRED, PasswordCheck,
@@ -64,7 +65,40 @@ pub fn read_with(bytes: &[u8], opts: &ReadOptions) -> Result<wordcraft_doc::Docu
         craft_docx::ReadOptions { password: opts.password, chunks: opts.chunks.as_ref().map(|_| &bridge_importer as craft_docx::ChunkImporter) };
 
     let shared = craft_docx::read_with(bytes, &shared_opts)?;
-    from_shared_model(shared).map(complex_size_default)
+    let no_styles = without_styles_part(&shared);
+    from_shared_model(shared).map(|d| complex_size_default(if no_styles { builtin_styles_as_word(d) } else { d }))
+}
+
+/// Did the reader find no styles part? It keeps the built-in style sheet then, which no styles
+/// part read ever gives (a read one sets at least the default size).
+fn without_styles_part(shared: &craft_wordmodel::Document) -> bool {
+    *shared.styles == craft_wordmodel::styles::StyleSheet::builtin()
+}
+
+/// A package without a styles part, as Word shows it as far as WordCraft can: all its text at
+/// 10 pt, Latin and complex-script alike (Word's size where nothing sets one, ECMA-376
+/// §17.3.2.38, .39), and the built-in styles WordCraft keeps for it formatting both scripts the
+/// same (their complex-script size, bold and italic from the others). Word formats the
+/// paragraphs of such a file whose styles it doesn't find as Normal; WordCraft keeps its built-in
+/// styles for them (headings keep their look).
+fn builtin_styles_as_word(mut doc: wordcraft_doc::Document) -> wordcraft_doc::Document {
+    let pair = |c: &mut wordcraft_doc::CharProps| {
+        c.size_cs = c.size_cs.or(c.size);
+        c.bold_cs = c.bold_cs.or(c.bold);
+        c.italic_cs = c.italic_cs.or(c.italic);
+    };
+    let styles = std::sync::Arc::make_mut(&mut doc.styles);
+    (styles.default_chr.size, styles.default_chr.size_cs) = (Some(10.0), Some(10.0));
+    for st in &mut styles.styles {
+        pair(&mut st.chr);
+        if let Some(t) = st.table.as_mut() {
+            for c in [&mut t.header_chr, &mut t.band_chr, &mut t.first_col_chr, &mut t.last_col_chr, &mut t.total_chr, &mut t.col_band_chr] {
+                pair(c);
+            }
+            t.regions.values_mut().for_each(|p| pair(&mut p.chr));
+        }
+    }
+    doc
 }
 
 /// Word's complex-script text size when the document defaults set none (`w:szCs`): 10 pt, the
@@ -82,24 +116,26 @@ fn complex_size_default(mut doc: wordcraft_doc::Document) -> wordcraft_doc::Docu
 /// Read a Word XML file (`.xml`).
 pub fn read_xml(bytes: &[u8]) -> Result<wordcraft_doc::Document, DocxError> {
     let shared = craft_docx::read_xml(bytes)?;
-    from_shared_model(shared).map(complex_size_default)
+    let no_styles = without_styles_part(&shared);
+    from_shared_model(shared).map(|d| complex_size_default(if no_styles { builtin_styles_as_word(d) } else { d }))
 }
 
-/// Write a document as `.docx`.
+/// Write a document as `.docx`. Before it is written, it says what Word would otherwise show
+/// differently from WordCraft (see `save.rs`): what a save changes is only how it says it.
 pub fn write(doc: &wordcraft_doc::Document) -> Result<Vec<u8>, DocxError> {
-    let shared = to_shared_model(doc)?;
+    let shared = to_shared_model(&save::prepare(doc))?;
     craft_docx::write(&shared)
 }
 
 /// Write a document with a specific package flavor.
 pub fn write_as(doc: &wordcraft_doc::Document, flavor: Flavor) -> Result<Vec<u8>, DocxError> {
-    let shared = to_shared_model(doc)?;
+    let shared = to_shared_model(&save::prepare(doc))?;
     craft_docx::write_as(&shared, flavor)
 }
 
 /// Write a document as a Flat OPC XML file.
 pub fn write_flat(doc: &wordcraft_doc::Document) -> Result<Vec<u8>, DocxError> {
-    let shared = to_shared_model(doc)?;
+    let shared = to_shared_model(&save::prepare(doc))?;
     craft_docx::write_flat(&shared)
 }
 

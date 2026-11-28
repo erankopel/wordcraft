@@ -818,3 +818,28 @@ fn missing_pictures_are_capped_deduplicated_and_not_content() {
     assert!(!serde_json::to_string(&d).unwrap().contains("p0"));
     assert_eq!(MissingPictureReason::ExternalTarget.label(), "external target");
 }
+
+/// `Document::pair_complex` reaches every story and every set of character formatting: the note
+/// separators and continuation notices, the glossary's building blocks, and the formatting a
+/// tracked formatting change records as before it.
+#[test]
+fn pair_complex_reaches_separators_glossary_and_tracked_formatting() {
+    let bold = CharProps { bold: Some(true), italic: Some(true), size: Some(16.0), ..Default::default() };
+    let para = || para_block(Paragraph::with_text("שלום", bold.clone()));
+    let mut d = Document::new();
+    d.footnote_separators.continuation_notice = Some(vec![para()]);
+    d.endnote_separators.separator = Some(vec![para()]);
+    d.glossary.push(BuildingBlock { name: "x".into(), blocks: vec![para()], ..Default::default() });
+    let mut changed = Paragraph::with_text("שלום", CharProps::default());
+    changed.runs[0].props.fmt_change = props::PropChange::boxed(0, bold.clone());
+    d.body = vec![para_block(changed)];
+    d.pair_complex(true);
+    let paired = |c: &CharProps| (c.bold_cs, c.italic_cs, c.size_cs) == (Some(true), Some(true), Some(16.0));
+    let mut seen = 0;
+    d.for_each_para(&mut |p| {
+        let c = &p.runs[0].props;
+        assert!(paired(c.fmt_change.as_ref().map_or(c, |ch| &ch.old)), "{c:?}");
+        seen += 1;
+    });
+    assert_eq!(seen, 4, "the body, two separators and the building block");
+}

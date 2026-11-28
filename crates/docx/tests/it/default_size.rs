@@ -65,3 +65,34 @@ fn an_unset_default_size_does_not_take_a_styles_size() {
     assert_eq!(reopened.styles.default_chr.size, Some(DEFAULT_FONT_SIZE));
     assert_eq!(resolved(&reopened), resolved(&d));
 }
+/// An unset complex-script default size (`w:szCs`) is drawn at `DEFAULT_FONT_SIZE`, which the
+/// writer writes as `w:sz` only: the saved file says it as `w:szCs` too, so Hebrew text keeps its
+/// size after a reopen (the reader gives a missing `w:szCs` 10 pt).
+#[test]
+fn an_unset_complex_script_default_size_keeps_its_effective_size_across_save_and_reopen() {
+    let complex = |d: &Document| d.styles.resolve_char(None, &CharProps::default()).complex().size;
+    let mut d = Document::new();
+    Arc::make_mut(&mut d.styles).default_chr.size_cs = None;
+    assert_eq!(complex(&d), DEFAULT_FONT_SIZE);
+    let reopened = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    assert_eq!(complex(&reopened), DEFAULT_FONT_SIZE);
+    assert_eq!(d.styles.default_chr.size_cs, None, "the document itself is unchanged");
+}
+/// A package without a styles part: Word sets its text at 10 pt, Latin and Hebrew alike, and the
+/// built-in styles WordCraft keeps for it format both scripts the same.
+#[test]
+fn a_package_without_styles_sets_latin_and_hebrew_text_alike() {
+    let root = r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#;
+    let doc = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>x שלום</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>x שלום</w:t></w:r></w:p></w:body></w:document>"#;
+    let mut zw = craft_zip::Writer::new();
+    for (name, body) in [("_rels/.rels", root), ("word/document.xml", doc)] {
+        zw.add(name, body.as_bytes(), craft_zip::Compression::Deflated).unwrap();
+    }
+    let d = wordcraft_docx::read(&zw.finish().unwrap()).unwrap();
+    let paras: Vec<_> = d.body.iter().filter_map(|b| b.as_para()).collect();
+    let body = d.styles.resolve_char(paras[0].props.style.as_deref(), &CharProps::default());
+    assert_eq!((body.size, body.complex().size), (10.0, 10.0), "body text at 10 pt in both scripts");
+    let heading = d.styles.resolve_char(paras[1].props.style.as_deref(), &CharProps::default());
+    let cs = heading.complex();
+    assert_eq!((cs.size, cs.bold, cs.italic), (heading.size, heading.bold, heading.italic), "a heading's Hebrew as its Latin");
+}

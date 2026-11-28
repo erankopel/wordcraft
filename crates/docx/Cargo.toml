@@ -15,6 +15,7 @@ wordcraft-doc = { workspace = true }
 craft-xml = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+unicode-bidi = { workspace = true }
 
 [dev-dependencies]
 wordcraft-doc = { workspace = true, features = ["test-support"] }

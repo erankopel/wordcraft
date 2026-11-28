@@ -274,11 +274,14 @@ pub(super) fn labels(s: &mut Session, v: &Value) -> CmdResult {
     let (page_w, page_h) = if prod.paper == "A4" { (595.3, 841.9) } else { (612.0, 792.0) };
     let h_gap = (prod.h_pitch - prod.width).max(0.0);
     let v_gap = (prod.v_pitch - prod.height).max(0.0);
-    // Labels made from a right-to-left document (its paragraph at the caret) read right to left:
-    // the first label at the sheet's top right, each label's lines from the right. The sheet's
-    // columns fill the page from margin to margin, so every label keeps its place on the sheet.
-    let rtl = crate::cmd::table::rtl_table_at(s, &s.sel.focus);
+    // The labels are a new document, made as a new blank document is (`file.new`): right to left
+    // where new documents start right to left (a Hebrew interface, `set_new_documents_rtl`),
+    // whatever the document at hand reads. Then they read right to left: the first label at the
+    // sheet's top right, each label's lines from the right. The sheet's columns fill the page
+    // from margin to margin, so every label keeps its place on the sheet.
+    let rtl = s.new_documents_rtl;
     let mut d = Document::new();
+    crate::cmd::file::set_rtl_defaults(&mut d, rtl);
     d.last_section.page_w = page_w;
     d.last_section.page_h = page_h;
     d.last_section.margin_top = prod.top;

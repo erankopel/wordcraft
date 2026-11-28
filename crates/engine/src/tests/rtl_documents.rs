@@ -615,8 +615,8 @@ fn a_drawn_table_takes_the_documents_direction_and_stays_where_it_was_drawn() {
     }
 }
 
-/// Labels made from a right-to-left document read right to left: the first label at the top
-/// right of the sheet, its lines from the right; every label keeps its place on the sheet.
+/// Labels made where new documents start right to left read right to left: the first label at
+/// the top right of the sheet, its lines from the right; every label keeps its place on the sheet.
 #[test]
 fn labels_from_a_right_to_left_document_read_right_to_left() {
     let mut places = Vec::new();
@@ -636,4 +636,23 @@ fn labels_from_a_right_to_left_document_read_right_to_left() {
         places.push(xs);
     }
     assert_eq!(places[0], places[1], "the labels stand at the same places on the sheet");
+}
+
+/// The labels are a new document: their direction is that of new documents, not that of the
+/// paragraph at the caret. A Hebrew interface's labels read right to left, from an English
+/// paragraph too, and their document defaults say so; labels from Hebrew text where new
+/// documents start left to right read left to right.
+#[test]
+fn labels_take_the_direction_of_new_documents() {
+    let mut s = hebrew_session();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "para.rtl", json!({"value": false}));
+    run(&mut s, "mailings.labels", json!({"text": "Name", "product": "a4-2x7"}));
+    assert!(body_table(&s).props.bidi_visual && reads_rtl(&s), "a Hebrew interface's labels read right to left");
+
+    let mut s = Session::new(Document::new());
+    run(&mut s, "para.rtl", json!({"value": true}));
+    run(&mut s, "text.insert", json!({"text": SHALOM}));
+    run(&mut s, "mailings.labels", json!({"text": SHALOM, "product": "a4-2x7"}));
+    assert!(!body_table(&s).props.bidi_visual && !reads_rtl(&s), "new documents start left to right here");
 }

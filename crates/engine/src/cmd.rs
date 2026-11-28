@@ -402,8 +402,10 @@ fn insert_text(s: &mut Session, text: &str, enter: bool, language: Option<&str>)
     // Typed text is new: never deleted, and not a formatting change of the text around it.
     props.fmt_change = None;
     // Its direction comes from its own letters, as on screen, not from the run it's typed into:
-    // Latin typed into reopened Hebrew must not be saved as right-to-left (#1543). The DOCX
-    // writer marks the right-to-left pieces itself.
+    // Latin typed into reopened Hebrew must not be saved as right-to-left (#1543). Text of
+    // right-to-left letters, and spaces, digits and punctuation typed after them, say so
+    // (`w:rtl`), as Word writes text typed in Hebrew ([`typed_direction`]). Text with Latin
+    // letters says nothing: the DOCX writer marks its right-to-left pieces itself.
     props.rtl = None;
     if s.doc.settings.track_changes && !text.is_empty() {
         props.ins = Some(new_revision(s, RevisionKind::Insert));
@@ -429,6 +431,7 @@ fn insert_text(s: &mut Session, text: &str, enter: bool, language: Option<&str>)
         if !part.is_empty() {
             inserted = true;
             let starts_para = direction_unset(s, &at);
+            props.rtl = typed_direction(s, &at, &part);
             at = s.doc.insert_text(&at, &part, &props)?;
             // Typing Arabic, Hebrew… as the first letters of a paragraph whose direction nothing
             // sets makes it a right-to-left paragraph, so the caret and text start at the right
@@ -446,6 +449,33 @@ fn insert_text(s: &mut Session, text: &str, enter: bool, language: Option<&str>)
     s.goal_x = None;
     let content_changed = deletion.content_changed || inserted;
     Ok(InsertEffect { content_changed, state_changed: deletion.state_changed || content_changed || placeholder_changed })
+}
+
+/// The direction text typed or pasted at `at` says it has (`w:rtl`): right to left for
+/// right-to-left letters (Hebrew, Arabic…) alone, and for spaces, digits and punctuation typed
+/// after a right-to-left letter (or first in a right-to-left paragraph), as Word writes text typed
+/// on a Hebrew keyboard; so they take the complex-script formatting as the letters around them do,
+/// on screen, after a save and in Word (ECMA-376 §17.3.2.30). Text with left-to-right letters, and
+/// neutral characters after them, says nothing (`None`).
+fn typed_direction(s: &Session, at: &Pos, text: &str) -> Option<bool> {
+    let letter = |c: char| c.is_alphabetic().then(|| wordcraft_doc::bidi::is_rtl_script(c));
+    let (mut rtl, mut ltr) = (false, false);
+    for d in text.chars().filter_map(letter) {
+        (rtl, ltr) = (rtl || d, ltr || !d);
+    }
+    if ltr {
+        return None;
+    }
+    if rtl {
+        return Some(true);
+    }
+    let p = s.doc.para_at(at)?;
+    let before = p.text.get(..at.off).unwrap_or(&p.text);
+    let rtl = match before.chars().rev().find_map(letter) {
+        Some(d) => d,
+        None => s.doc.styles.resolve_para(&p.props).bidi,
+    };
+    rtl.then_some(true)
 }
 
 /// Is the paragraph at `at` still without letters (empty, or only spaces, digits and

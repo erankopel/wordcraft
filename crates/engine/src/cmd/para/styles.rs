@@ -230,25 +230,15 @@ pub(super) fn update_to_match(s: &mut Session, v: &Value) -> CmdResult {
     let direct = if s.sel.is_collapsed() { para.props_at(a.off) } else { para.props_of_char(a.off) }.clone().without_symbol();
     let para_style = para.props.style.clone().unwrap_or_else(|| "Normal".into());
     // How the selection looks: document defaults, its paragraph style chain, its character
-    // style chain, direct formatting (the resolve order, before defaults are filled in).
-    let (mut want_p, mut want_c) = sheet.para_style_props(&para_style);
-    let char_chain = |c: &mut CharProps, style: Option<&str>| {
-        for st in style.map(|cs| sheet.chain(cs)).unwrap_or_default() {
-            if matches!(st.kind, StyleKind::Character | StyleKind::Paragraph) {
-                c.overlay(&st.chr);
-            }
-        }
-    };
-    char_chain(&mut want_c, direct.style.as_deref());
+    // style chain (bold, italic… toggling across them, `StyleSheet::style_chr`), direct
+    // formatting (the resolve order, before defaults are filled in).
+    let (mut want_p, _) = sheet.para_style_props(&para_style);
+    let mut want_c = sheet.style_chr(Some(&para_style), None, direct.style.as_deref());
     want_c.overlay(&CharProps { style: None, ..direct.formatting() });
     want_p.overlay(&ParaProps { style: None, numbering: None, ..para.props.formatting() });
     // How the style looks now, in the same terms.
     let (have_p, have_c) = match target.kind {
-        StyleKind::Character => {
-            let (pp, mut cc) = sheet.para_style_props(&para_style);
-            char_chain(&mut cc, Some(&id));
-            (pp, cc)
-        }
+        StyleKind::Character => (sheet.para_style_props(&para_style).0, sheet.style_chr(Some(&para_style), None, Some(&id))),
         _ => sheet.para_style_props(&id),
     };
     let chr = retarget(&target.chr, &have_c, &want_c, CHAR_KEEP)?;

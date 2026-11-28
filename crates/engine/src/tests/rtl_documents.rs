@@ -501,3 +501,45 @@ fn pasted_hebrew_keeps_its_size_in_a_new_hebrew_document() {
     assert!((rc.size - 20.0).abs() < 0.01, "the pasted size: {}", rc.size);
     assert!((rc.size_cs - rc.size).abs() < 0.01, "the Hebrew text is as large as its Latin text: {} and {}", rc.size_cs, rc.size);
 }
+
+/// The font Hebrew text in paragraphs of `style` (Normal when `None`) is drawn in.
+fn hebrew_font(d: &Document, style: Option<&str>) -> String {
+    d.styles.resolve_char(style, &Default::default()).complex().font
+}
+
+/// HE-15: Design › Fonts and Design › Themes reach the Hebrew text of a Hebrew document: each
+/// theme's set has Hebrew heading and body fonts, the default set keeps the David of a new
+/// document, and the saved styles name them (`w:rFonts/@w:cs`), so Word shows them too. A style set
+/// keeps them; a document whose complex-script text isn't Hebrew keeps its own unless asked.
+#[test]
+fn theme_fonts_reach_the_hebrew_text_of_a_hebrew_document() {
+    let mut s = hebrew_session();
+    let new_body = hebrew_font(&s.doc, None);
+    let r = run(&mut s, "design.themeFonts", json!({"heading": "Futura", "body": "Avenir Next"}));
+    let (body, heading) = (hebrew_font(&s.doc, None), hebrew_font(&s.doc, Some("Heading1")));
+    assert!(body != new_body && heading != body, "the set's own Hebrew fonts: {heading} / {body}");
+    assert_eq!(r["complexScriptFonts"], json!({"heading": heading, "body": body}), "and the command says so");
+    assert_eq!(hebrew_font(&s.doc, Some("Title")), heading, "the title takes the heading font");
+    assert_eq!(s.doc.styles.resolve_char(None, &Default::default()).font, "Avenir Next", "the Latin fonts as before");
+    // Design › Themes brings the same pair; a style set keeps it.
+    let mut t = hebrew_session();
+    run(&mut t, "design.theme", json!({"name": "Darkroom"}));
+    run(&mut t, "design.styleSet", json!({"name": "basic"}));
+    assert_eq!((hebrew_font(&t.doc, None), hebrew_font(&t.doc, Some("Heading1"))), (body.clone(), heading.clone()));
+    // Saved and reopened, the styles still give the Hebrew text these fonts.
+    let d = crate::io::open_bytes("x.docx", &crate::io::save_bytes("x.docx", &s.doc).unwrap()).unwrap();
+    assert_eq!((hebrew_font(&d, None), hebrew_font(&d, Some("Heading1"))), (body, heading));
+    // The default theme's set is David again, as in a new document.
+    run(&mut s, "design.themeFonts", json!({"heading": "Aptos Display", "body": "Aptos"}));
+    assert_eq!((hebrew_font(&s.doc, None), hebrew_font(&s.doc, Some("Heading1"))), (new_body.clone(), new_body));
+    // Not a Hebrew document: its complex-script fonts are left alone, unless they are given.
+    let mut e = Session::new(Document::new());
+    let before = (hebrew_font(&e.doc, None), hebrew_font(&e.doc, Some("Heading1")));
+    let r = run(&mut e, "design.themeFonts", json!({"heading": "Futura", "body": "Avenir Next"}));
+    assert!(r["complexScriptFonts"].is_null());
+    assert_eq!(e.doc.styles.default_chr.font_cs, None);
+    assert_ne!(before.0, "Miriam");
+    run(&mut e, "design.themeFonts", json!({"heading": "Futura", "headingCs": "Miriam"}));
+    assert_eq!((hebrew_font(&e.doc, None), hebrew_font(&e.doc, Some("Heading1"))), ("Miriam".to_string(), "Miriam".to_string()));
+    assert!(e.run("design.themeFonts", &json!({"heading": "Futura", "bodyCs": ""})).is_err());
+}

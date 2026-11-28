@@ -3,12 +3,22 @@ use super::{Dialog, Sense, Tokens, Ui, WordApp, vec2};
 
 /// A colour menu: a swatch with the colour grid and No Color. `value` is hex, empty for none.
 pub(crate) fn color_menu(ui: &mut Ui, theme: &[wordcraft_doc::Rgb], value: &mut String) {
-    color_field(ui, theme, value, "No Color", "");
+    color_field(ui, theme, value, "No Color", "", None);
 }
 
 /// A colour field: a swatch and a drop-down with `none_label` (which sets `none_value`), the
-/// colour grid, Recent Colors and More Colors… (#606). `value` is hex or `none_value`.
-pub(crate) fn color_field(ui: &mut Ui, theme: &[wordcraft_doc::Rgb], value: &mut String, none_label: &str, none_value: &str) {
+/// colour grid, Recent Colors and More Colors… (#606). `value` is hex or `none_value`. With the
+/// id of the row's `label` (`Font color:`), a screen reader hears the drop-down by that label,
+/// with the colour it shows (Automatic, or the hex value) as its value; without one, by the
+/// colour it shows.
+pub(crate) fn color_field(
+    ui: &mut Ui,
+    theme: &[wordcraft_doc::Rgb],
+    value: &mut String,
+    none_label: &str,
+    none_value: &str,
+    label: Option<egui::Id>,
+) {
     ui.horizontal(|ui| {
         let id = ui.scope_id().with("colorField");
         crate::colors::take_field(ui.ctx(), id, value);
@@ -24,14 +34,18 @@ pub(crate) fn color_field(ui: &mut Ui, theme: &[wordcraft_doc::Rgb], value: &mut
             }
         }
         ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
-        let label = if c.is_some() { value.clone() } else { tl!(none_label).to_string() };
-        ui.menu_button(label, |ui| {
+        let shown = if c.is_some() { value.clone() } else { tl!(none_label).to_string() };
+        let menu = ui.menu_button(shown.clone(), |ui| {
             if ui.button(tl!(none_label)).clicked() {
                 *value = none_value.to_string();
                 ui.close();
             }
             crate::colors::field_menu(ui, theme, id, value);
         });
+        if let Some(label) = label {
+            let r = menu.response.labelled_by(label);
+            ui.ctx().accesskit_node_builder(r.id, |node| node.set_value(shown));
+        }
     });
 }
 

@@ -48,16 +48,43 @@ pub const THEMES: &[(&str, &str, &str, [Rgb; 6])] = &[
     ),
 ];
 
+/// The Hebrew fonts of each theme's font set, (theme, heading, body): Word's Hebrew families,
+/// which Hebrew Windows has and WordCraft draws in open look-alikes when they are missing, each
+/// of the kind of the set's Latin fonts. A document whose complex-script text is Hebrew gets them
+/// with the set (Design › Themes and Design › Fonts); the default set keeps David, the Hebrew
+/// body font of a new right-to-left document, for both.
+pub const HEBREW_FONTS: &[(&str, &str, &str)] = &[
+    ("Craft", styles::HEBREW_BODY_FONT, styles::HEBREW_BODY_FONT),
+    ("Studio", "FrankRuehl", "FrankRuehl"),
+    ("Gallery", "Arial", "Arial"),
+    ("Atelier", "Narkisim", "Narkisim"),
+    ("Darkroom", "Aharoni", "Gisha"),
+    ("Sketchbook", "Miriam", "Miriam"),
+];
+
+/// The Hebrew (heading, body) fonts of the theme named `name` (any letter case).
+pub fn hebrew_fonts(name: &str) -> Option<(&'static str, &'static str)> {
+    HEBREW_FONTS.iter().find(|t| t.0.eq_ignore_ascii_case(name)).map(|t| (t.1, t.2))
+}
+
+/// Whether the complex-script text of `doc` is Hebrew: the language (`w:lang/@w:bidi`) its Normal
+/// style, else its document defaults, give that text.
+pub fn hebrew_document(doc: &wordcraft_doc::Document) -> bool {
+    let sheet = &doc.styles;
+    let normal = sheet.styles.iter().find(|st| st.id == "Normal").and_then(|st| st.chr.lang_bidi.as_deref());
+    wordcraft_doc::words::is_hebrew(normal.or(sheet.default_chr.lang_bidi.as_deref()))
+}
+
+/// Longest font name taken, in characters.
+const MAX_FONT_NAME_CHARS: usize = 128;
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        CommandSpec::new("design.theme", "Themes", "Design › Document Formatting", theme).params(r#"{"name": string}"#),
-        CommandSpec::new("design.themeFonts", "Fonts", "Design › Document Formatting", |s, v| {
-            let heading = p::req_str(v, "heading")?.to_string();
-            let body = p::str(v, "body").unwrap_or(&heading).to_string();
-            set_fonts(s, &heading, &body);
-            sel_result(s)
-        })
-        .params(r#"{"heading": string, "body"?: string}"#),
+        CommandSpec::new("design.theme", "Themes", "Design › Document Formatting", theme)
+            .params(r#"{"name": string} — a document whose complex-script text is Hebrew also gets the theme's Hebrew fonts"#),
+        CommandSpec::new("design.themeFonts", "Fonts", "Design › Document Formatting", theme_fonts).params(
+            r#"{"heading": string, "body"?: string, "headingCs"?: string, "bodyCs"?: string (the fonts of Hebrew and other complex-script text; without them, in a document whose complex-script text is Hebrew, a heading and body pair that is a theme's set brings that theme's Hebrew fonts)} — returns "complexScriptFonts": {"heading", "body"} when those changed, else null"#,
+        ),
         CommandSpec::new("design.themeColors", "Colors", "Design › Document Formatting", |s, v| {
             let name = p::req_str(v, "name")?;
             let t = THEMES.iter().find(|t| t.0.eq_ignore_ascii_case(name)).ok_or_else(|| CmdError::Params(format!("unknown colours `{name}`")))?;
@@ -94,17 +121,78 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
-fn set_fonts(s: &mut Session, heading: &str, body: &str) {
+/// Design › Fonts: the heading and body fonts, and those of complex-script text when given or,
+/// in a Hebrew document, when the Latin pair is one of the themes' sets.
+fn theme_fonts(s: &mut Session, v: &Value) -> CmdResult {
+    let heading = p::req_str(v, "heading")?.to_string();
+    let body = p::str(v, "body").unwrap_or(&heading).to_string();
+    let cs_name = |k: &str| -> Result<Option<String>, CmdError> {
+        match v.get(k) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(n)) if !n.trim().is_empty() && n.chars().count() <= MAX_FONT_NAME_CHARS && !n.chars().any(char::is_control) => {
+                Ok(Some(n.trim().to_string()))
+            }
+            Some(_) => Err(CmdError::Params(format!("`{k}` must be a font name of 1 to {MAX_FONT_NAME_CHARS} characters"))),
+        }
+    };
+    let cs = match (cs_name("headingCs")?, cs_name("bodyCs")?) {
+        // A theme's set in a Hebrew document brings its Hebrew fonts.
+        (None, None) => hebrew_document(&s.doc)
+            .then(|| THEMES.iter().find(|t| t.1.eq_ignore_ascii_case(&heading) && t.2.eq_ignore_ascii_case(&body)))
+            .flatten()
+            .and_then(|t| hebrew_fonts(t.0))
+            .map(|(h, b)| (h.to_string(), b.to_string())),
+        // One given stands for both, as `body` does for the Latin pair.
+        (h, b) => h.clone().or(b.clone()).zip(b.or(h)),
+    };
+    let cs = cs.as_ref().map(|(h, b)| (h.as_str(), b.as_str()));
+    set_fonts(s, &heading, &body, cs);
+    fonts_result(s, cs)
+}
+
+/// [`sel_result`] with the complex-script fonts the command set, or null when it left them.
+fn fonts_result(s: &Session, cs: Option<(&str, &str)>) -> CmdResult {
+    let mut r = sel_result(s)?;
+    if let Some(o) = r.as_object_mut() {
+        o.insert("complexScriptFonts".into(), cs.map_or(Value::Null, |(h, b)| json!({"heading": h, "body": b})));
+    }
+    Ok(r)
+}
+
+/// Whether a style takes the heading fonts: the headings (and their linked character styles) and
+/// the title.
+fn heading_style(st: &styles::Style) -> bool {
+    st.id.starts_with("Heading") || st.id == "Title"
+}
+
+/// The theme's fonts: `heading` and `body` for Latin text and, when given, `cs` (heading, body)
+/// for Hebrew and other complex-script text. The document defaults take the body fonts. A style
+/// with a font of its own takes the heading font when it is a heading and the body font
+/// otherwise; the headings take the complex-script heading font even without one of their own,
+/// since they would otherwise show the body's.
+fn set_fonts(s: &mut Session, heading: &str, body: &str, cs: Option<(&str, &str)>) {
     s.doc.settings.major_font = heading.into();
     s.doc.settings.minor_font = body.into();
-    Arc::make_mut(&mut s.doc.styles).default_chr.font = Some(body.into());
-    for st in &mut Arc::make_mut(&mut s.doc.styles).styles {
+    let sheet = Arc::make_mut(&mut s.doc.styles);
+    sheet.default_chr.font = Some(body.into());
+    if let Some((_, cs_body)) = cs {
+        sheet.default_chr.font_cs = Some(cs_body.into());
+    }
+    for st in &mut sheet.styles {
+        let is_heading = heading_style(st);
         if let Some(f) = &st.chr.font
-            && (f == styles::HEADING_FONT || st.id.starts_with("Heading") || st.id == "Title")
+            && (f == styles::HEADING_FONT || is_heading)
         {
             st.chr.font = Some(heading.into());
         } else if st.chr.font.is_some() && st.chr.font.as_deref() != Some(heading) {
             st.chr.font = Some(body.into());
+        }
+        if let Some((cs_heading, cs_body)) = cs {
+            if is_heading {
+                st.chr.font_cs = Some(cs_heading.into());
+            } else if st.chr.font_cs.is_some() && st.chr.font_cs.as_deref() != Some(cs_heading) {
+                st.chr.font_cs = Some(cs_body.into());
+            }
         }
     }
 }
@@ -132,7 +220,8 @@ fn set_accent(s: &mut Session, accent: Rgb) {
 fn theme(s: &mut Session, v: &Value) -> CmdResult {
     let name = p::req_str(v, "name")?;
     let t = THEMES.iter().find(|t| t.0.eq_ignore_ascii_case(name)).ok_or_else(|| CmdError::Params(format!("unknown theme `{name}`")))?;
-    set_fonts(s, t.1, t.2);
+    let cs = hebrew_document(&s.doc).then(|| hebrew_fonts(t.0)).flatten();
+    set_fonts(s, t.1, t.2, cs);
     set_accent(s, t.3[0]);
     s.doc.settings.theme_name = t.0.into();
     let mut colors = s.doc.settings.theme_colors.clone();
@@ -142,12 +231,15 @@ fn theme(s: &mut Session, v: &Value) -> CmdResult {
         }
     }
     s.doc.settings.theme_colors = colors;
-    sel_result(s)
+    fonts_result(s, cs)
 }
 
 fn style_set(s: &mut Session, v: &Value) -> CmdResult {
     let name = p::req_str(v, "name")?;
     let accent = s.doc.settings.theme_colors.get(4).copied().unwrap_or(styles::HEADING_BLUE);
+    // The styles' complex-script fonts (a theme's Hebrew fonts among them): the set's fresh styles
+    // have none, so each gets its own back below, as the Latin ones get the theme's.
+    let fonts_cs: Vec<(String, String)> = s.doc.styles.styles.iter().filter_map(|st| Some((st.id.clone(), st.chr.font_cs.clone()?))).collect();
     let mut fresh = wordcraft_doc::StyleSheet::builtin();
     let line = Border { style: BorderStyle::Single, width: 0.75, color: Some(accent), space: 1.0 };
     for st in &mut fresh.styles {
@@ -195,7 +287,13 @@ fn style_set(s: &mut Session, v: &Value) -> CmdResult {
         }
     }
     let (h, b) = (s.doc.settings.major_font.clone(), s.doc.settings.minor_font.clone());
-    set_fonts(s, &h, &b);
+    set_fonts(s, &h, &b, None);
+    let sheet = Arc::make_mut(&mut s.doc.styles);
+    for (id, f) in fonts_cs {
+        if let Some(st) = sheet.styles.iter_mut().find(|st| st.id == id) {
+            st.chr.font_cs = Some(f);
+        }
+    }
     set_accent(s, accent);
     sel_result(s)
 }

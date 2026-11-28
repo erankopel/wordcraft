@@ -17,7 +17,8 @@ pub struct Prefs {
     /// balloons beside each page and tracked changes as marked up; HTML, Markdown and text
     /// copies end with the comments (`file.printMarkup`).
     pub print_markup: bool,
-    /// Language › Detect language automatically (per user, as in Word).
+    /// Language › Detect language automatically (per user, as in Word): Hebrew letters are checked
+    /// as Hebrew whatever language they are marked with ([`wordcraft_layout::ProofOptions`]).
     pub detect_language: bool,
     /// Set Proofing Language › Set As Default: overrides the interface language for future
     /// blank documents and plain text. Older preferences keep following the interface.
@@ -29,6 +30,16 @@ pub struct Prefs {
     pub insert_key_overtype: bool,
     /// Overtype: typed characters replace the ones after the caret.
     pub overtype: bool,
+    /// Ctrl+Right Shift makes the selected paragraphs read right to left and Ctrl+Left Shift left
+    /// to right, as in Word (`file.options` `directionKeys`). Off for keyboards whose layout
+    /// switches with Ctrl+Shift: the app can't tell that switch from the keys. On by default,
+    /// except on Linux and the BSDs, where Ctrl+Shift is a common layout switch.
+    pub direction_keys: bool,
+    /// How Left and Right move the caret through text that mixes right-to-left and left-to-right
+    /// writing (File › Options › Advanced › Cursor movement). A damaged saved value reads as the
+    /// default.
+    #[serde(deserialize_with = "lenient_cursor_movement")]
+    pub cursor_movement: CursorMovement,
     /// The unit rulers and dialogs show lengths in, when the user chose one (File › Options ›
     /// Advanced › Measurement units); `None` follows the region ([`Session::units`]). Saved under
     /// a new key; an older `units` value other than inches (the old default) carries over on load.
@@ -74,6 +85,8 @@ impl Default for Prefs {
             typing_replaces_selection: true,
             insert_key_overtype: false,
             overtype: false,
+            direction_keys: DIRECTION_KEYS_BY_DEFAULT,
+            cursor_movement: CursorMovement::Visual,
             units: Default::default(),
             region: None,
             dictionaries_folder: None,
@@ -89,6 +102,42 @@ impl Default for Prefs {
             default_language: None,
             autocorrect: Default::default(),
         }
+    }
+}
+
+/// Whether Ctrl+Right Shift and Ctrl+Left Shift set the paragraph direction by default
+/// ([`Prefs::direction_keys`]): yes, as in Word, except on Linux and the BSDs. Their desktops
+/// switch keyboard layouts with XKB, where Ctrl+Shift is a common Hebrew and English toggle that
+/// reaches the app as the same keys, so every layout switch would also turn the paragraph around
+/// until the keys are turned off.
+const DIRECTION_KEYS_BY_DEFAULT: bool =
+    !cfg!(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"));
+
+/// How Left and Right move the caret in a line that mixes right-to-left and left-to-right text.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CursorMovement {
+    /// One place to the left or right on the screen: entering an English word in a Hebrew line,
+    /// Left jumps to the word's far end and walks it backwards.
+    #[default]
+    Visual,
+    /// One character back or forward in the order the text was typed: Left goes forward in a
+    /// right-to-left paragraph and back in a left-to-right one, Right the other way.
+    Logical,
+}
+
+impl CursorMovement {
+    /// The `file.options` name.
+    pub fn name(self) -> &'static str {
+        match self {
+            CursorMovement::Visual => "visual",
+            CursorMovement::Logical => "logical",
+        }
+    }
+
+    /// The value named `name` (`visual`, `logical`), in any letter case.
+    pub fn from_name(name: &str) -> Option<Self> {
+        [CursorMovement::Visual, CursorMovement::Logical].into_iter().find(|m| m.name().eq_ignore_ascii_case(name.trim()))
     }
 }
 
@@ -110,6 +159,12 @@ fn lenient_default_language<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Op
 }
 
 fn lenient_paper_color<'de, D: serde::Deserializer<'de>>(d: D) -> Result<crate::cmd::view::PaperColor, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
+}
+
+/// Ignore an invalid saved cursor movement without discarding other preferences.
+fn lenient_cursor_movement<'de, D: serde::Deserializer<'de>>(d: D) -> Result<CursorMovement, D::Error> {
     let value = serde_json::Value::deserialize(d)?;
     Ok(serde_json::from_value(value).unwrap_or_default())
 }
@@ -138,5 +193,22 @@ mod tests {
         let saved: Prefs = serde_json::from_str(r#"{"readPageColor":"sepia"}"#).unwrap();
         assert_eq!(saved.read_page_color, ReadPageColor::Sepia);
         assert_eq!(serde_json::to_value(saved).unwrap()["readPageColor"], "sepia");
+    }
+
+    /// The cursor movement choice is saved and read back; a damaged one reads as the default and
+    /// the preferences saved beside it survive.
+    #[test]
+    fn cursor_movement_loads_from_old_and_damaged_prefs() {
+        use super::CursorMovement;
+        let old: Prefs = serde_json::from_str(r#"{"checkSpelling":false}"#).unwrap();
+        assert_eq!((old.cursor_movement, old.direction_keys), (CursorMovement::Visual, Prefs::default().direction_keys));
+        let saved = Prefs { cursor_movement: CursorMovement::Logical, direction_keys: !Prefs::default().direction_keys, ..Prefs::default() };
+        let back: Prefs = serde_json::from_value(serde_json::to_value(&saved).unwrap()).unwrap();
+        assert_eq!(back, saved);
+        for bad in [r#"{"cursorMovement":"sideways","checkSpelling":false}"#, r#"{"cursorMovement":7,"checkSpelling":false}"#] {
+            let prefs: Prefs = serde_json::from_str(bad).unwrap();
+            assert_eq!(prefs.cursor_movement, CursorMovement::Visual);
+            assert!(!prefs.check_spelling);
+        }
     }
 }

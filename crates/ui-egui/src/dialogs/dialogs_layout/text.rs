@@ -398,7 +398,9 @@ pub(super) fn language_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LanguageForm) 
     if ui.checkbox(&mut f.no_proof, tl!("Do not check spelling or grammar")).clicked() {
         f.proof_touched = true;
     }
-    ui.checkbox(&mut f.detect, tl!("Detect language automatically"));
+    // Detection is by script: Hebrew letters (Word's Hebrew text is often marked Arabic).
+    ui.checkbox(&mut f.detect, tl!("Detect language automatically"))
+        .on_hover_text(tl!("Hebrew letters are checked as Hebrew, whatever language they are marked with."));
     ui.checkbox(&mut f.whole_document, tl!("Apply to the whole document"));
     ui.add_space(4.0);
     let set_default = ui.button(tl!("Set As Default")).clicked();

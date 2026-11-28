@@ -333,18 +333,22 @@ fn style_label(s: &str) -> String {
 }
 
 /// All nine levels, each number at its aligned-at position followed by a grey line of text at
-/// its text indent; the level being edited in the text colour.
+/// its text indent; the level being edited in the text colour. Positions are measured from the
+/// side reading starts from, so a right-to-left interface shows the list as it runs in
+/// right-to-left text: numbers at the right, the text to their left.
 fn preview(ui: &mut Ui, f: &ListForm) {
     let t = Tokens::get(ui.ctx());
     let row = 19.0;
     let (rect, _) = ui.allocate_exact_size(vec2(300.0, row * LEVELS as f32 + 8.0), Sense::hover());
+    let rtl = crate::rtl::flows(ui);
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 2.0, egui::Color32::WHITE);
     p.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
     let k = crate::options::unit().pt_per_unit();
-    // Positions in points, scaled so 4.5 inches fit.
+    // Positions in points, scaled so 4.5 inches fit, as insets from the leading edge.
     let scale = (rect.width() - 16.0) / 324.0;
-    let x_of = |v: f32| rect.left() + 8.0 + (v * k * scale).clamp(0.0, rect.width() - 40.0);
+    let x_of = |v: f32| 8.0 + (v * k * scale).clamp(0.0, rect.width() - 40.0);
+    let at = |inset: f32, width: f32| crate::rtl::lead_left(rtl, rect, inset, width);
     for (i, l) in f.levels.iter().enumerate() {
         let y = rect.top() + 4.0 + row * i as f32 + row / 2.0;
         let on = i == f.level;
@@ -354,19 +358,23 @@ fn preview(ui: &mut Ui, f: &ListForm) {
         let galley = p.layout_no_wrap(label, font, ink);
         let w = galley.size().x;
         let x = x_of(l.aligned_at);
+        // Left and right alignment are the start and end of the line, as in the list itself.
         let nx = match l.align.as_str() {
             "center" => x - w / 2.0,
             "right" => x - w,
             _ => x,
         };
-        p.galley(egui::pos2(nx, y - galley.size().y / 2.0), galley, ink);
+        let gy = y - galley.size().y / 2.0;
+        p.galley(egui::pos2(at(nx, w), gy), galley, ink);
         let tx = match l.follow.as_str() {
             "space" => nx + w + 3.0,
             "nothing" => nx + w,
             _ => x_of(l.indent_at).max(nx + w + 2.0),
         };
-        let bar = egui::Rect::from_min_max(egui::pos2(tx, y - 2.0), egui::pos2(rect.right() - 8.0, y + 2.0));
-        if bar.width() > 0.0 {
+        let len = rect.width() - 8.0 - tx;
+        if len > 0.0 {
+            let left = at(tx, len);
+            let bar = egui::Rect::from_min_max(egui::pos2(left, y - 2.0), egui::pos2(left + len, y + 2.0));
             p.rect_filled(bar, 1.0, if on { egui::Color32::from_gray(120) } else { egui::Color32::from_gray(205) });
         }
     }
@@ -622,6 +630,46 @@ mod tests {
 
     fn app() -> WordApp {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default())
+    }
+
+    /// UWB-12: Define New Multilevel List's preview reads from the side reading starts from:
+    /// each level's number further in than the level above it, to the right in a left-to-right
+    /// interface and to the left in a right-to-left one.
+    #[test]
+    fn the_list_preview_reads_from_the_side_reading_starts_from() {
+        // The language is thread-local: put English back even when an assertion fails.
+        struct English;
+        impl Drop for English {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _english = English;
+        let form = super::ListForm::read(&app());
+        let (first, second) = (form.sample(0), form.sample(1));
+        let places = |lang: crate::i18n::Lang| -> (f32, f32) {
+            crate::i18n::set_current(lang);
+            let mut h = egui_kittest::Harness::builder()
+                .with_size(egui::vec2(500.0, 300.0))
+                .build_ui(|ui| crate::rtl::root(ui, |ui| super::preview(ui, &form)));
+            h.run_steps(2);
+            // The first of each level's number drawn (the levels repeat their numbering further down).
+            let x = |text: &str| {
+                h.output()
+                    .shapes
+                    .iter()
+                    .find_map(|s| match &s.shape {
+                        egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos.x),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("{text} is drawn"))
+            };
+            (x(&first), x(&second))
+        };
+        let (one, two) = places(crate::i18n::Lang::EN);
+        assert!(two > one, "left to right: the first level at {one}, the second at {two}");
+        let (one, two) = places(crate::i18n::fixture_lang("he", "\tHome\t\u{05D1}\u{05D9}\u{05EA}\n"));
+        assert!(two < one, "right to left: the first level at {one}, the second at {two}");
     }
 
     /// #328: the ribbon opens Define New Multilevel List; OK defines the list and numbers the

@@ -44,19 +44,28 @@ pub(super) fn mergefield_name(instr: &str) -> Option<String> {
     Some(field_words(rest).into_iter().next().map(|(name, _)| name).unwrap_or_default())
 }
 
-/// Which columns hold address parts.
+/// Which columns hold address parts: a column named for the part in English, or in Hebrew (the
+/// names the Hebrew interface gives a new list's columns, and the usual alternatives), whatever
+/// its spaces, underscores and case.
 pub(super) fn address_map(headers: &[String]) -> Value {
-    let find = |names: &[&str]| headers.iter().find(|h| names.iter().any(|n| h.replace([' ', '_'], "").eq_ignore_ascii_case(n))).cloned();
+    let squeezed = |s: &str| s.replace([' ', '_'], "");
+    let find = |names: &[&str]| headers.iter().find(|h| names.iter().any(|n| squeezed(h).eq_ignore_ascii_case(&squeezed(n)))).cloned();
+    // Country is מדינה in Hebrew, and a state or province מחוז; but a list with a ארץ column for
+    // the country (an address abroad) has its state in its מדינה column.
+    const STATE_OR_COUNTRY: &str = "מדינה";
+    let country = find(&["Country", "ארץ"]).or_else(|| find(&[STATE_OR_COUNTRY]));
+    let state = find(&["State", "Province", "Region", "מחוז", "אזור"])
+        .or_else(|| country.as_ref().filter(|c| squeezed(c) != STATE_OR_COUNTRY).and_then(|_| find(&[STATE_OR_COUNTRY])));
     json!({
-        "firstName": find(&["FirstName", "First", "GivenName"]),
-        "lastName": find(&["LastName", "Last", "Surname", "FamilyName"]),
-        "company": find(&["Company", "Organization", "CompanyName"]),
-        "address": find(&["Address", "AddressLine1", "Address1", "Street"]),
-        "city": find(&["City", "Town"]),
-        "state": find(&["State", "Province", "Region"]),
-        "postal": find(&["PostalCode", "ZIP", "ZipCode", "Postcode"]),
-        "country": find(&["Country"]),
-        "title": find(&["Title", "CourtesyTitle"]),
+        "firstName": find(&["FirstName", "First", "GivenName", "שם פרטי", "פרטי"]),
+        "lastName": find(&["LastName", "Last", "Surname", "FamilyName", "שם משפחה", "משפחה"]),
+        "company": find(&["Company", "Organization", "CompanyName", "חברה", "שם החברה", "ארגון"]),
+        "address": find(&["Address", "AddressLine1", "Address1", "Street", "כתובת", "כתובת 1", "שורת כתובת 1", "רחוב"]),
+        "city": find(&["City", "Town", "עיר", "יישוב", "ישוב"]),
+        "state": state,
+        "postal": find(&["PostalCode", "ZIP", "ZipCode", "Postcode", "מיקוד"]),
+        "country": country,
+        "title": find(&["Title", "CourtesyTitle", "תואר", "תואר נימוס"]),
     })
 }
 
@@ -77,11 +86,21 @@ pub(super) fn address_block(s: &Session, row: usize) -> String {
     [name, g("company"), g("address"), city_line, g("country")].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join("\n")
 }
 
-fn greeting(s: &Session, row: usize) -> String {
+/// The greeting line for `row` in text of language `lang`: `Dear Ada Lovelace,`, or with no name
+/// `Dear Sir or Madam,`; in Hebrew text `לכבוד נועה לוי,` and `שלום רב,`
+/// ([`crate::cmd::words::greeting`]).
+fn greeting(s: &Session, row: usize, lang: Option<&str>) -> String {
     let m = address_map(&s.merge.headers);
     let g = |k: &str| m.get(k).and_then(Value::as_str).map(|f| value(s, row, f)).unwrap_or_default();
     let name = [g("firstName"), g("lastName")].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" ");
-    if name.is_empty() { "Dear Sir or Madam,".into() } else { format!("Dear {name},") }
+    crate::cmd::words::greeting(lang, &name)
+}
+
+/// The language of the text a field at byte `off` of `p` stands in, which its result takes: the
+/// field's own formatting there ([`crate::cmd::words::lang_in`]). `p` may be a merged letter's
+/// copy of a paragraph.
+fn field_lang(s: &Session, (p, off): (&Paragraph, usize)) -> Option<String> {
+    crate::cmd::words::lang_in(&s.doc, Some(p), off, p.props_of_char(off))
 }
 
 /// What a merge-related field does for the current record.
@@ -131,15 +150,16 @@ fn keyword(instr: &str) -> String {
     instr.split_whitespace().next().unwrap_or("").to_ascii_uppercase()
 }
 
-/// Evaluate a merge-related field for a record (None = not a merge field).
-fn act(s: &Session, instr: &str, row: usize) -> Option<Act> {
+/// Evaluate a merge-related field for a record (None = not a merge field). `at` is where the
+/// field is: its paragraph and byte offset (Greeting Line writes its words in the language there).
+fn act(s: &Session, instr: &str, row: usize, at: (&Paragraph, usize)) -> Option<Act> {
     let t = instr.trim();
     if let Some(n) = mergefield_name(t) {
         return Some(Act::Text(wordcraft_layout::fields::apply_case_switch(t, value(s, row, &n))));
     }
     Some(match keyword(t).as_str() {
         "ADDRESSBLOCK" => Act::Text(address_block(s, row)),
-        "GREETINGLINE" => Act::Text(greeting(s, row)),
+        "GREETINGLINE" => Act::Text(greeting(s, row, field_lang(s, at).as_deref())),
         "MERGEREC" => Act::Text(row.saturating_add(1).to_string()),
         "NEXT" => Act::Next,
         "NEXTIF" if condition(s, t, row).0 => Act::Next,
@@ -187,10 +207,9 @@ pub fn refresh(s: &mut Session) {
         for path in s.doc.para_paths(story) {
             let updates: Vec<(usize, String)> = match s.doc.para(story, &path) {
                 Some(p) => p
-                    .objects
-                    .iter()
+                    .objects_with_offsets()
                     .enumerate()
-                    .filter_map(|(k, o)| {
+                    .filter_map(|(k, (off, o))| {
                         let InlineObject::Field { instr, .. } = o else { return None };
                         let shown = placeholder(instr)?;
                         if !preview {
@@ -198,7 +217,7 @@ pub fn refresh(s: &mut Session) {
                         }
                         Some((
                             k,
-                            match act(s, instr, cur) {
+                            match act(s, instr, cur, (p, off)) {
                                 Some(Act::Text(t)) => t,
                                 Some(Act::Next) => {
                                     cur = cur.saturating_add(1).min(last);
@@ -392,7 +411,7 @@ fn merge_blocks(s: &Session, blocks: &mut Blocks, cur: &mut usize, end: usize, d
                 for off in p.object_offsets() {
                     let Some(InlineObject::Field { instr, .. }) = p.object_at(off) else { continue };
                     let row = if *cur < end { *cur } else { s.merge.rows.len() };
-                    match act(s, instr, row) {
+                    match act(s, instr, row, (&*p, off)) {
                         Some(Act::Text(t)) => repl.push((off, t)),
                         Some(Act::Next) => {
                             *cur = cur.saturating_add(1).min(end);

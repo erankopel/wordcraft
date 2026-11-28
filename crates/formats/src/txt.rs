@@ -24,8 +24,18 @@ pub fn decode_as(b: &[u8], label: &str) -> Option<String> {
     Some(enc.decode(b).0.into_owned())
 }
 
-/// A document with one paragraph per line.
+/// A plain text file: a document with one paragraph per line, and a line whose first letter is
+/// right to left is a right-to-left paragraph.
 pub fn import(bytes: &[u8]) -> Document {
+    let mut doc = import_lines(bytes);
+    crate::rtl_by_first_letter(&mut doc);
+    doc
+}
+
+/// Plain text inside another document (a `.docx` file's text chunk, a web archive's text): one
+/// paragraph per line, each taking its direction from where it lands, as Word brings such text
+/// in; only a text file opened on its own reads its direction from its letters ([`import`]).
+pub fn import_lines(bytes: &[u8]) -> Document {
     let text = decode(bytes);
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let clean: String = text.chars().filter(|c| !c.is_control() || matches!(c, '\n' | '\t' | '\u{000C}')).collect();

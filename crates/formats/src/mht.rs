@@ -46,7 +46,9 @@ pub fn import_on(bytes: &[u8], page: &SectionProps) -> Document {
         .or_else(|| leaves.iter().copied().find(|p| matches!(p.declared_media_type(), Some("text/html" | "application/xhtml+xml"))));
     let Some(root) = root else {
         let text = leaves.iter().copied().find(|p| p.declared_media_type().unwrap_or("text/plain") == "text/plain").map(part_bytes).unwrap_or(&[]);
-        return crate::txt::import_on(text, page);
+        let mut doc = crate::txt::import_lines(text);
+        doc.last_section = page.clone();
+        return doc;
     };
     let html = crate::html::decode_as(part_bytes(root), root.content_type.get("charset"));
     let base = root.content_location().unwrap_or("");

@@ -366,6 +366,8 @@ impl AutoCorrectForm {
             "capDays": o.cap_days,
             "capsLock": o.caps_lock,
             "smartQuotes": o.smart_quotes,
+            // `null` until the user chooses: it then follows the interface.
+            "hebrewMarks": o.hebrew_marks,
             "fractions": o.fractions,
             "ordinals": o.ordinals,
             "boldItalic": o.bold_italic,
@@ -414,6 +416,13 @@ fn autocorrect_ui(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) -> bo
             let o = &mut f.options;
             heading(ui, "Replace as you type");
             ui.checkbox(&mut o.smart_quotes, tl!("Smart quotes instead of straight quotes"));
+            // With smart quotes, " and ' right after a Hebrew letter are ״ and ׳; until the user
+            // chooses, on with the Hebrew interface (the one that starts documents right to left).
+            let mut marks = o.hebrew_marks.unwrap_or(app.session.new_documents_rtl);
+            let marks_box = egui::Checkbox::new(&mut marks, tl!("Type gershayim and geresh after Hebrew letters"));
+            if ui.add_enabled(o.smart_quotes, marks_box).changed() {
+                o.hebrew_marks = Some(marks);
+            }
             ui.checkbox(&mut o.fractions, tl!("Fractions (1/2) as fraction characters (½)"));
             ui.checkbox(&mut o.ordinals, tl!("Ordinals (1st) as superscript"));
             ui.checkbox(&mut o.bold_italic, tl!("*Bold* and _italic_ as real formatting"));
@@ -880,6 +889,39 @@ mod tests {
         assert_eq!(p["caseChanges"], false);
         assert_eq!(p["showIn"], "new");
         assert!(p.get("original").is_none());
+    }
+
+    /// SE-2: AutoFormat As You Type's gershayim box shows the option as typing follows it: until
+    /// the user chooses, ticked with the Hebrew interface (the one that starts documents right to
+    /// left) and clear with another. Clearing it is the user's choice, which typing then follows.
+    #[test]
+    fn the_gershayim_box_shows_the_option_typing_follows() {
+        use egui::accesskit::Toggled;
+        use egui_kittest::kittest::{NodeT, Queryable};
+        let label = "Type gershayim and geresh after Hebrew letters";
+        let open = |hebrew: bool| {
+            let mut a = app("");
+            a.session.set_new_documents_rtl(hebrew);
+            a.run("tools.autocorrect", json!({})).unwrap();
+            let mut h = egui_kittest::Harness::builder()
+                .with_size(vec2(1000.0, 800.0))
+                .allow_missing_glyphs()
+                .build_ui_state(|ui, app: &mut WordApp| crate::dialogs::show(app, ui.ctx()), a);
+            h.run_steps(3);
+            h.get_by_label("AutoFormat As You Type").click();
+            h.run_steps(3);
+            h
+        };
+        let h = open(false);
+        assert_eq!(h.get_by_label(label).accesskit_node().toggled(), Some(Toggled::False), "another interface types \u{201D} and \u{2019}");
+        let mut h = open(true);
+        assert_eq!(h.get_by_label(label).accesskit_node().toggled(), Some(Toggled::True), "the Hebrew interface types the Hebrew marks");
+        h.get_by_label(label).click();
+        h.run_steps(3);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.prefs.autocorrect.hebrew_marks, Some(false), "the box is the user's choice");
+        assert!(!wordcraft_engine::cmd::tools::hebrew_marks(&h.state().session), "which typing follows");
     }
 
     /// #3036: the Replace list says so when the filter matches nothing instead of going blank.

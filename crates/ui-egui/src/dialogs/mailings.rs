@@ -28,8 +28,16 @@ pub fn rule_params(d: &Dialog) -> Option<Value> {
     })
 }
 
-/// The fields a new recipient list starts with.
+/// The fields a new recipient list starts with, in English.
 pub const NEW_LIST_FIELDS: [&str; 5] = ["First Name", "Last Name", "Address", "City", "Postal Code"];
+
+/// The fields a new recipient list starts with: in Hebrew in the Hebrew interface, else in
+/// English. Address Block and Greeting Line find a name and an address by their names in those
+/// two languages only (the engine's `address_map`), so the other interfaces keep the English ones.
+pub fn new_list_fields() -> Vec<String> {
+    let hebrew = crate::i18n::current().code() == "he";
+    NEW_LIST_FIELDS.iter().map(|f| if hebrew { crate::i18n::tc("address", f) } else { f }.to_string()).collect()
+}
 
 /// A typed recipient list ready for `mailings.recipients`: field names trimmed, blank rows
 /// dropped. An error says what to fix.

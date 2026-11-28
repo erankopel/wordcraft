@@ -58,6 +58,7 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
         if app.windows.shown() != window {
             break;
         }
+        direction_keys(app, ctx, &e);
         if stale_composition(app, &e, &mut batch) {
             continue;
         }
@@ -92,6 +93,68 @@ fn expire_paste_wait(app: &mut WordApp, now: f64) {
         // No key came since the chord (any key ends the wait), so noted modifiers are the
         // chord's: a later paste reads the modifiers held then.
         app.canvas.paste_event_mods = None;
+    }
+}
+
+/// Where the Ctrl+Shift direction chord stands between events (egui memory: the chord may span
+/// frames): `true` when the right Shift went down with Ctrl held, `false` the left one.
+fn direction_chord_id() -> egui::Id {
+    egui::Id::unique("wordcraft.direction_chord")
+}
+
+/// Ctrl+Right Shift makes the selected paragraphs right to left and Ctrl+Left Shift left to
+/// right, as in Word: a Shift pressed while Ctrl (and nothing else) is held, then released with
+/// nothing pressed in between. Another key, a click, a scroll or typed text in between is some
+/// other shortcut (Ctrl+Shift+End, a Ctrl+Shift click), and nothing happens. A Ctrl+Shift that
+/// switches the keyboard layout reaches the app as the same keys, so the keys follow the
+/// `directionKeys` preference, off by default where Ctrl+Shift is a common layout switch
+/// ([`wordcraft_engine::Prefs::direction_keys`]).
+fn direction_keys(app: &mut WordApp, ctx: &egui::Context, e: &egui::Event) {
+    let id = direction_chord_id();
+    let armed = ctx.data(|d| d.get_temp::<bool>(id));
+    let set = |side: Option<bool>| {
+        ctx.data_mut(|d| match side {
+            Some(right) => {
+                d.insert_temp(id, right);
+            }
+            None => d.remove::<bool>(id),
+        })
+    };
+    match e {
+        // A Shift held down repeats its press: the chord stays as it was (and a Shift held before
+        // Ctrl went down doesn't start one).
+        egui::Event::Key { key: Key::ShiftLeft | Key::ShiftRight, pressed: true, repeat: true, .. } => {}
+        egui::Event::Key { key: key @ (Key::ShiftLeft | Key::ShiftRight), pressed: true, modifiers, .. } => {
+            let ctrl_only = modifiers.ctrl && !modifiers.alt && !modifiers.mac_cmd;
+            // Both Shifts down is no chord.
+            set((ctrl_only && armed.is_none() && app.session.prefs.direction_keys).then_some(*key == Key::ShiftRight));
+        }
+        egui::Event::Key { key: key @ (Key::ShiftLeft | Key::ShiftRight), pressed: false, .. } => {
+            set(None);
+            let right = *key == Key::ShiftRight;
+            if armed == Some(right) && app.session.prefs.direction_keys {
+                let command = if right { "para.rtl" } else { "para.ltr" };
+                if let Err(why) = app.run(command, json!({})) {
+                    app.status(why);
+                }
+            }
+        }
+        // Ctrl going down or up (or the other Ctrl) leaves the chord as it is.
+        egui::Event::Key { key: Key::ControlLeft | Key::ControlRight, .. } => {}
+        egui::Event::Key { pressed: true, .. }
+        | egui::Event::PointerButton { pressed: true, .. }
+        | egui::Event::MouseWheel { .. }
+        | egui::Event::Text(_)
+        | egui::Event::Paste(_)
+        | egui::Event::Copy
+        | egui::Event::Cut
+        | egui::Event::Ime(_)
+        | egui::Event::WindowFocused(_)
+            if armed.is_some() =>
+        {
+            set(None);
+        }
+        _ => {}
     }
 }
 
@@ -681,4 +744,87 @@ fn inserted_literal_at(app: &WordApp, text: &str, start: &wordcraft_doc::Pos) ->
     let Some(para) = app.session.doc.para_at(start) else { return false };
     let Some(end) = start.off.checked_add(text.len()) else { return false };
     para.text.get(start.off..end) == Some(text)
+}
+
+#[cfg(test)]
+mod direction_key_tests {
+    use super::*;
+
+    fn key(key: Key, pressed: bool, modifiers: Modifiers) -> egui::Event {
+        egui::Event::Key { key, physical_key: Some(key), pressed, repeat: false, modifiers }
+    }
+
+    /// Ctrl as the windowing layer reports it: also Mod, except on macOS.
+    fn ctrl() -> Modifiers {
+        Modifiers { ctrl: true, command: !cfg!(target_os = "macos"), ..Modifiers::NONE }
+    }
+
+    fn frame(ctx: &egui::Context, a: &mut WordApp, events: Vec<egui::Event>) {
+        ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| canvas_events(a, ui.ctx())).drop_without_applying_deltas();
+    }
+
+    /// Ctrl down, then a Shift down and up with `between` after the Shift's press.
+    fn chord(ctx: &egui::Context, a: &mut WordApp, shift: Key, between: Vec<egui::Event>) {
+        let held = ctrl();
+        frame(ctx, a, vec![egui::Event::ModifiersChanged(held), key(Key::ControlLeft, true, held), key(shift, true, held)]);
+        frame(ctx, a, between);
+        frame(ctx, a, vec![key(shift, false, held), egui::Event::ModifiersChanged(Modifiers::NONE), key(Key::ControlLeft, false, Modifiers::NONE)]);
+    }
+
+    fn reads_right_to_left(a: &WordApp) -> bool {
+        a.session.doc.para_at(&a.session.sel.focus).is_some_and(|p| a.session.doc.styles.resolve_para(&p.props).bidi)
+    }
+
+    /// A left-to-right paragraph (its first letters are Latin) with Hebrew in it, and the direction
+    /// keys on (they are off by default on Linux and the BSDs).
+    fn app() -> WordApp {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("file.options", json!({"directionKeys": true})).unwrap();
+        a.run("text.insert", json!({"text": "abc שלום"})).unwrap();
+        a
+    }
+
+    /// HE-05: Ctrl+Right Shift makes the paragraph right to left and Ctrl+Left Shift left to
+    /// right, as in Word, also when the chord spans frames and the held Shift repeats.
+    #[test]
+    fn ctrl_and_one_shift_set_the_paragraph_direction() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        assert!(!reads_right_to_left(&a));
+        let repeat = egui::Event::Key { key: Key::ShiftRight, physical_key: Some(Key::ShiftRight), pressed: true, repeat: true, modifiers: ctrl() };
+        chord(&ctx, &mut a, Key::ShiftRight, vec![repeat]);
+        assert!(reads_right_to_left(&a), "Ctrl+Right Shift: right to left");
+        chord(&ctx, &mut a, Key::ShiftLeft, vec![]);
+        assert!(!reads_right_to_left(&a), "Ctrl+Left Shift: left to right");
+    }
+
+    /// Another key, a click or the other Shift between the Shift's press and release makes it some
+    /// other shortcut; Alt with Ctrl (AltGr) is no chord; and File › Options › Advanced turns the
+    /// keys off.
+    #[test]
+    fn the_direction_keys_only_answer_ctrl_and_one_shift_alone() {
+        let ctx = egui::Context::default();
+        let held = Modifiers { shift: true, ..ctrl() };
+        let click = egui::Event::PointerButton { pos: egui::pos2(1.0, 1.0), button: egui::PointerButton::Primary, pressed: true, modifiers: held };
+        for between in [
+            vec![key(Key::End, true, held), key(Key::End, false, held)],
+            vec![click],
+            vec![key(Key::ShiftLeft, true, held), key(Key::ShiftLeft, false, held)],
+        ] {
+            let mut a = app();
+            assert!(!reads_right_to_left(&a));
+            chord(&ctx, &mut a, Key::ShiftRight, between.clone());
+            assert!(!reads_right_to_left(&a), "{between:?}");
+        }
+        let mut a = app();
+        let alt_gr = Modifiers { alt: true, ..ctrl() };
+        frame(&ctx, &mut a, vec![key(Key::ShiftRight, true, alt_gr), key(Key::ShiftRight, false, alt_gr)]);
+        assert!(!reads_right_to_left(&a), "Ctrl+Alt+Right Shift");
+        a.run("file.options", json!({"directionKeys": false})).unwrap();
+        chord(&ctx, &mut a, Key::ShiftRight, vec![]);
+        assert!(!reads_right_to_left(&a), "turned off in Options");
+        a.run("file.options", json!({"directionKeys": true})).unwrap();
+        chord(&ctx, &mut a, Key::ShiftRight, vec![]);
+        assert!(reads_right_to_left(&a), "and on again");
+    }
 }

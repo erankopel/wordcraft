@@ -176,7 +176,8 @@ pub(super) fn modify_style(s: &mut Session, v: &Value) -> CmdResult {
 /// right to left (its own direction, or the document's: every style of a new Hebrew document), and
 /// any style is when text formatted with it, or with a style based on it, has right-to-left
 /// letters (a Hebrew paragraph in Heading 1 of an English document, Hebrew words in Emphasis).
-fn used_for_rtl(doc: &wordcraft_doc::Document, id: &str) -> bool {
+/// The Modify Style dialog shows the style's complex-script font and size for such a style.
+pub fn used_for_rtl(doc: &wordcraft_doc::Document, id: &str) -> bool {
     use wordcraft_doc::StoryRef;
     let styles = &doc.styles;
     let paragraph = match styles.get(id).map(|st| st.kind) {

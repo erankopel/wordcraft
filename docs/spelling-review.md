@@ -1,6 +1,6 @@
 # Spelling and grammar task pane
 
-> **Last updated:** 2026-11-01 · **Status:** the feature-specific preview workflow is removed to follow the shared-CI policy. Rust implementation and tests are unchanged from `3abe452`; validation of this documentation/CI-only follow-up SHA is pending. Historical parent `3abe452` passed its exact-head hosted gate, three-platform Printing and proofing preview; those results remain attributed to that parent.
+> **Last updated:** 2026-11-27 · **Status:** the feature-specific preview workflow is removed to follow the shared-CI policy. Rust implementation and tests are unchanged from `3abe452`; validation of this documentation/CI-only follow-up SHA is pending. Historical parent `3abe452` passed its exact-head hosted gate, three-platform Printing and proofing preview; those results remain attributed to that parent.
 
 ## Word reference
 
@@ -12,7 +12,7 @@ WordCraft uses this arrangement and its shared pane host, icons, typography and 
 
 ## Scope and behavior
 
-Review › Spelling & Grammar, Home › Editor and F7 open the task pane. The initial search begins at the next issue from the current selection and wraps to the start of the current story if needed; pane navigation then stops at that story's end (body, header, note or other active text), not all document stories or only a selection. Each correction uses the existing review command and remains undoable. Ignore Once advances without changing the document or dictionaries. The engine command `review.ignoreOnce` leaves the issue at the selection, that occurrence only, out of the issue list and the squiggles until its paragraph changes; the pane's Ignore Once does not call it yet. Ignore All lasts for the session; Add to Dictionary uses the personal dictionary. Those two actions are offered only for spelling issues. Completion remains visible; Check Again starts a wrapping search. The pane host supplies Close and docking.
+Review › Spelling & Grammar, Home › Editor and F7 open the task pane. The initial search begins at the next issue from the current selection and wraps to the start of the current story if needed; pane navigation then stops at that story's end (body, header, note or other active text), not all document stories or only a selection. Each correction uses the existing review command and remains undoable. Ignore Once runs `review.ignoreOnce`, which leaves the issue at the selection, that occurrence only, out of the issue list and the squiggles until its paragraph changes, and advances; it changes neither the document nor the dictionaries. Ignore All lasts for the session; Add to Dictionary uses the personal dictionary. Those two actions are offered only for spelling issues. Completion remains visible; Check Again starts a wrapping search. The pane host supplies Close and docking.
 
 If another command changes the document body or selection, a cached suggestion is refused; Check Again obtains a fresh target. Read-only/protected document commands retain their checks. The pane is local to each window, clears on a document switch and does not alter the compact right-click menu. Programmatic review commands return structured results without opening UI.
 
@@ -57,6 +57,7 @@ The first light/dark artifacts at `20205a5` were inspected: the sentence frame s
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-27 | trivial | Ignore Once in the pane runs `review.ignoreOnce`: the occurrence stays unmarked until its paragraph changes (the page said the pane didn't call it) |
 | 2026-11-01 | trivial | Remove the feature-specific preview workflow to follow shared-CI policy; preserve all Rust and tests, document three direct commands and manually attached exact-SHA images; fresh follow-up validation pending |
 | 2026-10-31 | trivial | Synchronize the existing Proofing pane with main `e6a5cd0` after the earlier `eecbb8f` synchronization; preserve explicit-position lookup, implicit selection, navigation, undo and per-window state; parent `7c20316` passed hosted checks, fresh evening-SHA validation pending, readiness unchanged |
 | 2026-10-30 | trivial | Merge the existing pane with main `3b7f7ed`; preserve explicit-position point lookup at the selection focus, implicit/parse-fallback selection priority and correction/undo; new follow-up SHA requires fresh hosted validation |

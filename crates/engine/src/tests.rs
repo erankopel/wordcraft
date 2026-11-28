@@ -8504,6 +8504,20 @@ fn insert_icon_places_a_picture_of_the_requested_size_that_saves_and_recolours()
     assert!(s.run("picture.iconColor", &json!({})).is_err());
 }
 
+/// `insert.icon`'s `alt` describes the picture in place of the library's English name (the icon
+/// dialog sends the name the interface shows, Hebrew in the Hebrew one); with a blank one the
+/// picture keeps the English name, as without one.
+#[test]
+fn insert_icon_takes_its_alternative_text() {
+    let alt = |params: serde_json::Value| {
+        let mut s = s();
+        run(&mut s, "insert.icon", params);
+        crate::cmd::objects::selected(&s).map(|(_, o)| o.alt_text().to_string())
+    };
+    assert_eq!(alt(json!({"id": "heart", "alt": "לב"})).as_deref(), Some("לב"));
+    assert_eq!(alt(json!({"id": "heart", "alt": " "})).as_deref(), Some("Heart"));
+}
+
 /// Print Markup (#589): `file.printMarkup` or a command's `markup` puts the comments into PDFs
 /// (balloons beside the scaled page) and at the end of HTML, Markdown and text copies.
 #[test]
@@ -13722,6 +13736,24 @@ fn alt_chunks_open_in_place_as_word_brings_them_in() {
         let text = crate::io::open_bytes("chunk.docx", &bytes).unwrap().plain_text(StoryRef::Body);
         assert!(text.starts_with(want) && text.ends_with("End"), "{ext}: {text:?}");
     }
+}
+
+/// A plain-text chunk takes its direction from where it lands, as Word brings it in: one that
+/// starts with Hebrew stays left to right in an English document, and so after a save and a
+/// reopen, though the same text opened as a file reads right to left.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_plain_text_chunk_takes_no_direction_of_its_own() {
+    let hebrew = "\u{05E9}\u{05DC}\u{05D5}\u{05DD} world";
+    let end = r#"<w:p><w:r><w:t>End</w:t></w:r></w:p>"#;
+    let bytes = docx_with_chunk(&format!(r#"<w:altChunk r:id="rIdC"/>{end}"#), "txt", "text/plain", hebrew.as_bytes());
+    let doc = crate::io::open_bytes("chunk.docx", &bytes).unwrap();
+    let first = |doc: &wordcraft_doc::Document| doc.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).map(|p| (p.text.clone(), p.props.bidi));
+    assert_eq!(first(&doc), Some((hebrew.to_string(), None)), "the chunk in an English document");
+    let saved = crate::io::open_bytes("saved.docx", &wordcraft_docx::write(&doc).unwrap()).unwrap();
+    assert_eq!(first(&saved), Some((hebrew.to_string(), None)), "and after a save");
+    let file = crate::io::open_bytes("note.txt", hebrew.as_bytes()).unwrap();
+    assert_eq!(first(&file), Some((hebrew.to_string(), Some(true))), "the text file on its own");
 }
 
 #[cfg(not(target_arch = "wasm32"))]

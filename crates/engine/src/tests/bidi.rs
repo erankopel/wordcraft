@@ -209,6 +209,52 @@ fn arrow_keys_in_mixed_text_visit_each_position() {
     assert_eq!(s.sel.focus.off, t.len(), "ends at the end of the paragraph");
 }
 
+/// The caret's offsets from where it is, pressing `key` until it stops or leaves the paragraph.
+fn walk(s: &mut Session, key: &str) -> Vec<usize> {
+    let mut offs = vec![s.sel.focus.off];
+    for _ in 0..60 {
+        let before = s.sel.focus.clone();
+        run(s, key, json!({}));
+        if s.sel.focus == before || s.sel.focus.path != before.path {
+            break;
+        }
+        offs.push(s.sel.focus.off);
+    }
+    offs
+}
+
+/// HE-14: File › Options › Advanced › Cursor movement. Visual (the default) crosses an English
+/// word in a Hebrew line from its far end; Logical walks every character in the order it was
+/// typed: Left forward and Right back in a right-to-left paragraph, the other way round in a
+/// left-to-right one.
+#[test]
+fn logical_cursor_movement_follows_the_typing_order() {
+    let t = "שלום abc שלום";
+    let order: Vec<usize> = t.char_indices().map(|(i, _)| i).chain([t.len()]).collect();
+    let mut s = session(t, true);
+    let visual = walk(&mut s, "caret.left");
+    assert!(visual.windows(2).any(|w| w[1] < w[0]), "visual movement goes back through abc: {visual:?}");
+    let mut s = session(t, true);
+    let set = run(&mut s, "file.options", json!({"cursorMovement": "logical"}));
+    assert_eq!(set["cursorMovement"], "logical");
+    assert_eq!(walk(&mut s, "caret.left"), order, "Left: forward through every character");
+    assert_eq!(walk(&mut s, "caret.right"), order.iter().rev().copied().collect::<Vec<_>>(), "Right: back the same way");
+    // A left-to-right paragraph with Hebrew in it: Right forward, Left back.
+    let t = "ab שלום cd";
+    let mut s = session(t, false);
+    run(&mut s, "file.options", json!({"cursorMovement": "logical"}));
+    run(&mut s, "caret.docStart", json!({}));
+    let order: Vec<usize> = t.char_indices().map(|(i, _)| i).chain([t.len()]).collect();
+    assert_eq!(walk(&mut s, "caret.right"), order);
+    // A value it doesn't know changes nothing; visual again crosses the Hebrew word from its end.
+    assert!(s.run("file.options", &json!({"cursorMovement": "sideways", "overtype": true})).is_err());
+    assert!(!s.prefs.overtype);
+    run(&mut s, "file.options", json!({"cursorMovement": "visual"}));
+    run(&mut s, "caret.docStart", json!({}));
+    let visual = walk(&mut s, "caret.right");
+    assert!(visual.windows(2).any(|w| w[1] < w[0]), "{visual:?}");
+}
+
 #[test]
 fn word_moves_follow_reading_order() {
     let mut s = session("یک دو سه", true);

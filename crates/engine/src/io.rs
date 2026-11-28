@@ -287,7 +287,8 @@ fn import_chunk(c: &wordcraft_docx::AltChunk) -> Option<Document> {
     } else if ct.contains("html") || matches!(ext.as_str(), "html" | "htm" | "xhtml") {
         html::import_page(&html::decode_as(b, charset), &|_| None)
     } else if ct == "text/plain" || ext == "txt" {
-        txt::import(b)
+        // Text in a document takes its direction from where it lands, not from its letters.
+        txt::import_lines(b)
     } else {
         return None;
     };

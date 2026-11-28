@@ -259,11 +259,15 @@ pub struct ProofOptions {
     /// Mark grammar errors as you type.
     pub grammar: bool,
     pub spelling: wordcraft_proof::Options,
+    /// Review › Language › Detect language automatically: Hebrew letters are checked as Hebrew
+    /// whatever language they are marked with (Word marks Hebrew text Arabic where Hebrew isn't
+    /// set up); off, in the language they are marked with.
+    pub detect_language: bool,
 }
 
 impl Default for ProofOptions {
     fn default() -> Self {
-        ProofOptions { grammar: true, spelling: wordcraft_proof::Options::default() }
+        ProofOptions { grammar: true, spelling: wordcraft_proof::Options::default(), detect_language: true }
     }
 }
 

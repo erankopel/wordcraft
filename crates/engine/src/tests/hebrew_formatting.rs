@@ -145,6 +145,33 @@ fn bold_reads_and_toggles_hebrew_text_by_its_complex_script_bold() {
     assert_eq!((st["bold"].clone(), st["boldCs"].clone(), st["italic"].clone()), (json!(false), json!(false), json!(false)), "{st}");
 }
 
+/// The Font group reads the spaces and punctuation of a selection too, in Latin text as in Hebrew
+/// text: two words made bold one at a time leave the plain ", " between them, so the selection is
+/// not all bold and Bold makes all of it bold; a comma in another size leaves the size box empty.
+#[test]
+fn spaces_and_punctuation_between_formatted_words_count() {
+    let hebrew_words = ("\u{05E9}\u{05DC}\u{05D5}\u{05DD}", "\u{05E2}\u{05D5}\u{05DC}\u{05DD}");
+    for (document, (first, second)) in [(Session::new(Document::new()), ("Hello", "world")), (hebrew_document(&[]), hebrew_words)] {
+        let mut s = document;
+        run(&mut s, "text.insert", json!({"text": format!("{first}, {second}")}));
+        for word in [first, second] {
+            run(&mut s, "select.text", json!({"text": word}));
+            run(&mut s, "format.bold", json!({}));
+            run(&mut s, "format.italic", json!({}));
+        }
+        run(&mut s, "select.all", json!({}));
+        let st = state(&mut s);
+        assert_eq!((st["bold"].clone(), st["italic"].clone()), (json!(false), json!(false)), "{first}: the comma between is plain: {st}");
+        run(&mut s, "format.bold", json!({}));
+        let st = state(&mut s);
+        assert_eq!(st["bold"], json!(true), "{first}: Bold made all of it bold, the comma too: {st}");
+        run(&mut s, "select.text", json!({"text": ","}));
+        run(&mut s, "format.size", json!({"size": 20}));
+        run(&mut s, "select.all", json!({}));
+        assert_eq!(state(&mut s)["size"], Value::Null, "{first}: a bigger comma makes the sizes mixed");
+    }
+}
+
 /// RTL-03: Grow Font 1 Point makes Hebrew text one point bigger from its own (complex-script)
 /// size, and the size box shows that size.
 #[test]

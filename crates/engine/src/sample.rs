@@ -5,6 +5,14 @@ use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, CharProps, NumRef, Rgb, TabAlign, TabLeader, TabStop, TextColor};
 use wordcraft_doc::{Block, Document, ListKind, Paragraph, PartKind, Table, para_block};
 
+/// The community board the samples' last paragraph sends readers to: ArtCraft's site, in
+/// WordCraft's own builds. An edition, built with `WORDCRAFT_DEFAULT_LANGUAGE` (the variable the
+/// interface's `links_to_artcraft` follows), is a modified version, and
+/// `docs/brand/LICENSE-brand.txt` keeps the links to the ArtCraft community for WordCraft's own
+/// builds; an edition has no board of its own to send readers to, so its samples leave the
+/// sentence and its link out rather than link an address that only stands in for one.
+const COMMUNITY_LINK: Option<&str> = if option_env!("WORDCRAFT_DEFAULT_LANGUAGE").is_none() { Some("https://getartcraft.com/") } else { None };
+
 fn para(text: &str) -> Paragraph {
     Paragraph::with_text(text, CharProps::default())
 }
@@ -17,6 +25,17 @@ fn styled(text: &str, style: &str) -> Paragraph {
 fn add(p: &mut Paragraph, text: &str, props: CharProps) {
     let at = p.len();
     let _ = p.insert_text(at, text, &props);
+}
+
+/// A sample's last paragraph: the sentence `questions`, then, where the build has a community
+/// board to send readers to (`link`, [`COMMUNITY_LINK`]), a sentence of `visit`, linked to it, and
+/// `rest`.
+fn questions_paragraph(questions: &str, (visit, rest): (&str, &str), link: Option<&str>) -> Paragraph {
+    let Some(url) = link else { return para(questions) };
+    let mut h = para(&format!("{questions} "));
+    add(&mut h, visit, CharProps { style: Some("Hyperlink".into()), link: Some(url.into()), ..Default::default() });
+    add(&mut h, rest, CharProps::default());
+    h
 }
 
 fn bold() -> CharProps {
@@ -118,14 +137,8 @@ pub fn sample_document() -> Document {
         CharProps::default(),
     );
     b.push(Block::Para(m));
-    let mut h = para("Questions go to the front desk, or to the notice board by the sink. ");
-    add(
-        &mut h,
-        "Visit the community board",
-        CharProps { style: Some("Hyperlink".into()), link: Some("https://getartcraft.com/".into()), ..Default::default() },
-    );
-    add(&mut h, " for events.", CharProps::default());
-    b.push(Block::Para(h));
+    let questions = "Questions go to the front desk, or to the notice board by the sink.";
+    b.push(Block::Para(questions_paragraph(questions, ("Visit the community board", " for events."), COMMUNITY_LINK)));
     d.body = b.into_iter().map(std::sync::Arc::new).collect();
     // Footer: centred page number.
     let mut f = Paragraph::new().styled("Footer");
@@ -329,14 +342,8 @@ fn hebrew_sample_document() -> Document {
         CharProps::default(),
     );
     b.push(Block::Para(m));
-    let mut h = para("שאלות אפשר להפנות לדלפק בכניסה, או ללוח המודעות ליד הכיור. ");
-    add(
-        &mut h,
-        "בקרו בלוח הקהילה",
-        CharProps { style: Some("Hyperlink".into()), link: Some("https://getartcraft.com/".into()), ..Default::default() },
-    );
-    add(&mut h, " כדי לשמוע על אירועים.", CharProps::default());
-    b.push(Block::Para(h));
+    let questions = "שאלות אפשר להפנות לדלפק בכניסה, או ללוח המודעות ליד הכיור.";
+    b.push(Block::Para(questions_paragraph(questions, ("בקרו בלוח הקהילה", " כדי לשמוע על אירועים."), COMMUNITY_LINK)));
     d.body = b.into_iter().map(std::sync::Arc::new).collect();
     let mut f = Paragraph::new().styled("Footer");
     f.props.align = Some(Align::Center);
@@ -437,11 +444,31 @@ mod tests {
 
     #[test]
     fn samples_are_valid() {
-        assert_eq!(sample_document().word_count(), 361);
+        // An edition's sample leaves out the community board's sentence.
+        let left_out = if COMMUNITY_LINK.is_some() { 0 } else { Document::from_text("Visit the community board for events.").word_count() };
+        assert_eq!(sample_document().word_count() + left_out, 361);
         for d in [sample_document(), letter(), resume(), report()] {
             assert!(d.word_count() > 5);
             let l = wordcraft_layout::layout(&d, &mut wordcraft_layout::LayoutCache::new(), &Default::default());
             assert!(!l.pages.is_empty());
+        }
+    }
+
+    /// The samples' last paragraph sends readers to the community board, linked, only where the
+    /// build has one ([`COMMUNITY_LINK`]: WordCraft's own builds); an edition's leaves that
+    /// sentence out, with no link standing in for one.
+    #[test]
+    fn the_community_board_sentence_comes_only_with_its_link() {
+        let links = |p: &Paragraph| p.runs.iter().filter_map(|r| r.props.link.clone()).collect::<Vec<_>>();
+        let visit = ("Visit the board", " for events.");
+        let with = questions_paragraph("Questions go to the desk.", visit, Some("https://getartcraft.com/"));
+        assert_eq!(with.text, "Questions go to the desk. Visit the board for events.");
+        assert_eq!(links(&with), ["https://getartcraft.com/"]);
+        let without = questions_paragraph("Questions go to the desk.", visit, None);
+        assert_eq!((without.text.as_str(), links(&without).len()), ("Questions go to the desk.", 0));
+        for d in [sample_document(), hebrew_sample_document()] {
+            let linked: Vec<String> = d.body.iter().filter_map(|b| b.as_para()).flat_map(links).collect();
+            assert_eq!(linked, COMMUNITY_LINK.map(str::to_string).into_iter().collect::<Vec<_>>(), "the samples link the board or nothing");
         }
     }
 

@@ -209,7 +209,8 @@ impl<'a> Shaped<'a> {
     /// Shape one run of the paragraph.
     fn run(&mut self, cx: &Cx, range: std::ops::Range<usize>, props: &CharProps) {
         let rc = cx.res.char(props);
-        self.runs.push(ProofRun::of(range.clone(), &rc));
+        let detect = self.b.env.proofing.is_none_or(|o| o.detect_language);
+        self.runs.push(ProofRun::of(range.clone(), &rc, detect));
         let Some(text) = cx.p.text.get(range.clone()) else { return };
         if left_out(cx.env.doc, &rc, self.b.env.show_hidden, self.b.env.hide_deleted) {
             self.left_out_run(cx, &rc, &range, text);
@@ -296,12 +297,18 @@ impl<'a> Shaped<'a> {
         let rp = cx.rp;
         let Some(c) = cx.drop_first.filter(|_| start == 0) else { return 0 };
         let Some(first) = text.get(..c.len_utf8()) else { return 0 };
-        let line_h = (rc.size * 1.2).max(1.0);
         let lines = rp.drop_cap as f32;
-        // Capital height is ~0.7 em: the letter's cap spans from line 1's caps to line N's baseline.
+        // Capital height is ~0.7 em: the letter's cap spans from line 1's caps to line N's baseline,
+        // on lines of text at `size`.
+        let spanning = |size: f32| {
+            let line_h = (size * 1.2).max(1.0);
+            // `clamp` would panic here when the text itself is larger than 1000 pt.
+            (((lines - 1.0) * line_h + size * 0.7) / 0.7).min(1000.0).max(size)
+        };
         let mut big = (**rc).clone();
-        // `clamp` would panic here when the text itself is larger than 1000 pt.
-        big.size = (((lines - 1.0) * line_h + rc.size * 0.7) / 0.7).min(1000.0).max(rc.size);
+        // A Hebrew or Arabic letter is drawn at the complex-script size: both grow.
+        big.size = spanning(rc.size);
+        big.size_cs = spanning(rc.size_cs);
         if let Some(f) = &rp.drop_cap_font {
             big.font = f.clone();
             big.font_cs = f.clone();

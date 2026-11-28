@@ -828,6 +828,17 @@ icons	Map Pin	סיכת מפה
 	A free, open-source word processor written from scratch in Rust.\nBased on WordCraft by the ArtCraft team.	מעבד תמלילים חינמי בקוד פתוח, שנכתב מאפס ב-Rust.\nמבוסס על WordCraft של צוות ArtCraft.
 @plural	{n} file selected|{n} files selected	{n} קובץ נבחר|{n} קבצים נבחרו|{n} קבצים נבחרו
 	Hebrew (Israel)	עברית (ישראל)
+	Use Ctrl+Right Shift and Ctrl+Left Shift to set the paragraph direction	שימוש ב-Ctrl+Shift ימני וב-Ctrl+Shift שמאלי לקביעת כיוון הפסקה
+	Turn this off if Ctrl+Shift switches your keyboard layout.	כבו אפשרות זו אם Ctrl+Shift מחליף אצלכם את פריסת המקלדת.
+	Cursor movement:	תנועת הסמן:
+	Logical	לוגית
+	Visual	חזותית
+	The arrow keys move through the text in the order it was typed.	מקשי החצים נעים בטקסט לפי הסדר שבו הוקלד.
+	The arrow keys move the caret left or right on the screen.	מקשי החצים מזיזים את הסמן שמאלה או ימינה על המסך.
+	Latin text font	גופן לטקסט לטיני
+	Asian text font	גופן לטקסט אסייתי
+	Complex script font	גופן לטקסט בכתב מורכב
+	Hebrew letters are checked as Hebrew, whatever language they are marked with.	אותיות עבריות נבדקות כעברית, בלי קשר לשפה שבה הן מסומנות.
 	Style{n}	סגנון {n}
 	Table Style {n}	סגנון טבלה {n}
 	Untitled draft	טיוטה ללא שם
@@ -849,3 +860,9 @@ icons	Map Pin	סיכת מפה
 	The last request ended without an answer, so its token use is not known.	הבקשה האחרונה הסתיימה בלי תשובה, ולכן השימוש שלה באסימונים אינו ידוע.
 	Your agreement could not be saved in WordCraft's settings, so it lasts for this run only: the next run asks for it again.	לא ניתן היה לשמור את האישור שלכם בהגדרות של WordCraft, ולכן הוא תקף להפעלה הזו בלבד: ההפעלה הבאה תבקש אותו שוב.
 	Your withdrawal could not be saved in WordCraft's settings, so a later run may still send requests without asking first. Withdraw your agreement again in that run.	לא ניתן היה לשמור את ביטול האישור בהגדרות של WordCraft, ולכן הפעלה מאוחרת יותר עלולה עדיין לשלוח בקשות בלי לבקש אישור קודם. בטלו את האישור שוב בהפעלה ההיא.
+	Type gershayim and geresh after Hebrew letters	הקלדת גרשיים וגרש אחרי אותיות עבריות
+@msg	nothing on the clipboard can be pasted here (it holds {list})	אין בלוח דבר שאפשר להדביק כאן (יש בו {list})
+address	State	מחוז
+@msg	{count} items highlighted	פריטים מסומנים: {count}
+@msg	nothing on the clipboard can be pasted here (it holds {list} and {n} more)	אין בלוח דבר שאפשר להדביק כאן (יש בו {list} ועוד {n})
+	Page numbers at the right margin	מספרי עמודים מיושרים לשוליים

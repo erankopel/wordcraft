@@ -179,6 +179,137 @@ fn search_options_open_by_themselves_only_onto_a_ticked_box() {
     assert!(!extra.more || boxes.contains(&Some(Toggled::True)), "Search Options opened with no box in the dialog ticked");
 }
 
+/// The Find and Replace dialog alone, over `app`, as `search_options_open_by_themselves_only_onto_a_ticked_box`
+/// draws it (without the app's fonts; its ▸ and ▾ have no glyph in egui's own).
+fn find_dialog_harness(app: WordApp) -> egui_kittest::Harness<'static, WordApp> {
+    let mut h = egui_kittest::Harness::builder()
+        .with_size(vec2(800.0, 600.0))
+        .allow_missing_glyphs()
+        .build_ui_state(|ui, app: &mut WordApp| crate::dialogs::show(app, ui.ctx()), app);
+    h.run_steps(3);
+    h
+}
+
+/// The text of the Find dialog's Find what box.
+fn set_find_what(h: &mut egui_kittest::Harness<'static, WordApp>, text: &str) {
+    if let Some(Dialog::Find { query, .. }) = &mut h.state_mut().dialog {
+        *query = text.to_string();
+    }
+    h.run_steps(1);
+}
+
+/// HE-08: Search Options' Match diacritics is what the dialog's searches send. After a script's
+/// search turned it on, the dialog opens with the box ticked and a Hebrew word typed without its
+/// points doesn't find the pointed word; with the box cleared, Find Next finds it, and later
+/// searches keep it off.
+#[test]
+fn the_find_dialog_sends_match_diacritics() {
+    use egui_kittest::kittest::Queryable;
+    let pointed = "\u{05E9}\u{05C1}\u{05B8}\u{05DC}\u{05D5}\u{05B9}\u{05DD}";
+    let mut app = app_with(&format!("Lanterns {pointed}"));
+    app.execute("edit.find", json!({"text": "Lanterns", "matchDiacritics": true})).unwrap();
+    app.run("ui.dialog", json!({"name": "find"})).unwrap();
+    let mut h = find_dialog_harness(app);
+    set_find_what(&mut h, "\u{05E9}\u{05DC}\u{05D5}\u{05DD}");
+    h.get_by_label("Find Next").click();
+    h.run_steps(2);
+    assert_ne!(h.state().session.selected_text(), pointed, "with Match diacritics the points have to match");
+    h.get_by_label("Match diacritics").click();
+    h.run_steps(2);
+    h.get_by_label("Find Next").click();
+    h.run_steps(2);
+    assert_eq!(h.state().session.selected_text(), pointed, "without it the word is found as typed");
+    assert!(!h.state().session.find.match_diacritics, "and the searches after it leave the points out too");
+}
+
+/// The Find dialog's results and the engine's refusals show in the interface language, and the
+/// state keeps them in English, which scripts read: the match count by its `@msg` template,
+/// `no matches` by the catalog's row for the engine's message.
+#[test]
+fn the_find_dialogs_results_read_in_the_interface_language() {
+    use egui_kittest::kittest::Queryable;
+    // The language is thread-local: put English back even when an assertion fails.
+    struct English;
+    impl Drop for English {
+        fn drop(&mut self) {
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        }
+    }
+    let _english = English;
+    // The catalog has the count as a plain row too, as the edition's supplement does.
+    let rows = "\tMatch {index} of {count}\t\u{05D4}\u{05EA}\u{05D0}\u{05DE}\u{05D4} {index} \u{05DE}\u{05EA}\u{05D5}\u{05DA} {count}\n@msg\tMatch {index} of {count}\t\u{05D4}\u{05EA}\u{05D0}\u{05DE}\u{05D4} {index} \u{05DE}\u{05EA}\u{05D5}\u{05DA} {count}\n\tno matches\t\u{05DC}\u{05D0} \u{05E0}\u{05DE}\u{05E6}\u{05D0}\u{05D5} \u{05D4}\u{05EA}\u{05D0}\u{05DE}\u{05D5}\u{05EA}\n";
+    crate::i18n::set_current(crate::i18n::fixture_lang("he", rows));
+    let mut app = app_with("Lanterns and lanterns");
+    app.run("ui.dialog", json!({"name": "find"})).unwrap();
+    let mut h = find_dialog_harness(app);
+    set_find_what(&mut h, "lanterns");
+    h.get_by_label("Find Next").click();
+    h.run_steps(2);
+    // "of" (\u{05DE}\u{05EA}\u{05D5}\u{05DA}) between the match and the count.
+    assert!(h.query_by_label_contains("\u{05DE}\u{05EA}\u{05D5}\u{05DA}").is_some(), "the count reads in the interface language");
+    let Some(Dialog::Find { message, .. }) = &h.state().dialog else { panic!("the dialog stays open") };
+    assert!(message.contains(" of ") && message.is_ascii(), "the dialog keeps the count in English, which scripts read: {message}");
+    set_find_what(&mut h, "zebra");
+    h.get_by_label("Find Next").click();
+    h.run_steps(2);
+    let Some(Dialog::Find { message, .. }) = &h.state().dialog else { panic!("the dialog stays open") };
+    assert!(!message.is_empty() && message.is_ascii(), "the dialog keeps the engine's English, which scripts read");
+    assert!(
+        h.query_by_label_contains("\u{05DC}\u{05D0} \u{05E0}\u{05DE}\u{05E6}\u{05D0}\u{05D5}").is_some(),
+        "and shows it in the interface language"
+    );
+}
+
+/// UW-19: Search's results are menu rows, mirrored in a right-to-left interface: a command's
+/// name at the right end of its row and its shortcut at the left (the other way round left to
+/// right), and a screen reader hears the name first either way.
+#[test]
+fn search_results_read_from_the_side_reading_starts_from() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    // The language is thread-local: put English back even when an assertion fails.
+    struct English;
+    impl Drop for English {
+        fn drop(&mut self) {
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        }
+    }
+    let _english = English;
+    let places = |lang: crate::i18n::Lang| -> (f32, f32, bool) {
+        crate::i18n::set_current(lang);
+        let app = app_with("");
+        let shortcut = crate::widgets::shortcut_text(&app, "format.bold");
+        assert!(!shortcut.is_empty(), "Bold has a shortcut");
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(600.0, 500.0)).allow_missing_glyphs().build_ui_state(
+            |ui, app: &mut WordApp| {
+                crate::rtl::root(ui, |ui| crate::dialogs::search_results(app, ui, "bold", false, 380.0));
+            },
+            app,
+        );
+        h.run_steps(2);
+        let texts: Vec<(String, egui::Pos2)> = h
+            .output()
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos)),
+                _ => None,
+            })
+            .collect();
+        let key = texts.iter().find(|(t, _)| *t == shortcut).map(|(_, p)| *p).expect("Bold's shortcut is drawn");
+        // Bold's own row: the name drawn on the shortcut's line.
+        let name = texts.iter().find(|(t, p)| t.starts_with("Bold ") && (p.y - key.y).abs() < 2.0).map(|(_, p)| *p).expect("Bold's row");
+        let named_first = h
+            .query_all_by_role(egui::accesskit::Role::Button)
+            .any(|n| n.accesskit_node().label().is_some_and(|l| l.starts_with("Bold ") && l.ends_with(shortcut.as_str())));
+        (name.x, key.x, named_first)
+    };
+    let (name, key, named_first) = places(crate::i18n::Lang::EN);
+    assert!(name < key && named_first, "left to right: the name at {name}, the shortcut at {key}");
+    let (name, key, named_first) = places(crate::i18n::fixture_lang("he", "\tHome\t\u{05D1}\u{05D9}\u{05EA}\n"));
+    assert!(name > key, "right to left: the name at {name}, the shortcut at {key}");
+    assert!(named_first, "the row is named by the command, then its shortcut");
+}
+
 /// #4327: View › Macros opens a dialog that runs, deletes and records macros; the command with
 /// a name to run or delete (what scripts send) still acts without one.
 #[test]

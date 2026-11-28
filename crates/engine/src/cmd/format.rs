@@ -342,13 +342,19 @@ fn toggle_scripts(s: &mut Session, v: &Value, get: fn(&ResolvedChar, bool) -> bo
 /// left. So a caret in Hebrew text, or in an empty paragraph of a Hebrew document, is in Hebrew
 /// text, as the status bar shows it.
 pub(crate) fn context_is_complex(s: &Session, at: &Pos, rc: &ResolvedChar) -> bool {
-    let Some(p) = s.doc.para_at(at) else { return rc.rtl || rc.cs };
-    let off = at.off.min(p.text.len());
+    complex_in(&s.doc, s.doc.para_at(at), at.off, rc)
+}
+
+/// [`context_is_complex`] for the text at byte `off` of `p`, a paragraph of `doc` or a copy of one
+/// (a merged letter's); with no paragraph, as `rc` alone says.
+pub(crate) fn complex_in(doc: &wordcraft_doc::Document, p: Option<&wordcraft_doc::Paragraph>, off: usize, rc: &ResolvedChar) -> bool {
+    let Some(p) = p else { return rc.rtl || rc.cs };
+    let off = off.min(p.text.len());
     let before = p.text.get(..off).and_then(|t| t.chars().rev().find(|ch| ch.is_alphabetic()));
     let nearest = before.or_else(|| p.text.get(off..).and_then(|t| t.chars().find(|ch| ch.is_alphabetic())));
     match nearest {
         Some(ch) => rc.uses_complex(ch),
-        None => rc.rtl || rc.cs || s.doc.styles.resolve_para(&p.props).bidi,
+        None => rc.rtl || rc.cs || doc.styles.resolve_para(&p.props).bidi,
     }
 }
 
@@ -356,15 +362,13 @@ pub(crate) fn context_is_complex(s: &Session, at: &Pos, rc: &ResolvedChar) -> bo
 /// the selection (or the word around a caret, or a selected text box's text: what [`resolved`]
 /// reads), with `true` for its complex-script text (Hebrew or Arabic letters, any character of a
 /// right-to-left run), drawn with the complex-script font, size, bold and italic, and `false` for
-/// its other letters and digits. A run with both counts twice. Runs of spaces and punctuation
-/// alone read as the text around them does ([`context_is_complex`]), and so does a caret, with the
-/// formatting typing would use. Never empty.
+/// its other letters and digits. A run with both counts twice. A run of spaces, punctuation or
+/// objects alone counts too, read as the text around it is ([`context_is_complex`]), so the plain
+/// comma between two bold words leaves Bold off; so does a caret, with the formatting typing would
+/// use. Never empty.
 fn font_samples(s: &Session) -> Vec<(ResolvedChar, bool)> {
     let ranges = column_rows(s).or_else(|| selected_text_box(s).or_else(|| target(s)).map(|r| vec![r])).unwrap_or_default();
-    let at = ranges.first().map_or_else(|| s.sel.ordered().0, |(a, _)| a.clone());
     let mut out = Vec::new();
-    // Runs with neither kind of character in the selection: spaces, punctuation, objects.
-    let mut neutral = Vec::new();
     'walk: for (a, b) in &ranges {
         for path in s.doc.paths_between(a, b) {
             let Some(p) = s.doc.para(a.story, &path) else { continue };
@@ -375,13 +379,17 @@ fn font_samples(s: &Session) -> Vec<(ResolvedChar, bool)> {
                     continue;
                 }
                 let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), c);
-                let text = p.text.get(r.start.max(from)..r.end.min(to)).unwrap_or("");
+                let start = r.start.max(from);
+                let text = p.text.get(start..r.end.min(to)).unwrap_or("");
                 let (mut complex, mut other) = (false, false);
                 for ch in text.chars().filter(|ch| ch.is_alphanumeric()) {
                     if rc.uses_complex(ch) { complex = true } else { other = true }
                 }
                 match (other, complex) {
-                    (false, false) => neutral.push(rc),
+                    (false, false) => {
+                        let complex = context_is_complex(s, &Pos::new(a.story, path.clone(), start), &rc);
+                        out.push((rc, complex));
+                    }
                     (true, false) => out.push((rc, false)),
                     (false, true) => out.push((rc, true)),
                     (true, true) => {
@@ -390,17 +398,17 @@ fn font_samples(s: &Session) -> Vec<(ResolvedChar, bool)> {
                     }
                 }
                 // As `resolved` samples the runs: enough to tell.
-                if out.len() + neutral.len() > 10_000 {
+                if out.len() > 10_000 {
                     break 'walk;
                 }
             }
         }
     }
     if out.is_empty() {
-        // Nothing but spaces and punctuation, or a caret (the formatting typing would use, or an
-        // empty selected text box's or cell's paragraph mark).
-        let found = if neutral.is_empty() { resolved(s) } else { neutral };
-        out = found
+        // A caret: the formatting typing would use (or an empty selected text box's or cell's
+        // paragraph mark).
+        let at = ranges.first().map_or_else(|| s.sel.ordered().0, |(a, _)| a.clone());
+        out = resolved(s)
             .into_iter()
             .map(|rc| {
                 let complex = context_is_complex(s, &at, &rc);

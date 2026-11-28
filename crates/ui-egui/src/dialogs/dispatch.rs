@@ -79,7 +79,7 @@ fn rename_document_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> boo
         *focus = false;
     }
     if !message.is_empty() {
-        ui.colored_label(ui.visuals().error_fg_color, message.as_str());
+        ui.colored_label(ui.visuals().error_fg_color, crate::i18n::message(message));
     }
     let (ok, cancel) = buttons(ui, tl!("Rename"));
     if cancel {
@@ -95,6 +95,21 @@ fn rename_document_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> boo
         }
     }
     false
+}
+
+/// The font box of one script's row of the Font dialog (Latin text, Asian text, complex script),
+/// named for a screen reader by the row's label, `name`, so the boxes side by side are told apart;
+/// [`font_box`] is the lone box of a dialog with one font row, named "Font" as its label is.
+fn script_font_box(
+    ui: &mut Ui,
+    name: &str,
+    (id, current): (&str, &str),
+    items: &[String],
+    preview: &dyn Fn(&mut Ui, &str) -> egui::Response,
+    shown_as: Option<&str>,
+) -> Option<String> {
+    let options = crate::widgets::FontComboOptions { id, width: 220.0, current, items, recent: &[], preview: Some(preview), tip: name, shown_as };
+    crate::widgets::font_combo_with_recent_hint(ui, options)
 }
 
 fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
@@ -145,7 +160,9 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         let stored = app.previews.font_stored(font_ea);
                         let latin = app.previews.font_stored(font);
                         let warning = app.east_asian_font_box_warning(&stored, &latin);
-                        if let Some(f) = font_box(ui, ("fontdlg_asian", font_ea.as_str()), &fams, &*prev, warning.as_deref()) {
+                        if let Some(f) =
+                            script_font_box(ui, tl!("Asian text font"), ("fontdlg_asian", font_ea.as_str()), &fams, &*prev, warning.as_deref())
+                        {
                             if f == crate::widgets::ADD_FONT {
                                 let _ = app.run("font.add", json!({}));
                             } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
@@ -163,7 +180,12 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     let fams = app.previews.families();
                     let stored = app.previews.font_stored(font);
                     let warning = app.font_dialog_warning(&stored);
-                    if let Some(f) = font_box(ui, ("fontdlg_font", font.as_str()), &fams, &*prev, warning.as_deref()) {
+                    let picked = if *asian || *complex {
+                        script_font_box(ui, tl!("Latin text font"), ("fontdlg_font", font.as_str()), &fams, &*prev, warning.as_deref())
+                    } else {
+                        font_box(ui, ("fontdlg_font", font.as_str()), &fams, &*prev, warning.as_deref())
+                    };
+                    if let Some(f) = picked {
                         if f == crate::widgets::ADD_FONT {
                             let _ = app.run("font.add", json!({}));
                         } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
@@ -187,7 +209,9 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         let fams = app.previews.families();
                         let stored = app.previews.font_stored(font_cs);
                         let warning = app.font_dialog_warning(&stored);
-                        if let Some(f) = font_box(ui, ("fontdlg_cs", font_cs.as_str()), &fams, &*prev, warning.as_deref()) {
+                        if let Some(f) =
+                            script_font_box(ui, tl!("Complex script font"), ("fontdlg_cs", font_cs.as_str()), &fams, &*prev, warning.as_deref())
+                        {
                             if f == crate::widgets::ADD_FONT {
                                 let _ = app.run("font.add", json!({}));
                             } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
@@ -204,10 +228,10 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 });
             }
             t.row(|r| {
-                r.cell(|ui| ui.label(tl!("Font color:")));
+                let color_label = r.cell(|ui| ui.label(tl!("Font color:")));
                 r.cell(|ui| {
                     let theme = app.session.doc.settings.theme_colors.clone();
-                    color_field(ui, &theme, color, "Automatic", "auto");
+                    color_field(ui, &theme, color, "Automatic", "auto", Some(color_label.id));
                 });
             });
             t.row(|r| {
@@ -437,7 +461,9 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     let replace_mode = *tab == FindTab::Replace;
     ui.horizontal(|ui| {
         let find_label = ui.label(tl!("Find what:"));
-        let r = ui.add(egui::TextEdit::singleline(query).id(egui::Id::unique("find_what")).desired_width(240.0)).labelled_by(find_label.id);
+        // Typed from the side reading starts from, as the interface's other fields.
+        let field = egui::TextEdit::singleline(query).id(egui::Id::unique("find_what")).desired_width(240.0).align(crate::rtl::field_align());
+        let r = ui.add(field).labelled_by(find_label.id);
         if std::mem::take(focus) {
             r.request_focus();
         }
@@ -448,7 +474,8 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     if replace_mode {
         ui.horizontal(|ui| {
             let replace_label = ui.label(tl!("Replace with:"));
-            if ui.add(egui::TextEdit::singleline(replace).desired_width(228.0)).labelled_by(replace_label.id).gained_focus() {
+            let field = egui::TextEdit::singleline(replace).desired_width(228.0).align(crate::rtl::field_align());
+            if ui.add(field).labelled_by(replace_label.id).gained_focus() {
                 extra.to_replace = true;
             }
         });
@@ -475,6 +502,9 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.add_enabled_ui(plain, |ui| ui.checkbox(&mut extra.ignore_punct, tl!("Ignore punctuation characters")));
             ui.add_enabled_ui(plain, |ui| ui.checkbox(&mut extra.ignore_space, tl!("Ignore white-space characters")));
         });
+        // Off, Hebrew points and cantillation marks don't count (שלום finds שָׁלוֹם), as in Word.
+        // A regular expression is matched as written, so it has no effect there either.
+        ui.add_enabled_ui(plain && !*regex, |ui| ui.checkbox(&mut extra.diacritics, tl!("Match diacritics")));
         ui.horizontal(|ui| {
             ui.checkbox(regex, tl!("Regular expressions"));
             if let Some(code) = special_menu(ui, extra) {
@@ -493,6 +523,7 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         "matchSuffix": extra.suffix,
         "ignorePunct": extra.ignore_punct,
         "ignoreSpace": extra.ignore_space,
+        "matchDiacritics": extra.diacritics,
     });
     if !replace_mode {
         ui.horizontal(|ui| {
@@ -501,15 +532,18 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 let mut v = opts.clone();
                 v["highlight"] = json!(!lit);
                 match app.run("edit.advancedFind", v) {
-                    Ok(r) if !lit => *message = crate::i18n::fmt(tl!("{count} items highlighted"), &[("count", &r["count"].to_string())]),
+                    Ok(r) if !lit => *message = format!("{} items highlighted", r["count"]),
                     Ok(_) => message.clear(),
                     Err(e) => *message = e,
                 }
             }
         });
     }
+    // The dialog's results (the match count, Replace All's count) and the engine's errors are
+    // kept in English, which scripts read (`ui.inspect`); the dialog shows them in the interface
+    // language, by their rows or `@msg` templates.
     if !message.is_empty() {
-        ui.label(egui::RichText::new(message.as_str()).weak());
+        ui.label(egui::RichText::new(crate::i18n::message(message)).weak());
     }
     let mut close = false;
     ui.horizontal(|ui| {
@@ -527,7 +561,10 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         if ui.button(tl!("Find Next")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             // One step per click: `edit.find` would select a match itself, and the step after it skip one.
             match app.run("edit.findNext", opts.clone()) {
-                Ok(r) => *message = format!("Match {} of {}", r["index"].as_u64().unwrap_or(0) + 1, r["count"]),
+                Ok(r) => {
+                    let index = r["index"].as_u64().unwrap_or(0).saturating_add(1);
+                    *message = format!("Match {index} of {}", r["count"]);
+                }
                 Err(e) => *message = e,
             }
         }
@@ -713,7 +750,7 @@ fn page_setup_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.radio_value(rtl, true, tl!("Right-to-left"));
         });
         if !message.is_empty() {
-            ui.label(egui::RichText::new(message.as_str()).small().color(ui.visuals().error_fg_color));
+            ui.label(egui::RichText::new(crate::i18n::message(message)).small().color(ui.visuals().error_fg_color));
         }
         page_valign_combo(ui, valign);
     });
@@ -1012,14 +1049,34 @@ fn new_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     let Dialog::NewStyle { name, based_on, back } = d else {
         return false;
     };
+    // The paragraph styles to base it on, by the names the interface shows (a built-in style's
+    // in the interface language), in that order; `styles.create` takes the style's id.
+    let mut styles: Vec<(String, String)> = app
+        .session
+        .doc
+        .styles
+        .styles
+        .iter()
+        .filter(|st| st.kind == wordcraft_doc::StyleKind::Paragraph)
+        .map(|st| (st.id.clone(), crate::i18n::style_name(st)))
+        .collect();
+    styles.sort_by_cached_key(|(_, shown)| crate::i18n::lowercase(shown));
     crate::rtl::Table::new("ns").columns(2).show(ui, |t| {
         t.row(|r| {
-            r.cell(|ui| ui.label(tl!("Name:")));
-            r.cell(|ui| ui.text_edit_singleline(name));
+            let name_label = r.cell(|ui| ui.label(tl!("Name:")));
+            r.cell(|ui| ui.text_edit_singleline(name).labelled_by(name_label.id));
         });
         t.row(|r| {
-            r.cell(|ui| ui.label(tl!("Style based on:")));
-            r.cell(|ui| ui.text_edit_singleline(based_on));
+            let based_label = r.cell(|ui| ui.label(tl!("Style based on:")));
+            r.cell(|ui| {
+                let shown = styles.iter().find(|(id, _)| id == based_on).map_or_else(|| based_on.clone(), |(_, shown)| shown.clone());
+                let combo = craft_ui::ComboBox::from_id_salt("ns_based_on").selected_text(shown).width(220.0).show_ui(ui, |ui| {
+                    for (id, shown) in &styles {
+                        ui.selectable_value(based_on, id.clone(), shown.as_str());
+                    }
+                });
+                combo.response.labelled_by(based_label.id);
+            });
         });
     });
     ui.label(egui::RichText::new(tl!("The new style takes the formatting of the current paragraph.")).small().weak());
@@ -1035,26 +1092,28 @@ fn new_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
 }
 
 fn modify_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
-    let Dialog::ModifyStyle { back, resume, id, name, font, size, bold, italic, color, before, after } = d else {
+    let Dialog::ModifyStyle { back, resume, id, name, font, size, font_cs, size_cs, complex, bold, italic, color, before, after } = d else {
         return false;
     };
+    let fams = app.previews.families();
+    let prev = app.previews.font_preview_fn();
     crate::rtl::Table::new("ms").columns(2).show(ui, |t| {
         t.row(|r| {
             let name_label = r.cell(|ui| ui.label(tl!("Name:")));
             r.cell(|ui| ui.text_edit_singleline(name).labelled_by(name_label.id));
         });
         t.row(|r| {
-            r.cell(|ui| ui.label(tl!("Font:")));
+            r.cell(|ui| ui.label(if *complex { tl!("Latin text font:") } else { tl!("Font:") }));
             r.cell(|ui| {
                 let shown = app.previews.font_shown(font);
-                let fams = app.previews.families();
-                let prev = app.previews.font_preview_fn();
-                if let Some(f) = crate::widgets::font_combo(ui, "ms_font", 220.0, &shown, &fams, Some(&*prev)) {
-                    if f == crate::widgets::ADD_FONT {
-                        let _ = app.run("font.add", json!({}));
-                    } else {
-                        *font = app.previews.font_stored(&f);
-                    }
+                let picked = if *complex {
+                    let warning = app.font_dialog_warning(font);
+                    script_font_box(ui, tl!("Latin text font"), ("ms_font", shown.as_str()), &fams, &*prev, warning.as_deref())
+                } else {
+                    crate::widgets::font_combo(ui, "ms_font", 220.0, &shown, &fams, Some(&*prev))
+                };
+                if let Some(f) = picked {
+                    pick_style_font(app, font, &f);
                 }
             });
         });
@@ -1062,9 +1121,33 @@ fn modify_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let size_label = r.cell(|ui| ui.label(tl!("Size:")));
             r.cell(|ui| ui.add(egui::DragValue::new(size).range(1.0..=1638.0).speed(0.5)).labelled_by(size_label.id));
         });
+        // The complex script font and size: Hebrew, Arabic… text's own, which the Latin text font
+        // and size above leave alone (David in a Hebrew document).
+        if *complex {
+            t.row(|r| {
+                r.cell(|ui| ui.label(tl!("Complex script font:")));
+                r.cell(|ui| {
+                    let shown = app.previews.font_shown(font_cs);
+                    let warning = app.font_dialog_warning(font_cs);
+                    if let Some(f) =
+                        script_font_box(ui, tl!("Complex script font"), ("ms_font_cs", shown.as_str()), &fams, &*prev, warning.as_deref())
+                    {
+                        pick_style_font(app, font_cs, &f);
+                    }
+                });
+            });
+            t.row(|r| {
+                let size_label = r.cell(|ui| ui.label(tl!("Complex script size:")));
+                r.cell(|ui| ui.add(egui::DragValue::new(size_cs).range(1.0..=1638.0).speed(0.5)).labelled_by(size_label.id));
+            });
+        }
         t.row(|r| {
             let color_label = r.cell(|ui| ui.label(tl!("Color:")));
-            r.cell(|ui| ui.text_edit_singleline(color).labelled_by(color_label.id));
+            // Automatic by name, a colour by its swatch and hex value, as in the Font dialog.
+            r.cell(|ui| {
+                let theme = app.session.doc.settings.theme_colors.clone();
+                color_field(ui, &theme, color, "Automatic", "auto", Some(color_label.id));
+            });
         });
         t.row(|r| {
             r.cell(|ui| ui.label(tl!("Space before/after:")));
@@ -1098,8 +1181,29 @@ fn modify_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         if was.as_ref().map(|rc| rc.italic) != Some(*italic) {
             chr["italic"] = json!(*italic);
         }
+        // With the complex script rows, each script's font and size are the ones shown for it. A
+        // complex script value is sent when it was changed, or to keep it when a new Latin text
+        // font or size would otherwise reach it: `styles.modify` gives complex-script text a new
+        // font in a style used for right-to-left text, and a new size there or where the style
+        // has no complex script size of its own. Otherwise none is sent, so the style doesn't
+        // take on, as its own, values it only inherits (an English document in the Hebrew
+        // interface keeps its styles' `w:rFonts/@w:cs` and `w:szCs` as they were).
+        if *complex && let Some(rc) = &was {
+            let rtl = wordcraft_engine::cmd::para::style_used_for_rtl(&app.session.doc, id);
+            let differs = |a: f32, b: f32| (a - b).abs() > 0.01;
+            if !font_cs.trim().is_empty() && (*font_cs != rc.font_cs || (rtl && *font != rc.font)) {
+                chr["fontCs"] = json!(font_cs.trim());
+            }
+            let size_reaches_cs = rtl || !differs(rc.size, rc.size_cs);
+            if differs(*size_cs, rc.size_cs) || (size_reaches_cs && differs(*size, rc.size)) {
+                chr["sizeCs"] = json!(*size_cs);
+            }
+        }
         if let Some(c) = wordcraft_doc::Rgb::parse(color) {
             chr["color"] = json!({"Rgb": [c.0, c.1, c.2]});
+        } else if color.eq_ignore_ascii_case("auto") && was.as_ref().is_some_and(|rc| rc.color != wordcraft_doc::TextColor::Auto) {
+            // Automatic, picked in the colour's drop-down.
+            chr["color"] = json!("Auto");
         }
         let _ = app.run("styles.modify", json!({"style": id, "name": name, "chr": chr, "para": {"spaceBefore": *before, "spaceAfter": *after}}));
     }
@@ -1112,6 +1216,18 @@ fn modify_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         app.dialog = Some(*r);
     }
     ok || cancel
+}
+
+/// A font picked in one of Modify Style's font boxes: Add Font… and Load System Installed Fonts…
+/// do what they say; a family is kept by its stored (English) name.
+fn pick_style_font(app: &mut WordApp, font: &mut String, picked: &str) {
+    if picked == crate::widgets::ADD_FONT {
+        let _ = app.run("font.add", json!({}));
+    } else if picked == crate::widgets::LOAD_SYSTEM_FONTS {
+        let _ = app.run("font.loadSystem", json!({}));
+    } else {
+        *font = app.previews.font_stored(picked);
+    }
 }
 
 fn table_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
@@ -1156,7 +1272,7 @@ pub(crate) fn search_results(app: &mut WordApp, ui: &mut Ui, query: &str, enter:
     for c in &hits {
         let sc = crate::widgets::shortcut_text(app, c.id);
         let label = format!("{}   —   {}", tl!(c.label), crate::i18n::location(c.location));
-        if ui.add(egui::Button::new(label).shortcut_text(sc).min_size(vec2(width, 0.0))).clicked() {
+        if search_row(ui, &label, &sc, width).clicked() {
             run = Some(c.id);
         }
     }
@@ -1166,7 +1282,7 @@ pub(crate) fn search_results(app: &mut WordApp, ui: &mut Ui, query: &str, enter:
     if !text.is_empty() {
         ui.separator();
         let label = crate::i18n::fmt(tl!("Find “{text}” in the document"), &[("text", &text)]);
-        find = ui.add(egui::Button::new(label).min_size(vec2(width, 0.0))).clicked() || (enter && hits.is_empty());
+        find = search_row(ui, &label, "", width).clicked() || (enter && hits.is_empty());
     }
     if let Some(id) = run {
         if id == "view.paperColor" {
@@ -1183,16 +1299,29 @@ pub(crate) fn search_results(app: &mut WordApp, ui: &mut Ui, query: &str, enter:
     run.is_some() || find
 }
 
+/// One of Search's results: a menu row with `label` at the side reading starts from and its
+/// `shortcut` at the far side, so a right-to-left interface mirrors it. A screen reader reads the
+/// label first, as the row reads, then the shortcut.
+fn search_row(ui: &mut Ui, label: &str, shortcut: &str, width: f32) -> egui::Response {
+    let row = ui.add(crate::rtl::menu_item(ui, label, shortcut, width));
+    let name = if shortcut.is_empty() { label.to_string() } else { format!("{label} {shortcut}") };
+    let enabled = ui.is_enabled();
+    row.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &name));
+    row
+}
+
 fn paste_special_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     let Dialog::PasteSpecial { formats, choice, payload, note } = d else {
         return false;
     };
     ui.label(egui::RichText::new(tl!("Paste as:")).font(semibold(12.5)));
     if formats.is_empty() {
-        // The engine's wording, sentence-cased; the format names in it aren't translated.
+        // Why nothing can be pasted, in the interface language where the catalog knows it,
+        // sentence-cased; the format names in it aren't translated.
         let text = if note.is_empty() || note == "the clipboard is empty" {
             tl!("The clipboard is empty.").to_string()
         } else {
+            let note = crate::i18n::message(note);
             let mut c = note.chars();
             c.next().map(|f| f.to_uppercase().chain(c).collect::<String>() + ".").unwrap_or_default()
         };
@@ -1283,7 +1412,7 @@ fn save_changes_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     // Why the last Save failed (#1445): the prompt came back so the user can't miss it.
     if !message.is_empty() {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(message.as_str()).color(ui.visuals().error_fg_color));
+        ui.label(egui::RichText::new(crate::i18n::message(message)).color(ui.visuals().error_fg_color));
     }
     ui.add_space(8.0);
     let buttons = ui.horizontal(|ui| {
@@ -1367,7 +1496,7 @@ fn password_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
     });
     if !message.is_empty() {
-        ui.label(egui::RichText::new(message.as_str()).small().color(ui.visuals().error_fg_color));
+        ui.label(egui::RichText::new(crate::i18n::message(message)).small().color(ui.visuals().error_fg_color));
     }
     let (ok, cancel) = buttons(ui, tl!("OK"));
     if ok && !password.is_empty() {
@@ -1421,7 +1550,7 @@ fn encrypt_password_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bo
         .weak(),
     );
     if !message.is_empty() {
-        ui.label(egui::RichText::new(message.as_str()).small().color(ui.visuals().error_fg_color));
+        ui.label(egui::RichText::new(crate::i18n::message(message)).small().color(ui.visuals().error_fg_color));
     }
     let (ok, cancel) = buttons(ui, tl!("OK"));
     if ok {
@@ -1457,7 +1586,7 @@ fn field_code_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     }
     ui.label(egui::RichText::new("PAGE · NUMPAGES · DATE \\@ \"MMMM d, yyyy\" · AUTHOR · TITLE · SEQ Figure").small().weak());
     if !message.is_empty() {
-        ui.label(egui::RichText::new(message.as_str()).small().weak());
+        ui.label(egui::RichText::new(crate::i18n::message(message)).small().weak());
     }
     let (ok, cancel) = buttons(ui, tl!("OK"));
     if ok && !code.trim().is_empty() {
@@ -1492,7 +1621,7 @@ fn select_table_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     });
     ui.checkbox(headers, tl!("First row of data contains column headers"));
     if !message.is_empty() {
-        ui.label(egui::RichText::new(message.as_str()).color(Tokens::get(ui.ctx()).red));
+        ui.label(egui::RichText::new(crate::i18n::message(message)).color(Tokens::get(ui.ctx()).red));
     }
     let (ok, cancel) = buttons(ui, tl!("OK"));
     if ok || picked {
@@ -1518,7 +1647,7 @@ fn find_recipient_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool
         ui.text_edit_singleline(text);
     });
     if !message.is_empty() {
-        ui.label(egui::RichText::new(message.as_str()).small().weak());
+        ui.label(egui::RichText::new(crate::i18n::message(message)).small().weak());
     }
     let (ok, cancel) = buttons(ui, tl!("Find"));
     if ok && !text.trim().is_empty() {
@@ -1548,7 +1677,7 @@ fn merge_records_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool 
         }
     });
     if !message.is_empty() {
-        ui.label(egui::RichText::new(message.as_str()).small().weak());
+        ui.label(egui::RichText::new(crate::i18n::message(message)).small().weak());
     }
     let (ok, cancel) = buttons(ui, tl!(if *print { "Print" } else { "OK" }));
     if ok {
@@ -1636,7 +1765,8 @@ fn match_fields_dialog(ui: &mut Ui, d: &mut Dialog) -> bool {
         crate::rtl::Table::new("match_fields").columns(2).spacing(vec2(24.0, 6.0)).striped(true).show(ui, |t| {
             for (part, key) in ADDRESS_PARTS {
                 t.row(|r| {
-                    r.cell(|ui| ui.label(tl!(part)));
+                    // As an address words it: a state is not the country in every language.
+                    r.cell(|ui| ui.label(crate::i18n::tc("address", part)));
                     r.cell(|ui| match address.get(key).and_then(Value::as_str) {
                         Some(f) => ui.label(egui::RichText::new(f).strong()),
                         None => ui.label(egui::RichText::new(tl!("(not matched)")).weak()),
@@ -1671,4 +1801,187 @@ fn check_errors_dialog(ui: &mut Ui, d: &mut Dialog) -> bool {
     ui.label(egui::RichText::new(crate::i18n::fmt(tl!("Recipients: {count}"), &[("count", &records.to_string())])).weak());
     let (ok, cancel) = buttons(ui, tl!("Close"));
     ok || cancel
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Dialog, WordApp, json, vec2};
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    /// The Font dialog drawn over `text`, selected, in a document that starts right to left
+    /// (`rtl`, as a Hebrew interface makes it) or not; then the number of text boxes named each
+    /// of `names`.
+    fn text_boxes_named(text: &str, rtl: bool, names: &[&str]) -> Vec<usize> {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.session.set_new_documents_rtl(rtl);
+        app.run("text.insert", json!({"text": text})).unwrap();
+        app.run("select.all", json!({})).unwrap();
+        let dialog = Dialog::open("font", &mut app);
+        assert!(dialog.is_some(), "the Font dialog opens");
+        app.dialog = dialog;
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                if fonts {
+                    crate::dialogs::show(app, &ctx);
+                } else {
+                    crate::theme::install_fonts_for(&ctx, false);
+                    fonts = true;
+                }
+            },
+            app,
+        );
+        h.run_steps(3);
+        names.iter().map(|name| h.query_all_by_role_and_label(Role::TextInput, name).count()).collect()
+    }
+
+    /// `app` with its dialog drawn, as `text_boxes_named` draws the Font dialog (the app's fonts
+    /// installed first).
+    fn dialog_harness(app: WordApp) -> egui_kittest::Harness<'static, WordApp> {
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                if fonts {
+                    crate::dialogs::show(app, &ctx);
+                } else {
+                    crate::theme::install_fonts_for(&ctx, false);
+                    fonts = true;
+                }
+            },
+            app,
+        );
+        h.run_steps(3);
+        h
+    }
+
+    /// Normal's Latin text font, complex script font, and their sizes.
+    fn normal_fonts(app: &WordApp) -> (String, String, f32, f32) {
+        let rc = app.session.doc.styles.resolve_char(Some("Normal"), &wordcraft_doc::CharProps::default());
+        (rc.font, rc.font_cs, rc.size, rc.size_cs)
+    }
+
+    /// RTL-07, UWB-04: Modify Style on a style Hebrew text uses shows the style's complex script
+    /// font on a row of its own. OK with a new Latin text font leaves that font as it is (before,
+    /// the Hebrew text took the new Latin font), and the complex script rows set the Hebrew text's
+    /// font and size alone. The automatic colour reads Automatic, not `auto`.
+    #[test]
+    fn modify_style_sets_the_hebrew_font_apart_from_the_latin_one() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.session.set_new_documents_rtl(true);
+        app.run("text.insert", json!({"text": "\u{05E9}\u{05DC}\u{05D5}\u{05DD}"})).unwrap();
+        let before = normal_fonts(&app);
+        let mut d = Dialog::modify_style(&app, "Normal");
+        let Some(Dialog::ModifyStyle { complex, font, font_cs, .. }) = &mut d else { panic!("Modify Style opens") };
+        assert!(*complex, "a style used for Hebrew text shows the complex script rows");
+        assert_eq!((font.as_str(), font_cs.as_str()), (before.0.as_str(), before.1.as_str()), "each row shows its own font");
+        *font = "Georgia".into();
+        app.dialog = d;
+        let mut h = dialog_harness(app);
+        let color = h.get_by_role_and_label(Role::Button, "Color:").accesskit_node().value();
+        assert_eq!(color.as_deref(), Some("Automatic"), "the automatic colour by name");
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        let latin = normal_fonts(h.state());
+        assert_eq!((latin.0.as_str(), latin.1.as_str()), ("Georgia", before.1.as_str()), "the Hebrew font stays");
+        let mut d = Dialog::modify_style(h.state(), "Normal");
+        let Some(Dialog::ModifyStyle { font_cs, size_cs, .. }) = &mut d else { panic!("Modify Style opens again") };
+        (*font_cs, *size_cs) = ("Arial".into(), before.3 + 6.0);
+        h.state_mut().dialog = d;
+        h.run_steps(3);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        let complex = normal_fonts(h.state());
+        assert_eq!((complex.1.as_str(), complex.3), ("Arial", before.3 + 6.0), "the complex script rows reach the Hebrew text");
+        assert_eq!((complex.0.as_str(), complex.2), ("Georgia", latin.2), "and leave the Latin font and size alone");
+    }
+
+    /// Modify Style in a right-to-left interface shows the complex script rows for every style,
+    /// but OK with a new Latin text font gives a style of an English document no complex script
+    /// font or size of its own: the ones shown are only inherited, and `styles.modify` doesn't
+    /// copy a new font to the complex script text of a style no right-to-left text uses (before,
+    /// Normal took the inherited font as its own `w:rFonts/@w:cs`).
+    #[test]
+    fn a_new_latin_font_gives_an_english_style_no_complex_script_values_of_its_own() {
+        // The language is thread-local: put English back even when an assertion fails.
+        struct English;
+        impl Drop for English {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _english = English;
+        crate::i18n::set_current(crate::i18n::fixture_lang("he", "\tStyle\t\u{05E1}\u{05D2}\u{05E0}\u{05D5}\u{05DF}\n"));
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+        assert!(!wordcraft_engine::cmd::para::style_used_for_rtl(&app.session.doc, "Normal"), "an English document");
+        let own = |app: &WordApp| app.session.doc.styles.get("Normal").map(|st| (st.chr.font_cs.clone(), st.chr.size_cs));
+        let before = own(&app);
+        let mut d = Dialog::modify_style(&app, "Normal");
+        let Some(Dialog::ModifyStyle { complex, font, .. }) = &mut d else { panic!("Modify Style opens") };
+        assert!(*complex, "the right-to-left interface shows the complex script rows");
+        *font = "Georgia".into();
+        let mut app = app;
+        app.dialog = d;
+        let mut h = dialog_harness(app);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        assert_eq!(normal_fonts(h.state()).0, "Georgia", "the new Latin text font is set");
+        assert_eq!(own(h.state()), before, "and Normal takes on no complex script font or size");
+    }
+
+    /// AGENTS.md rule 21: a colour drop-down is named by its row's label and tells the colour it
+    /// shows as its value, in the Font dialog and in Modify Style.
+    #[test]
+    fn the_colour_fields_are_named_by_their_rows() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+        app.run("select.all", json!({})).unwrap();
+        app.dialog = Dialog::open("font", &mut app);
+        let h = dialog_harness(app);
+        let color = h.get_by_role_and_label(Role::Button, "Font color:").accesskit_node().value();
+        assert_eq!(color.as_deref(), Some("Automatic"), "Font color: Automatic");
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+        app.run("styles.modify", json!({"style": "Normal", "chr": {"color": {"Rgb": [0x12, 0x34, 0x56]}}})).unwrap();
+        app.dialog = Dialog::modify_style(&app, "Normal");
+        let h = dialog_harness(app);
+        let color = h.get_by_role_and_label(Role::Button, "Color:").accesskit_node().value();
+        assert_eq!(color.as_deref(), Some("123456"), "Color: the hex value");
+    }
+
+    /// UWB-04: New Style's "Style based on" shows a built-in style by its name in the interface
+    /// language (it showed the style's id), and the new style is based on that style.
+    #[test]
+    fn new_style_shows_the_style_it_is_based_on_by_its_shown_name() {
+        // The language is thread-local: put English back even when an assertion fails.
+        struct English;
+        impl Drop for English {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _english = English;
+        crate::i18n::set_current(crate::i18n::fixture_lang("x-fixture", "\tHeading 1\tTitre 1\n"));
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.dialog = Some(Dialog::NewStyle { name: "Mine".into(), based_on: "Heading1".into(), back: false });
+        let mut h = dialog_harness(app);
+        let shown = |h: &egui_kittest::Harness<'static, WordApp>| -> Vec<String> {
+            h.query_all_by_role(Role::ComboBox).filter_map(|n| n.accesskit_node().value()).collect()
+        };
+        assert!(shown(&h).iter().any(|v| v == "Titre 1"), "based on Heading 1, by its name in the interface language: {:?}", shown(&h));
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        let made = h.state().session.doc.styles.find("Mine").map(|st| st.based_on.clone());
+        assert_eq!(made, Some(Some("Heading1".to_string())), "the new style is based on Heading 1");
+    }
+
+    /// AGENTS.md rule 21: with a row for each script, a screen reader tells the font boxes
+    /// apart by their names, those of their rows' labels; the lone font box of Latin text is
+    /// "Font", as its label is.
+    #[test]
+    fn each_font_box_is_named_by_its_row() {
+        let names = ["Latin text font", "Complex script font", "Font"];
+        assert_eq!(text_boxes_named("\u{05E9}\u{05DC}\u{05D5}\u{05DD}", true, &names), [1, 1, 0], "Hebrew text");
+        assert_eq!(text_boxes_named("Hello", false, &names), [0, 0, 1], "Latin text");
+    }
 }

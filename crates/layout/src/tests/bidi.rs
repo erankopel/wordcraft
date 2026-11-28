@@ -852,3 +852,37 @@ fn punctuation_in_hebrew_text_takes_the_complex_script_font() {
     let latin = drawn_formats("Hello, world.", true, None);
     assert!(latin.iter().all(|(_, font, size)| font == "Source Sans 3" && *size == 12.0), "{latin:?}");
 }
+
+/// A Hebrew drop cap spans its lines as a Latin one does: the letter is drawn at the
+/// complex-script size, grown over lines of the complex-script text's own size, not at the size
+/// of the text beside it, nor at the Latin letter's size when the two sizes differ.
+#[test]
+fn a_hebrew_drop_cap_is_drawn_as_large_as_a_latin_one() {
+    crate::test_fonts();
+    // The drawn size of the dropped letter and of the letter after it, with the text's
+    // complex-script size set to `size_cs` (else the same as its size).
+    let sizes = |text: &str, size_cs: Option<f32>| {
+        let mut d = doc_of(&[(&text.repeat(6), true)]);
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        p.props.drop_cap = Some(3);
+        for r in &mut p.runs {
+            r.props.size_cs = size_cs.or(r.props.size_cs);
+        }
+        let l = lay(&d);
+        let (pl, _) = first_line(&l, 0);
+        let size = |k: usize| pl.clusters.get(k).map(|c| pl.styles[c.style as usize].rc.size).unwrap_or(f32::NAN);
+        (size(0), size(1))
+    };
+    let (latin_cap, latin_text) = sizes("Every line of this paragraph wraps around a large first letter. ", None);
+    assert!(latin_cap > 2.0 * latin_text, "the Latin letter at {latin_cap} pt beside text at {latin_text} pt");
+    let hebrew = "כל שורה בפסקה הזאת נכרכת סביב אות ראשונה גדולה. ";
+    let (cap, text) = sizes(hebrew, None);
+    assert!(cap > 2.0 * text, "the Hebrew letter at {cap} pt beside text at {text} pt");
+    assert!((cap - latin_cap).abs() < 0.5, "as large as the Latin one: {cap} and {latin_cap} pt");
+    // Hebrew text larger than the Latin text: its letter spans lines of its own size, larger than
+    // the Latin letter by as much as the text is.
+    let (big_cap, big_text) = sizes(hebrew, Some(latin_text * 5.0 / 3.0));
+    assert!(big_text > latin_text && big_cap > 2.0 * big_text, "the letter at {big_cap} pt beside Hebrew text at {big_text} pt");
+    let (cap_ratio, text_ratio) = (big_cap / latin_cap, big_text / latin_text);
+    assert!((cap_ratio - text_ratio).abs() < 0.05, "the letter grows with the text: ×{cap_ratio} for ×{text_ratio}");
+}

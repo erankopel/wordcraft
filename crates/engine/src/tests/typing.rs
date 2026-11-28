@@ -504,6 +504,129 @@ fn autocorrect_replacement_list_follows_the_texts_language() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "So I think ");
 }
 
+/// A new blank document as the Hebrew interface starts one: right to left, Hebrew the language of
+/// complex-script text and English the other text's.
+fn hebrew_document() -> Session {
+    let mut s = s();
+    s.set_new_documents_rtl(true);
+    s
+}
+
+/// What `keys` typed into a new Hebrew document leave in its body.
+fn typed_hebrew(keys: &str) -> String {
+    let mut s = hebrew_document();
+    typ(&mut s, keys);
+    s.doc.plain_text(StoryRef::Body)
+}
+
+/// HE-16: in Hebrew text the built-in Hebrew list corrects a finished word of Hebrew letters: a
+/// final letter typed in its ordinary form (מ for ם, נ for ן), also after one to three of the
+/// prefix letters ו ה ב כ ל מ ש, which stay as typed; an entry kept to the whole word (כאנ) does
+/// not fire after a prefix letter. Undo right after the replacement takes back the replacement
+/// alone, as for an English entry (`undo_right_after_autoformat_undoes_only_the_autoformat`).
+#[test]
+fn hebrew_autocorrect_fixes_a_final_letter_also_after_prefix_letters() {
+    assert_eq!(typed_hebrew("שלהמ "), "שלהם ");
+    assert_eq!(typed_hebrew("ושלהמ, "), "ושלהם, ", "the prefix letter stays as typed");
+    assert_eq!(typed_hebrew("וכשאנשימ\n"), "וכשאנשים\n", "three prefix letters, the word finished by Enter");
+    assert_eq!(typed_hebrew("וכשהאנשימ "), "וכשהאנשימ ", "four letters are more than a prefix");
+    assert_eq!(typed_hebrew("כאנ."), "כאן.");
+    assert_eq!(typed_hebrew("מכאנ "), "מכאנ ", "an entry without prefixes, after a prefix letter");
+    let mut s = hebrew_document();
+    typ(&mut s, "ושלהמ ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "ושלהמ ");
+}
+
+/// HE-16: the Hebrew list is kept to Hebrew text and to words of Hebrew letters alone. Hebrew
+/// letters are Hebrew text as proofing reads them: by the language of complex-script text (a
+/// Hebrew document, Detect language automatically off), and with Detect language on whatever
+/// language they are marked with, but never in a run marked Yiddish or Ladino, which are written
+/// in Hebrew letters too. English text keeps the English list, and the symbols apply in Hebrew
+/// text as in any other.
+#[test]
+fn hebrew_autocorrect_is_kept_to_hebrew_text_and_hebrew_letters() {
+    // English text with Detect language off: its Hebrew letters are English, so nothing changes.
+    let mut s = s();
+    run(&mut s, "review.language", json!({"detect": false}));
+    typ(&mut s, "teh שלהמ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "The שלהמ ");
+    // With Detect language on (the default) Hebrew letters are Hebrew whatever their tag.
+    assert_eq!(typed("teh שלהמ ").doc.plain_text(StoryRef::Body), "The שלהם ");
+    // A Hebrew document's complex-script language makes them Hebrew without detection too.
+    let mut s = hebrew_document();
+    run(&mut s, "review.language", json!({"detect": false}));
+    typ(&mut s, "שלהמ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "שלהם ");
+    // A Yiddish or Ladino run, Detect language on.
+    for tag in ["yi", "lad"] {
+        let mut s = hebrew_document();
+        typ(&mut s, "שלום");
+        run(&mut s, "select.all", json!({}));
+        run(&mut s, "review.language", json!({"lang": tag}));
+        run(&mut s, "caret.docEnd", json!({}));
+        typ(&mut s, " שלהמ ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "שלום שלהמ ", "{tag}");
+    }
+    // A geresh, gershayim, quote mark or point in the word leaves it as typed.
+    for word in ["שלה\u{05F3}מ", "שלה\u{05F4}מ", "שלה\u{201D}מ", "של\u{05B8}המ"] {
+        assert_eq!(typed_hebrew(&format!("{word} ")), format!("{word} "));
+    }
+    assert_eq!(typed_hebrew("שלום (c) 1/2 -> teh "), "שלום © ½ → the ");
+}
+
+/// HE-16: AutoCorrect Options govern the Hebrew list as they do the English one: its entries are
+/// listed as built in, Replace text as you type off stops them, a deleted one stays deleted after
+/// a prefix too, and the user's entry for the same typed form wins. The user's entries match the
+/// whole word, as before, so after a prefix neither the user's entry nor the replaced built-in
+/// one fires.
+#[test]
+fn autocorrect_options_govern_the_hebrew_list() {
+    let listed = |s: &mut Session, from: &str| {
+        let r = s.run("tools.autocorrect", &json!({})).unwrap_or_else(|e| panic!("{e}"));
+        r["entries"].as_array().into_iter().flatten().filter(|e| e["from"] == from).cloned().collect::<Vec<_>>()
+    };
+    let mut s = hebrew_document();
+    assert_eq!(listed(&mut s, "שלהמ"), [json!({"from": "שלהמ", "to": "שלהם", "builtIn": true})]);
+    run(&mut s, "tools.autocorrect", json!({"replaceText": false}));
+    typ(&mut s, "שלהמ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "שלהמ ", "Replace text as you type off");
+    let mut s = hebrew_document();
+    run(&mut s, "tools.autocorrect", json!({"delete": "שלהמ"}));
+    assert_eq!(listed(&mut s, "שלהמ"), Vec::<serde_json::Value>::new());
+    typ(&mut s, "שלהמ ושלהמ אותמ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "שלהמ ושלהמ אותם ", "only the deleted entry stops");
+    let mut s = hebrew_document();
+    run(&mut s, "tools.autocorrect", json!({"add": {"from": "שלהמ", "to": "שלהן"}}));
+    assert_eq!(listed(&mut s, "שלהמ"), [json!({"from": "שלהמ", "to": "שלהן", "builtIn": false})]);
+    typ(&mut s, "שלהמ ושלהמ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "שלהן ושלהמ ");
+}
+
+/// HE-16: of the Hebrew entries that match a word, the one with the longest typed form decides.
+/// When the user has deleted or replaced it, the word stays as typed, with or without a prefix
+/// letter, though a shorter entry matches the rest of it (מדברימ is the prefix letter מ and the
+/// entry דברימ). A deleted Hebrew entry added back as it was is the built-in one again, listed as
+/// built in and applied after prefix letters too, not an entry of the user's for the whole word.
+#[test]
+fn a_hebrew_entry_the_user_took_out_is_not_replaced_by_a_shorter_one() {
+    let mut s = hebrew_document();
+    run(&mut s, "tools.autocorrect", json!({"delete": "מדברימ"}));
+    typ(&mut s, "מדברימ ומדברימ דברימ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "מדברימ ומדברימ דברים ", "deleted, with and without a prefix");
+    let mut s = hebrew_document();
+    run(&mut s, "tools.autocorrect", json!({"add": {"from": "מדברימ", "to": "מדברות"}}));
+    typ(&mut s, "מדברימ ומדברימ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "מדברות ומדברימ ", "replaced by the user's own entry");
+    let mut s = hebrew_document();
+    run(&mut s, "tools.autocorrect", json!({"delete": "שלהמ"}));
+    let r = s.run("tools.autocorrect", &json!({"add": {"from": "שלהמ", "to": "שלהם"}})).unwrap_or_else(|e| panic!("{e}"));
+    let listed: Vec<_> = r["entries"].as_array().into_iter().flatten().filter(|e| e["from"] == "שלהמ").cloned().collect();
+    assert_eq!(listed, [json!({"from": "שלהמ", "to": "שלהם", "builtIn": true})], "added back as it was");
+    typ(&mut s, "ושלהמ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "ושלהם ", "and after a prefix letter again");
+}
+
 #[test]
 fn autocorrect_options_change_what_typing_does() {
     let mut s = s();
@@ -2981,11 +3104,8 @@ fn backspace_on_one_selected_cell_of_a_one_row_or_one_column_table_clears_it() {
 }
 
 /// #1670: smart quotes in Hebrew follow the characters around the quote in logical order, as
-/// Word does (Word for Mac 16.113.4): an opening “ after a space or at the start, and a closing ”
-/// after the letter that ends a quotation, whatever the display direction. Right after a Hebrew
-/// letter with no quote open, the Hebrew edition writes the mark Hebrew writes there (SE-2): a
-/// gershayim in an acronym (צה״ל) and a geresh in a borrowed sound (ג׳ירפה), where Word for Mac
-/// writes ” and ’.
+/// Word does (Word for Mac 16.113.4): an opening “ after a space or at the start, a closing ”
+/// after a letter, and ” inside an acronym (צה"ל), not gershayim; ' after a letter is ’.
 #[test]
 fn smart_quotes_in_hebrew_use_logical_order() {
     let bidi = |s: &Session| s.doc.body.iter().filter_map(|b| b.as_para()).next().and_then(|p| p.props.bidi);
@@ -2995,20 +3115,25 @@ fn smart_quotes_in_hebrew_use_logical_order() {
     let s = typed("\"שלום\"");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "“שלום”");
     let s = typed("צה\"ל ");
-    assert_eq!(s.doc.plain_text(StoryRef::Body), "צה\u{05F4}ל ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "צה”ל ");
     let s = typed("ג'ירפה 'כן'");
-    assert_eq!(s.doc.plain_text(StoryRef::Body), "ג\u{05F3}ירפה ‘כן’");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "ג’ירפה ‘כן’");
 }
 
-/// SE-2: `"` and `'` typed right after a Hebrew letter are gershayim (U+05F4) and geresh (U+05F3),
-/// also after a letter with points, so acronyms and borrowed sounds are written as Hebrew writes
-/// them and the Hebrew spelling check reads them as its `"` and `'`. A quote that is open is
-/// closed instead (so an acronym typed inside a quotation keeps ”), one closed earlier leaves the
-/// next acronym its gershayim, a ” or ’ between two letters (an acronym's, an apostrophe) closes
-/// no quote, and after a Latin letter nothing changes.
+/// SE-2: with the Hebrew interface (AutoCorrect's `hebrewMarks`), `"` and `'` typed right after a
+/// Hebrew letter are gershayim (U+05F4) and geresh (U+05F3), also after a letter with points, so
+/// acronyms and borrowed sounds are written as Hebrew writes them. A quote that is open is closed
+/// instead (so an acronym typed inside a quotation keeps ”), one closed earlier leaves the next
+/// acronym its gershayim, a ” or ’ between two letters (an acronym's, an apostrophe) closes no
+/// quote, and after a Latin letter nothing changes.
 #[test]
 fn gershayim_and_geresh_follow_a_hebrew_letter() {
-    let text = |keys: &str| typed(keys).doc.plain_text(StoryRef::Body);
+    let text = |keys: &str| {
+        let mut s = s();
+        s.set_new_documents_rtl(true);
+        typ(&mut s, keys);
+        s.doc.plain_text(StoryRef::Body)
+    };
     assert_eq!(text("עו\"ד ומנכ\"ל צ'יפס"), "עו\u{05F4}ד ומנכ\u{05F4}ל צ\u{05F3}יפס");
     // A letter with points: tsadi with qamats, then he with patah.
     assert_eq!(text("\u{05E6}\u{05B8}\u{05D4}\u{05B7}\"ל"), "\u{05E6}\u{05B8}\u{05D4}\u{05B7}\u{05F4}ל");
@@ -3019,9 +3144,33 @@ fn gershayim_and_geresh_follow_a_hebrew_letter() {
     assert_eq!(text("It's \"ok\""), "It’s “ok”", "Latin text as before");
     // AutoCorrect's smart quotes off: the keyboard's marks stay.
     let mut s = s();
+    s.set_new_documents_rtl(true);
     run(&mut s, "tools.autocorrect", json!({"smartQuotes": false}));
     typ(&mut s, "צה\"ל צ'יפס");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "צה\"ל צ'יפס");
+}
+
+/// SE-2: the gershayim and geresh are an AutoCorrect option. Other interfaces type Word's ” and ’
+/// after a Hebrew letter unless it is turned on; the Hebrew one can turn it off; null follows the
+/// interface again.
+#[test]
+fn gershayim_and_geresh_are_an_autocorrect_option() {
+    let keys = "צה\"ל ג'ירפה";
+    let typed_with = |hebrew_interface: bool, option: serde_json::Value| {
+        let mut s = s();
+        s.set_new_documents_rtl(hebrew_interface);
+        let on = s.run("tools.autocorrect", &json!({"hebrewMarks": option})).unwrap_or_else(|e| panic!("{e}"))["hebrewMarks"].clone();
+        typ(&mut s, keys);
+        (on, s.doc.plain_text(StoryRef::Body))
+    };
+    let word = "צה\u{201D}ל ג\u{2019}ירפה";
+    let hebrew = "צה\u{05F4}ל ג\u{05F3}ירפה";
+    assert_eq!(typed_with(false, json!(null)), (json!(false), word.to_string()), "another interface: Word's marks");
+    assert_eq!(typed_with(false, json!(true)), (json!(true), hebrew.to_string()), "turned on");
+    assert_eq!(typed_with(true, json!(null)), (json!(true), hebrew.to_string()), "the Hebrew interface");
+    assert_eq!(typed_with(true, json!(false)), (json!(false), word.to_string()), "turned off");
+    let mut s = s();
+    assert!(s.run("tools.autocorrect", &json!({"hebrewMarks": "yes"})).is_err());
 }
 
 /// #1923: Turkish and Azerbaijani case mapping (i↔İ, ı↔I) in AutoCorrect, checked against Word

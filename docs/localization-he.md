@@ -1,6 +1,6 @@
 # Hebrew interface and the Hebrew edition
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-27 · **Change:** minor (the Discard question's name for an untitled copy; no Match diacritics in Find and Replace) · **Target:** WordCraft 0.19.1
+> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-28 · **Change:** minor (Greeting Line in Hebrew text; the edition's sample without the community board's sentence; review fixes to the Find results, Modify Style, the colour fields, the reference samples' page number box, the Hebrew AutoCorrect list, address lists and text import); previously minor (a built-in Hebrew AutoCorrect list); previously minor (Find and Replace's Match diacritics; dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored; Modify Style's complex script font; controls for the direction keys and gershayim) · **Target:** WordCraft 0.19.1
 
 WordCraft has a Hebrew (`he`) interface language, mirrored right to left like the Arabic one, and a
 Hebrew edition: a build of the same program that starts in Hebrew, starts new documents right to
@@ -50,6 +50,14 @@ right. In more detail:
   Print page's lists and the style gallery's and status bar's context menus are mirrored too.
 - The Home › Styles gallery shows each style's sample from the right in a right-to-left document,
   and Design › Document Formatting draws its samples right to left.
+- The mini toolbar over a selection starts its rows at the right (the font box first), and the
+  title bar's Search lists each command with its name at the right and its shortcut at the left
+  (a screen reader hears the name first). The samples in Table of Contents, Table of Figures and
+  Index read from the right with their page numbers at the left margin, as in a right-to-left
+  document, so the box under them names no side (מספרי עמודים מיושרים לשוליים, a supplement row
+  correcting the published "at the right margin"), and Define New Multilevel List's preview sets
+  each level's number from the right, as the list runs in right-to-left text.
+  The Find and Replace boxes and Create Source's fields, with their hints, start at the right.
 
 ## Catalog
 
@@ -85,7 +93,13 @@ Hebrew catalog as the build embeds it, supplement and corrections included.
   replacements.`). A template matches only a whole message, with its other text exactly as written,
   so engine wording that is new or changed shows in English rather than as the translation of
   another message; a placeholder named `error` or `reason` is translated the same way. The `@msg`
-  context is craft-i18n's. The supplement has rows for the messages of Replace All, Fit One Page,
+  context is craft-i18n's. The dialogs show their messages the same way: Find and Replace's results
+  (`Match 2 of 5` reads התאמה 2 מתוך 5, Replace All's count, Reading Highlight's count) and
+  refusals (`no matches`), and the errors of Rename, Page Setup, Save Changes, the password
+  dialogs, Field, the mail-merge dialogs, Mark Index Entry and Paste Special (its note on what the
+  clipboard holds, also when it names only the first formats and says how many more); the dialog's
+  state keeps the English, results and counts too, which the control channel reports. The
+  supplement has rows for the messages of Replace All, Fit One Page,
   Missing Fonts, Column Selection, content controls, protection and Zotero, for the common
   operating-system errors inside them, and for about 120 errors the ribbon and dialogs can show
   (grouping objects, drawing tables, table formulas, lists, protection, recovery, printing). The
@@ -105,13 +119,20 @@ Hebrew catalog as the build embeds it, supplement and corrections included.
   New Tab and New Group make `כרטיסייה חדשה` and `קבוצה חדשה` (the engine names a new tab's first
   group in English; the dialog renames it). File › Recover and its Discard question name the copy
   of a document that was never saved `טיוטה ללא שם` (the copy itself keeps the engine's English
-  name, which `file.recover` and the control channel report). The columns of a new mail-merge
-  address list stay English: Address Block and Greeting Line find a name and an address by those
-  English column names (`address_map` in `crates/engine/src/cmd/mailings/merge.rs`), so Hebrew
-  ones would leave them empty until the engine knows the Hebrew names too.
+  name, which `file.recover` and the control channel report). Type a New List… names a new
+  mail-merge address list's columns in Hebrew (שם פרטי, שם משפחה, כתובת, עיר, מיקוד), and Address
+  Block and Greeting Line find the name and the address in them: the engine knows each address
+  part by its Hebrew name as by its English one (`address_map` in
+  `crates/engine/src/cmd/mailings/merge.rs`: also תואר, חברה, רחוב, יישוב, מחוז, מדינה and a few
+  alternatives). Country is מדינה, so a state or province is מחוז, in the list and in Match Fields
+  (a context row, `address`, for State; the plain row gives State and Country the same word); a
+  list that names its country ארץ has its state in its מדינה column, and the two stay apart.
+- **Pictures described in the interface language:** an icon inserted from Insert › Icons is
+  described (its alternative text) by the icon's name as the interface shows it, Hebrew in the
+  Hebrew interface (`insert.icon` takes `alt`; without it the library's English name).
 
 - **Review:** no native Hebrew speaker has read the catalog or the supplement. The rows were
-  written from the plain meaning of the English, like the rest of the catalog. The 84 rows least
+  written from the plain meaning of the English, like the rest of the catalog. The 106 rows least
   likely to be right, each with the reason, are in `packaging/hebrew/he-uncertain.tsv`: start there.
   The proper home for the rows is craft-i18n (the 49 rows that name shared things, such as colours,
   belong in its `common.tsv`); this repository keeps them only so that the edition can be built.
@@ -184,8 +205,8 @@ AGPL-3.0-or-later, so craft-i18n's ADR 0004 makes it Download-only: it is never 
 which is why the edition has no spell check on its first launch and needs one online click.
 
 Once the list of packs is known, the bar names the pack's licence and links its source next to
-Install; after the person's Install it says that Hebrew proofing is installed, with the licence and
-source, until it is closed. Before the list is known (a fresh profile) the bar's Install fetches the
+Install (the upstream source the pack index names, else the pack's archive); after the person's
+Install it says that Hebrew proofing is installed, with the licence and source, until it is closed. Before the list is known (a fresh profile) the bar's Install fetches the
 list and then the pack, and Options › Language says the language is available to download, with
 the same Install, instead of "not available yet". A download that a network stops is explained in
 Hebrew with what to try: a security certificate the network puts in place of the server's (a filter
@@ -253,6 +274,55 @@ Labels start on the region's paper (a DL envelope and A4 label sheets). Starting
   geresh (U+05F3) and gershayim (U+05F4): a double-click on צה״ל picks the whole acronym, not צה.
   The vowel points were already part of the word. The maqaf (U+05BE) and sof pasuq (U+05C3) still
   end a word.
+- **Find and Replace:** Search Options has **Match diacritics** (התאמת ניקוד וטעמים), the searches'
+  `matchDiacritics`: off, as in Word, שלום finds שָׁלוֹם; ticked, points and cantillation marks must
+  match too. The dialog opens with it as the last search left it (a script's search can turn it on,
+  and then Search Options open by themselves on the ticked box), and its own searches send it.
+- **Typing options:** `"` and `'` typed right after a Hebrew letter are gershayim ״ and geresh ׳
+  while AutoCorrect Options › AutoFormat As You Type › **Type gershayim and geresh after Hebrew
+  letters** (הקלדת גרשיים וגרש אחרי אותיות עבריות, `tools.autocorrect` `hebrewMarks`) is on; until
+  someone sets it, it follows the interface, and the box shows it ticked in the Hebrew one. **File ›
+  Options › Advanced › Use Ctrl+Right Shift and Ctrl+Left Shift to set the paragraph direction**
+  (`file.options` `directionKeys`) turns those keys on and off, with a note to turn them off where
+  Ctrl+Shift switches the keyboard layout (they start off on Linux and the BSDs). Both are described
+  in [typing parity](typing-parity.md).
+- **AutoCorrect (HE-16, done):** Hebrew text has a built-in AutoCorrect list of 96 entries of our
+  own, listed for review in [the Hebrew AutoCorrect list](autocorrect-he.md): a final letter typed
+  in its ordinary form (שלהמ → שלהם), most of them also after one to three of the prefix letters
+  ו ה ב כ ל מ ש, which stay as typed (ושלהמ → ושלהם), and other common slips (עכישו → עכשיו). It
+  applies to a word of Hebrew letters alone (no points, geresh, gershayim or quote mark) in text
+  that proofing reads as Hebrew, never in Yiddish or Ladino text. AutoCorrect Options (אפשרויות
+  תיקון אוטומטי) list the entries; each can be deleted or replaced with one's own, and Replace text
+  as you type turns all replacements off. The list was written from scratch and checked entry by
+  entry by independent reviews; no native speaker has reviewed it yet. See also
+  [typing parity](typing-parity.md).
+- **Styles:** Modify Style shows a style's complex script font and size (David in a Hebrew
+  document) on rows of their own, beside the Latin text font and size, in the Hebrew interface or
+  for a style right-to-left text uses (`para::style_used_for_rtl`). OK sets each script's font and
+  size as shown, so a new Latin text font no longer reaches the Hebrew text, and the complex script
+  rows change the Hebrew text alone. A complex script font or size is sent only when it was changed,
+  or to keep it where a new Latin one would otherwise reach it (a font in a style right-to-left
+  text uses; a size there or in a style without a complex script size of its own), so with nothing
+  changed none is sent, and a style of an English document doesn't take on the complex script
+  values it inherits. Its colour is a swatch with a palette, named by its row's label for a screen
+  reader (the Font dialog's too), and the automatic colour reads אוטומטי (Automatic), not `auto`.
+  New Style's Style based on lists the paragraph styles by the names the interface shows
+  (כותרת 1) and bases the new style on the style picked, by its id.
+- **Mail merge's Greeting Line** writes its words in the language of the text it stands in, as the
+  engine's other words do (`wordcraft_doc::words`): in Hebrew text the recipient's name after
+  לכבוד, which greets a man and a woman alike (לכבוד נועה לוי,), and, for a record with no name,
+  שלום רב, (for anyone). English text keeps `Dear Ada Lovelace,` and `Dear Sir or Madam,`. The
+  words are the document's, not the interface's: a Hebrew document gets them in the English
+  interface too. No native speaker has checked them.
+- **Text and Markdown files:** these formats carry no direction, so on opening (and when a
+  Markdown source is applied) a paragraph whose first letter is Hebrew or another right-to-left
+  letter becomes a right-to-left paragraph, as typing such a letter into a new paragraph does:
+  headings, list items and table cells too. Lines that start in English, numbers alone, blank
+  lines and a Markdown code block's lines keep the left-to-right direction, and an English file
+  opens as before (see "Not done"). Text that comes inside another file (a `.docx` file's text
+  chunk, a web archive's text) takes its direction from where it lands, as before.
+- **Drop caps:** a Hebrew first letter is dropped at the size of a Latin one (the complex script
+  size grows with the Latin size), not drawn at the size of the text beside it.
 - **Checked and already right:** the caret steps over a letter with all its points as one stop;
   Ctrl+arrow crosses a pointed word in one step in reading order; the word count is the same with
   or without points; typed Hebrew is never underlined as misspelled English.
@@ -358,7 +428,11 @@ fonts), `open-hebrew-fonts.sha256`, `BUILD-INFO.txt`, WordCraft's `NOTICE`, `LIC
 the ArtCraft Team's (`docs/brand/LICENSE-brand.txt`), which keeps them and the links to its community
 for WordCraft's own builds. The edition, a modified version, says in plain text that it is based on
 WordCraft by the ArtCraft team, and has no Discord button, Help › Community Discord or Backstage
-community link (`links_to_artcraft` in `crates/ui-egui/src/lib.rs`); see "Not done" for About. For
+community link (`links_to_artcraft` in `crates/ui-egui/src/lib.rs`); its sample document (`--sample`
+and File › New's sample, in English and in Hebrew) leaves out the sentence that sends readers to
+the community board and its link, since the edition has no board of its own (`COMMUNITY_LINK` in
+`crates/engine/src/sample.rs`, from the same build variable, `WORDCRAFT_DEFAULT_LANGUAGE`; WordCraft's
+own builds keep the sentence and its link to getartcraft.com); see "Not done" for About. For
 the same reason the stock `README.md`, with the ArtCraft logo and those links, is not in the AppImage
 (`packaging/linux/package.sh` leaves it out of an edition with its own desktop id).
 
@@ -433,7 +507,8 @@ source and Cargo home folders are the same too: the binaries carry some of their
 
 ## Not done, or not checked
 
-- A native-speaker review of the catalog, the supplement and the Hebrew sample text.
+- A native-speaker review of the catalog, the supplement, the Hebrew sample text and the Hebrew
+  AutoCorrect list.
 - Hebrew spelling on the very first launch with no network (see Spelling), and the quality of the
   `he` pack inside WordCraft's affix engine, which was not examined.
 - The tables created by Convert to Table, Draw Table, autoformat and mail-merge labels are not
@@ -453,26 +528,26 @@ source and Cargo home folders are the same too: the binaries carry some of their
   way to `about_ui` before the AppImage is passed on.
 - The AppImage on a real Ubuntu 22.04 desktop: its glibc needs were checked as above, and its menu
   entry with `desktop-file-validate` and a throwaway HOME, not in GNOME's menu, dock and search.
-- Not mirrored yet: the mini toolbar, the results of the title bar's command search (each label
-  and its shortcut), the Date and Time dialog and the previews of Table of Contents, Table of
-  Figures, Index and Define New Multilevel List; most other drop-down lists still start their rows
-  at the left.
-- Still English: the Find and Replace dialog's own results and errors (`Match 2 of 5`, the Replace
-  All count, `no matches`; the rows and `@msg` templates exist, the dialog's code does not pass its
-  message through `i18n::message` yet) and the other messages of the dialogs drawn in
-  `dialogs/dispatch.rs`, Date and Time and the References dialogs; the name and the automatic colour
-  in Modify Style and the style in New Style's "Based on" box (free text fields whose value goes to
-  the command as typed: they need a picker that shows the translated name and sends the English);
-  the alternative text an inserted icon gets (`insert.icon` takes none, so the English name is
-  written); and engine messages no row covers.
+- Not mirrored yet: the Date and Time dialog; most drop-down lists still start their rows at the
+  left. Menu rows with a shortcut drawn by `rtl::menu_item` (the ribbon's menus, the page's context
+  menu) are mirrored but named for a screen reader shortcut first (`Ctrl+B Bold`); Search's results
+  set their own name, the command first.
+- Still English: the Date and Time dialog's messages; a built-in style's name in Modify Style's
+  Name box (a free text field that renames the style with what it holds: it needs to show the
+  translated name and send a name only when it was changed); and engine messages no row covers.
+- File › Options › Advanced has no control for the cursor movement setting (`file.options`
+  `cursorMovement`, visual or logical, see [typing parity](typing-parity.md)); the supplement has
+  its rows (תנועת הסמן: לוגית, חזותית).
 - Installing a Language pack from a file downloaded in a browser (for a network whose filter breaks
   the download): craft-font-store at the pinned craft-libs has no public way to install a local
   archive against the pinned index's size and sha256 (its local path is the testing override, which
   skips the pin), and the downloads trust only the certificates compiled into rustls, not the
-  system's, so an inspecting network's certificate is refused. Both need craft-libs changes. The
-  bar's source link is the pack's archive until the engine reads the index's `source`.
-- A Hebrew Markdown or text file opens left to right: these formats carry no direction, and only new
-  blank documents take the edition's right-to-left default.
+  system's, so an inspecting network's certificate is refused. Both need craft-libs changes.
+- A Hebrew text or Markdown file opens with right-to-left paragraphs but not as a right-to-left
+  document: its tables are not mirrored, its blank lines stay left to right, and the document
+  defaults are the stock ones (only new blank documents take the edition's right-to-left default).
+  An edit in Markdown Source reads the whole file again, so a paragraph's direction set by hand
+  goes back to what its first letter says, as other formatting Markdown can't hold is lost.
 - Watermarks: Custom Watermark offers no font, so a watermark's font comes only from a file that has
   one (`design.watermark` takes none either). A watermark reads the way its first letter does
   (UAX #9's rules P2 and P3), not the way its document does, so DRAFT סודי reads left to right in a
@@ -481,14 +556,6 @@ source and Cargo home folders are the same too: the binaries carry some of their
   draws the gallery's Hebrew items as boxes (they still write the Hebrew words; screen readers read
   their names). How Word orders and draws a Hebrew watermark (its direction, the face of its letters, its points)
   was not observed.
-- Find and Replace has no Match diacritics check box. The searches take `matchDiacritics`
-  (`edit.find` and the others; off by default, so שלום finds שָׁלוֹם), but the dialog's searches
-  don't send it, so they keep whatever the last search that sent it set: after a script's
-  `"matchDiacritics": true`, the dialog's searches match points and cantillation marks too (שלום
-  no longer finds שָׁלוֹם), and nothing in the dialog shows that or turns it off; a search sent
-  with `"matchDiacritics": false` does. The check box, with the option in the dialog's searches and
-  Search Options opening for it, belongs in Search Options (`dialogs/dispatch.rs`) with its field
-  in `FindExtra` (`dialogs/find.rs`); the catalog row (התאמת ניקוד וטעמים) is in the supplement.
 
 ## Revision history
 
@@ -502,4 +569,8 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-27 | minor | The File view's templates open in Hebrew, right to left, where new documents do; New Style, New Table Style and Customize Ribbon name what they make in the interface language (New Style no longer offers a taken name); untitled recovery copies named in it; the pane's Ignore Once leaves the word until its paragraph changes; why watermarks stay English in Hebrew text; the Find dialog keeps Match diacritics |
 | 2026-11-27 | minor | File › Recover's Discard question names an untitled copy as the Recover page does; corrects the row above: Find and Replace has no Match diacritics, and its searches keep the setting the last search sent |
 | 2026-11-27 | minor | Hebrew watermarks: drawn like body text on the page, in PNG, PDF and print (fallback faces, the document's complex-script font for Hebrew, the bidirectional order) and checked so by strict export; Design › Watermark and Custom Watermark write Hebrew words in Hebrew text and show the word they write; DOCX keeps the text (removed from "Not done", what is left noted there) |
+| 2026-11-27 | minor | Find and Replace's Match diacritics box, sent with the dialog's searches; the dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored, the Find and Create Source fields from the right; Modify Style's complex script font and size and its Automatic colour, New Style's Based on by translated names; check boxes for the direction keys (Options › Advanced) and gershayim (AutoCorrect Options) |
 | 2026-11-28 | minor | Watermark review fixes: Latin letters in the face the watermark's font resolves to (as before the Hebrew change), East Asian letters in the watermark's face when it has them, no right-to-left run or automatic East Asian spacing from the document; the layout kept for every page, the PDF and strict export; the menu's labels translated as before except in Hebrew text, where it asks for the Hebrew interface font and marks the items Hebrew for screen readers; `design.watermark` starts a new watermark from DRAFT in the caret's language |
+| 2026-11-28 | minor | A built-in Hebrew AutoCorrect list for Hebrew text (HE-16): 96 entries of our own, most final-letter ones also after prefix letters, listed in [autocorrect-he.md](autocorrect-he.md) for review |
+| 2026-11-28 | minor | Hebrew drop caps at full size; Hebrew text and Markdown files open with right-to-left paragraphs; a new address list's columns in Hebrew, which Address Block and Greeting Line read (State as מחוז); inserted icons described in the interface language; the Language pack bar links the index's source; the edition's sample links no ArtCraft site; Greeting Line's English words noted as not done |
+| 2026-11-28 | minor | Greeting Line greets in Hebrew in Hebrew text (לכבוד …, and שלום רב, with no name), English text unchanged; the edition's sample leaves out the community board's sentence instead of linking `example.org`; review fixes: Find's counts kept in English for scripts, Modify Style sends a complex script font or size only when it was changed or would be overwritten, the colour fields named by their rows, Match diacritics greyed with regular expressions, the page number box under the mirrored reference samples names no side, Paste Special's "and N more" in Hebrew; the Hebrew AutoCorrect list keeps a deleted or replaced entry's word as typed; a list with a ארץ column keeps its state in its מדינה column; a `.docx` file's text chunks take no direction from their letters; Markdown code lines stay left to right; Markdown Source's reset of a hand-set direction noted |

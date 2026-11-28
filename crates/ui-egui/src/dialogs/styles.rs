@@ -53,11 +53,7 @@ pub(super) fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut b
                 }
                 if r.double_clicked() {
                     *selected = id;
-                    if let Some(Dialog::ModifyStyle { id, name, font, size, bold, italic, color, before, after, .. }) =
-                        Dialog::modify_style(app, selected)
-                    {
-                        app.dialog = Some(Dialog::ModifyStyle { back: true, resume: None, id, name, font, size, bold, italic, color, before, after });
-                    }
+                    app.dialog = modify_from_here(app, selected);
                 }
             }
         });
@@ -90,13 +86,13 @@ pub(super) fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut b
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         // Table styles are edited from Table Design.
-        if ui.add_enabled(ty != "table", egui::Button::new(tl!("Modify…"))).clicked()
-            && let Some(Dialog::ModifyStyle { id, name, font, size, bold, italic, color, before, after, .. }) = Dialog::modify_style(app, selected)
-        {
-            app.dialog = Some(Dialog::ModifyStyle { back: true, resume: None, id, name, font, size, bold, italic, color, before, after });
+        if ui.add_enabled(ty != "table", egui::Button::new(tl!("Modify…"))).clicked() {
+            app.dialog = modify_from_here(app, selected);
         }
         if ui.button(tl!("New Style…")).clicked() {
-            app.dialog = Some(Dialog::NewStyle { name: new_style_name(app), based_on: str_of(&cur, "name"), back: true });
+            // Based on the selected style when a paragraph style can be (by its id), else Normal.
+            let based_on = if matches!(ty.as_str(), "paragraph" | "linked") { str_of(&cur, "id") } else { "Normal".to_string() };
+            app.dialog = Some(Dialog::NewStyle { name: new_style_name(app), based_on, back: true });
         }
         let del = ui.add_enabled(!builtin, egui::Button::new(tl!("Delete")));
         let del = if builtin { del.on_disabled_hover_text(tl!("Built-in styles can't be deleted.")) } else { del };
@@ -106,6 +102,15 @@ pub(super) fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut b
         }
     });
     (app.dialog.is_some() || close_button(ui)) && leave(ui)
+}
+
+/// Modify Style for style `id`, opened from Manage Styles, which comes back when it closes.
+fn modify_from_here(app: &WordApp, id: &str) -> Option<Dialog> {
+    let mut d = Dialog::modify_style(app, id)?;
+    if let Dialog::ModifyStyle { back, .. } = &mut d {
+        *back = true;
+    }
+    Some(d)
 }
 
 /// The name New Style offers for the style it makes: the first of `Style1`, `Style2`… that no

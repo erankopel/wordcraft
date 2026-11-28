@@ -26,7 +26,9 @@ fn autoformat(s: &mut Session, text: &str) -> Option<String> {
     });
     // Right after a Hebrew letter the mark is a gershayim (צה״ל) or a geresh (צ׳יפס), the marks
     // Hebrew writes there, unless a quote of its kind is open: then it closes the quote (“שלום”).
-    let after_hebrew = before.chars().rev().find(|c| !wordcraft_doc::bidi::is_hebrew_point(*c)).is_some_and(wordcraft_doc::bidi::is_hebrew_letter);
+    // An AutoCorrect option, on with the Hebrew interface; Word writes ” and ’ there.
+    let after_hebrew = crate::cmd::tools::hebrew_marks(s)
+        && before.chars().rev().find(|c| !wordcraft_doc::bidi::is_hebrew_point(*c)).is_some_and(wordcraft_doc::bidi::is_hebrew_letter);
     match c {
         '"' if opening => Some("\u{201C}".into()),
         '"' if after_hebrew && !quote_open(before, &['\u{201C}', '\u{201E}'], '\u{201D}') => Some("\u{05F4}".into()),

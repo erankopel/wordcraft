@@ -158,6 +158,51 @@ fn every_control_fits_inside_the_bar() {
     assert!(used.min.x - inner.min.x < 0.5, "the font box starts at the bar's left edge");
 }
 
+/// UW-19: the bar is mirrored in a right-to-left interface, as the ribbon whose controls it
+/// borrows: its rows start at the right, so Bold is right of Justify there and left of it in a
+/// left-to-right interface.
+#[test]
+fn the_bar_reads_from_the_right_in_a_right_to_left_interface() {
+    use egui_kittest::kittest::Queryable;
+    // The language is thread-local: put English back even when an assertion fails.
+    struct English;
+    impl Drop for English {
+        fn drop(&mut self) {
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        }
+    }
+    let _english = English;
+    let places = |lang: crate::i18n::Lang| -> (f32, f32) {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "The quick brown fox"})).unwrap();
+        a.run("select.text", json!({"text": "quick"})).unwrap();
+        let selection = Rect::from_min_size(pos2(400.0, 400.0), Vec2::new(60.0, 16.0));
+        let viewport = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 700.0));
+        // The app's fonts first: the bar's controls draw in them.
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().with_size(Vec2::new(1000.0, 700.0)).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                crate::i18n::set_current(lang);
+                crate::rtl::sync(ui.ctx());
+                if fonts {
+                    show(app, ui.ctx(), selection, viewport);
+                } else {
+                    crate::theme::install_fonts_for(ui.ctx(), false);
+                    fonts = true;
+                }
+            },
+            a,
+        );
+        steps(&mut h);
+        let x = |label: &str| h.get_by_label(label).rect().center().x;
+        (x("Bold"), x("Justify"))
+    };
+    let (bold, justify) = places(crate::i18n::Lang::EN);
+    assert!(bold < justify, "left to right: Bold {bold}, Justify {justify}");
+    let (bold, justify) = places(crate::i18n::fixture_lang("he", "\tHome\t\u{05D1}\u{05D9}\u{05EA}\n"));
+    assert!(bold > justify, "right to left: Bold {bold}, Justify {justify}");
+}
+
 /// The whole window over a document with `pick` selected, run until the bar is up.
 fn bar_over(pick: &str) -> egui_kittest::Harness<'static, WordApp> {
     let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());

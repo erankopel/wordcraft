@@ -222,9 +222,9 @@ fn the_find_dialog_sends_match_diacritics() {
     assert!(!h.state().session.find.match_diacritics, "and the searches after it leave the points out too");
 }
 
-/// The Find dialog's results and the engine's refusals show in the interface language (the
-/// state keeps the engine's English for scripts): the match count by its row, `no matches` by
-/// the catalog's row for the engine's message.
+/// The Find dialog's results and the engine's refusals show in the interface language, and the
+/// state keeps them in English, which scripts read: the match count by its `@msg` template,
+/// `no matches` by the catalog's row for the engine's message.
 #[test]
 fn the_find_dialogs_results_read_in_the_interface_language() {
     use egui_kittest::kittest::Queryable;
@@ -236,7 +236,8 @@ fn the_find_dialogs_results_read_in_the_interface_language() {
         }
     }
     let _english = English;
-    let rows = "\tMatch {index} of {count}\t\u{05D4}\u{05EA}\u{05D0}\u{05DE}\u{05D4} {index} \u{05DE}\u{05EA}\u{05D5}\u{05DA} {count}\n\tno matches\t\u{05DC}\u{05D0} \u{05E0}\u{05DE}\u{05E6}\u{05D0}\u{05D5} \u{05D4}\u{05EA}\u{05D0}\u{05DE}\u{05D5}\u{05EA}\n";
+    // The catalog has the count as a plain row too, as the edition's supplement does.
+    let rows = "\tMatch {index} of {count}\t\u{05D4}\u{05EA}\u{05D0}\u{05DE}\u{05D4} {index} \u{05DE}\u{05EA}\u{05D5}\u{05DA} {count}\n@msg\tMatch {index} of {count}\t\u{05D4}\u{05EA}\u{05D0}\u{05DE}\u{05D4} {index} \u{05DE}\u{05EA}\u{05D5}\u{05DA} {count}\n\tno matches\t\u{05DC}\u{05D0} \u{05E0}\u{05DE}\u{05E6}\u{05D0}\u{05D5} \u{05D4}\u{05EA}\u{05D0}\u{05DE}\u{05D5}\u{05EA}\n";
     crate::i18n::set_current(crate::i18n::fixture_lang("he", rows));
     let mut app = app_with("Lanterns and lanterns");
     app.run("ui.dialog", json!({"name": "find"})).unwrap();
@@ -246,6 +247,8 @@ fn the_find_dialogs_results_read_in_the_interface_language() {
     h.run_steps(2);
     // "of" (\u{05DE}\u{05EA}\u{05D5}\u{05DA}) between the match and the count.
     assert!(h.query_by_label_contains("\u{05DE}\u{05EA}\u{05D5}\u{05DA}").is_some(), "the count reads in the interface language");
+    let Some(Dialog::Find { message, .. }) = &h.state().dialog else { panic!("the dialog stays open") };
+    assert!(message.contains(" of ") && message.is_ascii(), "the dialog keeps the count in English, which scripts read: {message}");
     set_find_what(&mut h, "zebra");
     h.get_by_label("Find Next").click();
     h.run_steps(2);

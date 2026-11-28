@@ -73,7 +73,8 @@ pub fn import_on(ext: &str, bytes: &[u8], page: &wordcraft_doc::SectionProps) ->
 /// Plain text and Markdown say nothing of direction: give each paragraph whose first strong
 /// letter is right to left (Hebrew, Arabic…) the right-to-left direction, as typing those letters
 /// into a paragraph does, unless the paragraph, its style or the document defaults set one.
-/// Paragraphs without such a letter (English, numbers, blank lines) stay as they are.
+/// Paragraphs without such a letter (English, numbers, blank lines) stay as they are, and so do
+/// a Markdown code block's lines (its `Code` paragraphs), whose code reads left to right.
 pub(crate) fn rtl_by_first_letter(doc: &mut Document) {
     use wordcraft_doc::StoryRef;
     if doc.styles.default_para.bidi.is_some() {
@@ -83,7 +84,11 @@ pub(crate) fn rtl_by_first_letter(doc: &mut Document) {
     for story in stories {
         for path in doc.para_paths(story) {
             let Some(p) = doc.para(story, &path) else { continue };
-            let styled = || doc.styles.chain(p.props.style.as_deref().unwrap_or("Normal")).iter().any(|st| st.para.bidi.is_some());
+            let style = p.props.style.as_deref().unwrap_or("Normal");
+            let styled = || {
+                style == crate::model::CODE_STYLE
+                    || doc.styles.chain(style).iter().any(|st| st.para.bidi.is_some() || st.id == crate::model::CODE_STYLE)
+            };
             if p.props.bidi.is_some() || !wordcraft_doc::bidi::first_strong_is_rtl(&p.text) || styled() {
                 continue;
             }

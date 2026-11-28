@@ -254,6 +254,20 @@ fn hebrew_paragraphs_of_text_and_markdown_files_open_right_to_left() {
     for (text, bidi) in paras {
         assert_eq!(bidi, hebrew.contains(&text.as_str()).then_some(true), "Markdown paragraph {text:?}");
     }
+    // A code block's lines are code, which reads left to right, whatever letter they start with.
+    let d = import(
+        "md",
+        "```
+שלום = 1
+```
+
+שלום
+"
+        .as_bytes(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(directions(&d), [("שלום = 1".to_string(), None), ("שלום".to_string(), Some(true))], "a code line and a paragraph");
 }
 
 /// A code line of backticks must not be mistaken for the closing fence when the file comes

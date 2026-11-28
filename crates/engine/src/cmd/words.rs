@@ -9,7 +9,7 @@ use wordcraft_doc::{Document, Paragraph, Pos};
 
 use crate::Session;
 
-pub use wordcraft_doc::words::{caption_labels, is_hebrew, page_x_of_y, word};
+pub use wordcraft_doc::words::{caption_labels, greeting, is_hebrew, page_x_of_y, word};
 
 /// The language of text inserted at the caret (at the start of a selection, which it replaces),
 /// with the formatting typing gives it.
@@ -24,18 +24,22 @@ pub fn lang_at(s: &Session, at: &Pos) -> Option<String> {
     lang_with(s, at, &props)
 }
 
-/// The language of text formatted `props` at `at`: of complex-script text where the text around
-/// it is ([`super::format::context_is_complex`]). Hebrew letters are Hebrew (Israel's, as Word
-/// tags Hebrew text) whatever complex-script language they are marked with (Word marks them
-/// Arabic where Hebrew isn't set up), unless it is another language written in Hebrew letters
-/// (Yiddish).
+/// The language of text formatted `props` at `at` ([`lang_in`]).
 fn lang_with(s: &Session, at: &Pos, props: &CharProps) -> Option<String> {
-    let para = s.doc.para_at(at);
-    let rc = s.doc.styles.resolve_char(para.and_then(|p| p.props.style.as_deref()), props);
-    let complex = super::format::context_is_complex(s, at, &rc);
+    lang_in(&s.doc, s.doc.para_at(at), at.off, props)
+}
+
+/// The language of text formatted `props` at byte `off` of `para`, a paragraph of `doc` or a copy
+/// of one (a merged letter's): of complex-script text where the text around it is
+/// ([`super::format::complex_in`]). Hebrew letters are Hebrew (Israel's, as Word tags Hebrew
+/// text) whatever complex-script language they are marked with (Word marks them Arabic where
+/// Hebrew isn't set up), unless it is another language written in Hebrew letters (Yiddish).
+pub(crate) fn lang_in(doc: &Document, para: Option<&Paragraph>, off: usize, props: &CharProps) -> Option<String> {
+    let rc = doc.styles.resolve_char(para.and_then(|p| p.props.style.as_deref()), props);
+    let complex = super::format::complex_in(doc, para, off, &rc);
     let lang = super::format::script_lang(&rc, complex);
     let written_in_hebrew = |l: &str| matches!(wordcraft_doc::bidi::primary_subtag(l).as_str(), "he" | "iw" | "yi" | "ji");
-    let hebrew_letter = complex && para.and_then(|p| nearest_letter(p, at.off)).is_some_and(is_hebrew_letter);
+    let hebrew_letter = complex && para.and_then(|p| nearest_letter(p, off)).is_some_and(is_hebrew_letter);
     if hebrew_letter && !lang.as_deref().is_some_and(written_in_hebrew) { Some(wordcraft_doc::styles::HEBREW_LANG.into()) } else { lang }
 }
 

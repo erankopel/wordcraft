@@ -13738,6 +13738,24 @@ fn alt_chunks_open_in_place_as_word_brings_them_in() {
     }
 }
 
+/// A plain-text chunk takes its direction from where it lands, as Word brings it in: one that
+/// starts with Hebrew stays left to right in an English document, and so after a save and a
+/// reopen, though the same text opened as a file reads right to left.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_plain_text_chunk_takes_no_direction_of_its_own() {
+    let hebrew = "\u{05E9}\u{05DC}\u{05D5}\u{05DD} world";
+    let end = r#"<w:p><w:r><w:t>End</w:t></w:r></w:p>"#;
+    let bytes = docx_with_chunk(&format!(r#"<w:altChunk r:id="rIdC"/>{end}"#), "txt", "text/plain", hebrew.as_bytes());
+    let doc = crate::io::open_bytes("chunk.docx", &bytes).unwrap();
+    let first = |doc: &wordcraft_doc::Document| doc.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).map(|p| (p.text.clone(), p.props.bidi));
+    assert_eq!(first(&doc), Some((hebrew.to_string(), None)), "the chunk in an English document");
+    let saved = crate::io::open_bytes("saved.docx", &wordcraft_docx::write(&doc).unwrap()).unwrap();
+    assert_eq!(first(&saved), Some((hebrew.to_string(), None)), "and after a save");
+    let file = crate::io::open_bytes("note.txt", hebrew.as_bytes()).unwrap();
+    assert_eq!(first(&file), Some((hebrew.to_string(), Some(true))), "the text file on its own");
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn text_from_file_brings_the_files_pictures() {

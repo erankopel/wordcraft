@@ -91,8 +91,10 @@ impl TextLang {
     /// The language of text whose language is `lang` (the run's, its style's or the document's
     /// `w:lang`; the editing language for text with none) and whose complex-script language is
     /// `bidi` (`w:lang/@w:bidi`), with Detect language automatically `detect`. English is decided
-    /// as proofing decides it (#835), every English (en-GB, en-CA…) counting (#1281); Hebrew as
-    /// proofing reads Hebrew letters, never in Yiddish or Ladino text.
+    /// as proofing decides it (#835), every English (en-GB, en-CA…) counting (#1281); Hebrew much
+    /// as proofing reads Hebrew letters ([`hebrew::is_hebrew_text`]), except that text with no
+    /// language has the editing language here, and a Yiddish or Ladino tag in either attribute
+    /// keeps the Hebrew list off.
     pub(super) fn of(lang: Option<&str>, bidi: Option<&str>, detect: bool) -> TextLang {
         TextLang { english: wordcraft_proof::ProofLang::from_tag(lang).is_english(), hebrew: hebrew::is_hebrew_text(lang, bidi, detect) }
     }
@@ -253,7 +255,9 @@ impl AutoCorrectPrefs {
     /// text (a lowercase one also matches the word capitalised, "Teh" → "The"), the symbols in any
     /// text, and in Hebrew text the Hebrew words, for a word of Hebrew letters alone. A Hebrew entry
     /// matches the whole word, or, when it allows prefixes, the word after one to three prefix
-    /// letters, which stay as typed ("ושלהמ" → "ו" and "שלהם"); the longest typed form wins.
+    /// letters, which stay as typed ("ושלהמ" → "ו" and "שלהם"). The longest typed form that matches
+    /// decides: when the user has deleted or replaced that entry, the word stays as typed, and a
+    /// shorter entry inside it ("דברימ" in "מדברימ", after the prefix letter מ) doesn't fire instead.
     pub fn replacement_at(&self, word: &str, lang: TextLang) -> Option<(usize, String)> {
         if let Some((_, b)) = self.entries.iter().find(|(a, _)| a == word) {
             return Some((0, b.clone()));
@@ -284,11 +288,15 @@ impl AutoCorrectPrefs {
         if !lang.hebrew || !hebrew::is_hebrew_word(word) {
             return None;
         }
-        hebrew::prefix_splits(word).find_map(|(at, rest)| {
-            built_ins()
-                .find(|&(a, _, l)| a == rest && live(a) && matches!(l, BuiltInLang::Hebrew { prefixes } if at == 0 || prefixes))
-                .map(|(_, b, _)| (at, b.to_string()))
-        })
+        // The splits run from the whole word to the shortest rest: the first entry that matches
+        // decides, live or not.
+        hebrew::prefix_splits(word)
+            .find_map(|(at, rest)| {
+                built_ins()
+                    .find(|&(a, _, l)| a == rest && matches!(l, BuiltInLang::Hebrew { prefixes } if at == 0 || prefixes))
+                    .map(|(a, b, _)| live(a).then(|| (at, b.to_string())))
+            })
+            .flatten()
     }
 
     /// The replacement list as the dialog shows it, sorted: `(from, to, built in)`. The built-in
@@ -448,10 +456,15 @@ pub(super) fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
             return Err(CmdError::Params(format!("an entry replaces 1–{MAX_FROM} characters (one line) with at most {MAX_TO}")));
         }
         ac.entries.retain(|(a, _)| a != f);
-        if ac.entries.len() >= MAX_ENTRIES {
-            return Err(CmdError::Params("too many AutoCorrect entries".into()));
+        // A Hebrew built-in added back as it was is the built-in again, after prefix letters too;
+        // a user's entry would match the whole word alone.
+        let hebrew_built_in = built_ins().any(|(a, b, l)| a == f && b == t && matches!(l, BuiltInLang::Hebrew { .. }));
+        if !hebrew_built_in {
+            if ac.entries.len() >= MAX_ENTRIES {
+                return Err(CmdError::Params("too many AutoCorrect entries".into()));
+            }
+            ac.entries.push((f.to_string(), t.to_string()));
         }
-        ac.entries.push((f.to_string(), t.to_string()));
         ac.removed.retain(|r| r != f);
     }
     if let Some(f) = p::str(v, "delete") {

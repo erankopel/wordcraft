@@ -603,6 +603,30 @@ fn autocorrect_options_govern_the_hebrew_list() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "שלהן ושלהמ ");
 }
 
+/// HE-16: of the Hebrew entries that match a word, the one with the longest typed form decides.
+/// When the user has deleted or replaced it, the word stays as typed, with or without a prefix
+/// letter, though a shorter entry matches the rest of it (מדברימ is the prefix letter מ and the
+/// entry דברימ). A deleted Hebrew entry added back as it was is the built-in one again, listed as
+/// built in and applied after prefix letters too, not an entry of the user's for the whole word.
+#[test]
+fn a_hebrew_entry_the_user_took_out_is_not_replaced_by_a_shorter_one() {
+    let mut s = hebrew_document();
+    run(&mut s, "tools.autocorrect", json!({"delete": "מדברימ"}));
+    typ(&mut s, "מדברימ ומדברימ דברימ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "מדברימ ומדברימ דברים ", "deleted, with and without a prefix");
+    let mut s = hebrew_document();
+    run(&mut s, "tools.autocorrect", json!({"add": {"from": "מדברימ", "to": "מדברות"}}));
+    typ(&mut s, "מדברימ ומדברימ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "מדברות ומדברימ ", "replaced by the user's own entry");
+    let mut s = hebrew_document();
+    run(&mut s, "tools.autocorrect", json!({"delete": "שלהמ"}));
+    let r = s.run("tools.autocorrect", &json!({"add": {"from": "שלהמ", "to": "שלהם"}})).unwrap_or_else(|e| panic!("{e}"));
+    let listed: Vec<_> = r["entries"].as_array().into_iter().flatten().filter(|e| e["from"] == "שלהמ").cloned().collect();
+    assert_eq!(listed, [json!({"from": "שלהמ", "to": "שלהם", "builtIn": true})], "added back as it was");
+    typ(&mut s, "ושלהמ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "ושלהם ", "and after a prefix letter again");
+}
+
 #[test]
 fn autocorrect_options_change_what_typing_does() {
     let mut s = s();

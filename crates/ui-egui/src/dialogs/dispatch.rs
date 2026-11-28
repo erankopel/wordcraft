@@ -228,10 +228,10 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 });
             }
             t.row(|r| {
-                r.cell(|ui| ui.label(tl!("Font color:")));
+                let color_label = r.cell(|ui| ui.label(tl!("Font color:")));
                 r.cell(|ui| {
                     let theme = app.session.doc.settings.theme_colors.clone();
-                    color_field(ui, &theme, color, "Automatic", "auto");
+                    color_field(ui, &theme, color, "Automatic", "auto", Some(color_label.id));
                 });
             });
             t.row(|r| {
@@ -503,7 +503,8 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.add_enabled_ui(plain, |ui| ui.checkbox(&mut extra.ignore_space, tl!("Ignore white-space characters")));
         });
         // Off, Hebrew points and cantillation marks don't count (שלום finds שָׁלוֹם), as in Word.
-        ui.add_enabled_ui(plain, |ui| ui.checkbox(&mut extra.diacritics, tl!("Match diacritics")));
+        // A regular expression is matched as written, so it has no effect there either.
+        ui.add_enabled_ui(plain && !*regex, |ui| ui.checkbox(&mut extra.diacritics, tl!("Match diacritics")));
         ui.horizontal(|ui| {
             ui.checkbox(regex, tl!("Regular expressions"));
             if let Some(code) = special_menu(ui, extra) {
@@ -531,15 +532,16 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 let mut v = opts.clone();
                 v["highlight"] = json!(!lit);
                 match app.run("edit.advancedFind", v) {
-                    Ok(r) if !lit => *message = crate::i18n::fmt(tl!("{count} items highlighted"), &[("count", &r["count"].to_string())]),
+                    Ok(r) if !lit => *message = format!("{} items highlighted", r["count"]),
                     Ok(_) => message.clear(),
                     Err(e) => *message = e,
                 }
             }
         });
     }
-    // The engine's results and errors are English, which scripts read; the dialog shows them in
-    // the interface language.
+    // The dialog's results (the match count, Replace All's count) and the engine's errors are
+    // kept in English, which scripts read (`ui.inspect`); the dialog shows them in the interface
+    // language, by their rows or `@msg` templates.
     if !message.is_empty() {
         ui.label(egui::RichText::new(crate::i18n::message(message)).weak());
     }
@@ -548,7 +550,7 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         if replace_mode {
             if ui.button(tl!("Replace All")).clicked() {
                 match app.run("edit.replaceAll", opts.clone()) {
-                    Ok(r) => *message = crate::i18n::fmt(tl!("All done. We made {n} replacements."), &[("n", &r["replaced"].to_string())]),
+                    Ok(r) => *message = format!("All done. We made {} replacements.", r["replaced"]),
                     Err(e) => *message = e,
                 }
             }
@@ -560,8 +562,8 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             // One step per click: `edit.find` would select a match itself, and the step after it skip one.
             match app.run("edit.findNext", opts.clone()) {
                 Ok(r) => {
-                    let index = (r["index"].as_u64().unwrap_or(0) + 1).to_string();
-                    *message = crate::i18n::fmt(tl!("Match {index} of {count}"), &[("index", &index), ("count", &r["count"].to_string())]);
+                    let index = r["index"].as_u64().unwrap_or(0).saturating_add(1);
+                    *message = format!("Match {index} of {}", r["count"]);
                 }
                 Err(e) => *message = e,
             }
@@ -1140,11 +1142,11 @@ fn modify_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             });
         }
         t.row(|r| {
-            r.cell(|ui| ui.label(tl!("Color:")));
+            let color_label = r.cell(|ui| ui.label(tl!("Color:")));
             // Automatic by name, a colour by its swatch and hex value, as in the Font dialog.
             r.cell(|ui| {
                 let theme = app.session.doc.settings.theme_colors.clone();
-                color_field(ui, &theme, color, "Automatic", "auto");
+                color_field(ui, &theme, color, "Automatic", "auto", Some(color_label.id));
             });
         });
         t.row(|r| {
@@ -1179,15 +1181,21 @@ fn modify_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         if was.as_ref().map(|rc| rc.italic) != Some(*italic) {
             chr["italic"] = json!(*italic);
         }
-        // With the complex script rows, each script's font and size are the ones shown for it: a
-        // new Latin text font or size leaves Hebrew text's (which `styles.modify` would otherwise
-        // give it in a style used for right-to-left text). Sent only when either changed, so OK
-        // alone gives the style no complex-script font of its own.
+        // With the complex script rows, each script's font and size are the ones shown for it. A
+        // complex script value is sent when it was changed, or to keep it when a new Latin text
+        // font or size would otherwise reach it: `styles.modify` gives complex-script text a new
+        // font in a style used for right-to-left text, and a new size there or where the style
+        // has no complex script size of its own. Otherwise none is sent, so the style doesn't
+        // take on, as its own, values it only inherits (an English document in the Hebrew
+        // interface keeps its styles' `w:rFonts/@w:cs` and `w:szCs` as they were).
         if *complex && let Some(rc) = &was {
-            if (*font != rc.font || *font_cs != rc.font_cs) && !font_cs.trim().is_empty() {
+            let rtl = wordcraft_engine::cmd::para::style_used_for_rtl(&app.session.doc, id);
+            let differs = |a: f32, b: f32| (a - b).abs() > 0.01;
+            if !font_cs.trim().is_empty() && (*font_cs != rc.font_cs || (rtl && *font != rc.font)) {
                 chr["fontCs"] = json!(font_cs.trim());
             }
-            if (*size - rc.size).abs() > 0.01 || (*size_cs - rc.size_cs).abs() > 0.01 {
+            let size_reaches_cs = rtl || !differs(rc.size, rc.size_cs);
+            if differs(*size_cs, rc.size_cs) || (size_reaches_cs && differs(*size, rc.size)) {
                 chr["sizeCs"] = json!(*size_cs);
             }
         }
@@ -1872,7 +1880,8 @@ mod tests {
         *font = "Georgia".into();
         app.dialog = d;
         let mut h = dialog_harness(app);
-        assert!(h.query_by_label("Automatic").is_some(), "the automatic colour by name");
+        let color = h.get_by_role_and_label(Role::Button, "Color:").accesskit_node().value();
+        assert_eq!(color.as_deref(), Some("Automatic"), "the automatic colour by name");
         h.get_by_label("OK").click();
         h.run_steps(3);
         let latin = normal_fonts(h.state());
@@ -1887,6 +1896,57 @@ mod tests {
         let complex = normal_fonts(h.state());
         assert_eq!((complex.1.as_str(), complex.3), ("Arial", before.3 + 6.0), "the complex script rows reach the Hebrew text");
         assert_eq!((complex.0.as_str(), complex.2), ("Georgia", latin.2), "and leave the Latin font and size alone");
+    }
+
+    /// Modify Style in a right-to-left interface shows the complex script rows for every style,
+    /// but OK with a new Latin text font gives a style of an English document no complex script
+    /// font or size of its own: the ones shown are only inherited, and `styles.modify` doesn't
+    /// copy a new font to the complex script text of a style no right-to-left text uses (before,
+    /// Normal took the inherited font as its own `w:rFonts/@w:cs`).
+    #[test]
+    fn a_new_latin_font_gives_an_english_style_no_complex_script_values_of_its_own() {
+        // The language is thread-local: put English back even when an assertion fails.
+        struct English;
+        impl Drop for English {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _english = English;
+        crate::i18n::set_current(crate::i18n::fixture_lang("he", "\tStyle\t\u{05E1}\u{05D2}\u{05E0}\u{05D5}\u{05DF}\n"));
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+        assert!(!wordcraft_engine::cmd::para::style_used_for_rtl(&app.session.doc, "Normal"), "an English document");
+        let own = |app: &WordApp| app.session.doc.styles.get("Normal").map(|st| (st.chr.font_cs.clone(), st.chr.size_cs));
+        let before = own(&app);
+        let mut d = Dialog::modify_style(&app, "Normal");
+        let Some(Dialog::ModifyStyle { complex, font, .. }) = &mut d else { panic!("Modify Style opens") };
+        assert!(*complex, "the right-to-left interface shows the complex script rows");
+        *font = "Georgia".into();
+        let mut app = app;
+        app.dialog = d;
+        let mut h = dialog_harness(app);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        assert_eq!(normal_fonts(h.state()).0, "Georgia", "the new Latin text font is set");
+        assert_eq!(own(h.state()), before, "and Normal takes on no complex script font or size");
+    }
+
+    /// AGENTS.md rule 21: a colour drop-down is named by its row's label and tells the colour it
+    /// shows as its value, in the Font dialog and in Modify Style.
+    #[test]
+    fn the_colour_fields_are_named_by_their_rows() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+        app.run("select.all", json!({})).unwrap();
+        app.dialog = Dialog::open("font", &mut app);
+        let h = dialog_harness(app);
+        let color = h.get_by_role_and_label(Role::Button, "Font color:").accesskit_node().value();
+        assert_eq!(color.as_deref(), Some("Automatic"), "Font color: Automatic");
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+        app.run("styles.modify", json!({"style": "Normal", "chr": {"color": {"Rgb": [0x12, 0x34, 0x56]}}})).unwrap();
+        app.dialog = Dialog::modify_style(&app, "Normal");
+        let h = dialog_harness(app);
+        let color = h.get_by_role_and_label(Role::Button, "Color:").accesskit_node().value();
+        assert_eq!(color.as_deref(), Some("123456"), "Color: the hex value");
     }
 
     /// UWB-04: New Style's "Style based on" shows a built-in style by its name in the interface

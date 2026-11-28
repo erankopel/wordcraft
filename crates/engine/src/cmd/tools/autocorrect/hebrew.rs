@@ -128,13 +128,14 @@ pub(super) fn is_hebrew_word(word: &str) -> bool {
 }
 
 /// Is text whose language is `lang` (`w:lang/@w:val`, or the editing language when the text has
-/// none) and whose complex-script language is `bidi` (`w:lang/@w:bidi`) Hebrew text, where the
-/// Hebrew list applies? Hebrew letters are read as proofing reads them
-/// (`wordcraft_layout::para::ProofRun::hebrew`): in the complex-script language, else in the
+/// none, where proofing has none) and whose complex-script language is `bidi` (`w:lang/@w:bidi`)
+/// Hebrew text, where the Hebrew list applies? Hebrew letters are read much as proofing reads
+/// them (`wordcraft_layout::para::ProofRun::hebrew`): in the complex-script language, else in the
 /// text language, and with Detect language automatically on (`detect`) as Hebrew whatever
 /// language they are marked with, as Word marks Hebrew text Arabic where Hebrew isn't set up.
 /// Yiddish and Ladino are written in Hebrew letters too: text whose language or complex-script
-/// language names either is never Hebrew text here.
+/// language names either is never Hebrew text here, even where proofing would read its letters
+/// as Hebrew (a Yiddish text language beside a Hebrew complex-script one).
 pub(super) fn is_hebrew_text(lang: Option<&str>, bidi: Option<&str>, detect: bool) -> bool {
     let lang = lang.map(str::trim).filter(|t| !t.is_empty());
     let bidi = bidi.map(str::trim).filter(|t| !t.is_empty());

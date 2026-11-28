@@ -1,6 +1,6 @@
 # Hebrew AutoCorrect list
 
-> **Last updated:** 2026-11-28 · **Change:** major (first version: the Hebrew edition's built-in Hebrew AutoCorrect list, audit item HE-16) · **Status:** for the operator's review; not reviewed by a native speaker
+> **Last updated:** 2026-11-28 · **Change:** minor (an entry the user deleted or replaced is not replaced by a shorter one; a deleted entry added back as it was is built in again; where the list applies, worded exactly); previously major (first version: the Hebrew edition's built-in Hebrew AutoCorrect list, audit item HE-16) · **Status:** for the operator's review; not reviewed by a native speaker
 
 AutoCorrect replaces a word as you finish typing it. Besides the English typos and the symbols,
 WordCraft has a built-in list of 96 Hebrew slips, listed below for review. The rules it follows are
@@ -12,11 +12,14 @@ pinned by tests in `crates/engine/src/tests/typing.rs` and described in
 
 - **When:** as for every AutoCorrect entry, when a word is finished by a space, one of `, . ; : ! ?`
   or Enter. The word is everything after the last white space before it.
-- **Where:** in Hebrew text only. Hebrew letters are Hebrew text as the spelling check reads them:
-  in the language of complex-script text (`w:lang/@w:bidi`, Hebrew in the edition's new documents
-  and in Word's Hebrew files), else in the text's language or the editing language, and with
-  **Detect language automatically** on (the default) whatever language they are marked with. Text
-  marked Yiddish or Ladino, which are written in Hebrew letters too, never gets the list.
+- **Where:** in Hebrew text only. Hebrew letters are Hebrew text much as the spelling check reads
+  them: in the language of complex-script text (`w:lang/@w:bidi`, Hebrew in the edition's new
+  documents and in Word's Hebrew files), else in the text's language, and with **Detect language
+  automatically** on (the default) whatever language they are marked with. Two things differ from
+  the spelling check: text with no language at all takes the editing language, and a Yiddish or
+  Ladino tag in either attribute (both are written in Hebrew letters too) keeps the list off, even
+  in a Hebrew paragraph. The list is in WordCraft's shared engine, so it applies to Hebrew text in
+  every build, not only in the Hebrew edition.
 - **Which words:** a word made only of the Hebrew letters א to ת (final forms included). A word
   with a point (niqqud), a cantillation mark, a geresh ׳, gershayim ״, a quote mark, a maqaf or
   any other character in it is left as typed. So are English words: the English list applies to
@@ -45,10 +48,13 @@ the tables below and say which entries to drop or change.
 - **One entry:** File › Options › Proofing › **AutoCorrect Options** (קובץ › אפשרויות › הגהה ›
   אפשרויות תיקון אוטומטי). On the AutoCorrect tab, type the entry's typed form in **Replace** (or
   pick it in the list) and press **Delete** (מחיקה). A deleted entry stays deleted, after a prefix
-  too, and the list then no longer shows it. Adding an entry with the same typed form replaces the
-  built-in one: the user's own entry applies to the whole word only, so after a prefix neither
-  fires. From the command line or an agent: `tools.autocorrect` with `{"delete": "שלהמ"}`, or with
-  `{"add": {"from": "שלהמ", "to": "…"}}`.
+  too, and the list then no longer shows it; a shorter entry that matches the end of its word
+  doesn't fire in its place (with מדברימ deleted, מדברימ stays as typed though דברימ is an entry
+  and מ a prefix letter). Adding an entry with the same typed form and another replacement replaces
+  the built-in one: the user's own entry applies to the whole word only, so after a prefix neither
+  fires. Adding a deleted entry back with its own replacement brings the built-in entry back,
+  prefixes and all. From the command line or an agent: `tools.autocorrect` with
+  `{"delete": "שלהמ"}`, or with `{"add": {"from": "שלהמ", "to": "…"}}`.
 - **All of it:** there is no switch for the Hebrew list alone. **Replace text as you type**
   (החלפת טקסט בזמן ההקלדה, `tools.autocorrect` `{"replaceText": false}`) turns off every
   replacement, the English and symbol entries and the user's own too; to keep those, delete the
@@ -170,3 +176,4 @@ together. None of these applies after a prefix.
 | Date | Change | Summary |
 |---|---|---|
 | 2026-11-28 | major | First version: the 96 entries of the Hebrew AutoCorrect list, the rules they follow, how the list was made, how to delete an entry or turn replacements off |
+| 2026-11-28 | minor | Review fixes: a deleted or replaced entry leaves its word as typed though a shorter entry matches the rest of it; a deleted entry added back with its own replacement is the built-in entry again; where the list applies (the editing language for text with no language, Yiddish and Ladino tags, every build) |

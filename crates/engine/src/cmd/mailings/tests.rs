@@ -837,3 +837,49 @@ fn address_block_and_greeting_line_fill_from_hebrew_column_names() {
     assert!(t.contains("נועה לוי,"), "the greeting line names her: {t}");
     assert!(!t.contains("Sir or Madam"), "{t}");
 }
+
+/// Greeting Line writes its words in the language of the text it stands in: in a Hebrew document
+/// the name after לכבוד, and שלום רב for a record with no name, in Preview Results and in the
+/// merged letters alike; an English document's greeting lines keep their English words.
+#[test]
+fn a_greeting_line_greets_in_the_language_of_its_text() {
+    let greetings = |rtl: bool| {
+        let mut s = Session::new(Document::new());
+        s.set_new_documents_rtl(rtl);
+        s.run("mailings.recipients", &json!({"csv": "שם פרטי,שם משפחה,עיר\nנועה,לוי,חיפה\n,,אילת"})).unwrap();
+        s.run("mailings.greetingLine", &json!({})).unwrap();
+        s.run("mailings.preview", &json!({"value": true})).unwrap();
+        let first = s.doc.plain_text(StoryRef::Body);
+        s.run("mailings.next", &json!({})).unwrap();
+        let second = s.doc.plain_text(StoryRef::Body);
+        s.run("mailings.finish", &json!({})).unwrap();
+        let merged = s.doc.plain_text(StoryRef::Body);
+        (first, second, merged)
+    };
+    let (first, second, merged) = greetings(true);
+    assert_eq!((first.trim(), second.trim()), ("לכבוד נועה לוי,", "שלום רב,"), "a Hebrew document's preview");
+    assert!(merged.contains("לכבוד נועה לוי,") && merged.contains("שלום רב,") && !merged.contains("Dear"), "its letters: {merged}");
+    let (first, second, merged) = greetings(false);
+    assert_eq!((first.trim(), second.trim()), ("Dear נועה לוי,", "Dear Sir or Madam,"), "an English document's preview");
+    assert!(merged.contains("Dear נועה לוי,") && merged.contains("Dear Sir or Madam,"), "its letters: {merged}");
+}
+
+/// A Hebrew list with a ארץ column for the country has its state in its מדינה column: the two
+/// are matched to different parts, and the address block ends with the ארץ value. Without a ארץ
+/// column, מדינה is the country.
+#[test]
+fn a_hebrew_list_with_a_country_column_keeps_its_state_apart() {
+    let mut s = Session::new(Document::new());
+    let csv = "שם פרטי,שם משפחה,כתובת,עיר,מדינה,מיקוד,ארץ\nנועה,לוי,Main St 1,Austin,Texas,78701,ארצות הברית";
+    s.run("mailings.recipients", &json!({"csv": csv})).unwrap();
+    let m = s.run("mailings.matchFields", &json!({})).unwrap();
+    assert_eq!((m["address"]["state"].as_str(), m["address"]["country"].as_str()), (Some("מדינה"), Some("ארץ")), "{m}");
+    s.run("mailings.addressBlock", &json!({})).unwrap();
+    s.run("mailings.preview", &json!({"value": true})).unwrap();
+    let t = s.doc.plain_text(StoryRef::Body);
+    assert!(t.contains("Austin, Texas 78701") && t.trim_end().ends_with("ארצות הברית"), "{t}");
+    let mut s = Session::new(Document::new());
+    s.run("mailings.recipients", &json!({"csv": "שם פרטי,עיר,מדינה\nנועה,חיפה,ישראל"})).unwrap();
+    let m = s.run("mailings.matchFields", &json!({})).unwrap();
+    assert_eq!((m["address"]["state"].as_str(), m["address"]["country"].as_str()), (None, Some("מדינה")), "{m}");
+}

@@ -342,13 +342,19 @@ fn toggle_scripts(s: &mut Session, v: &Value, get: fn(&ResolvedChar, bool) -> bo
 /// left. So a caret in Hebrew text, or in an empty paragraph of a Hebrew document, is in Hebrew
 /// text, as the status bar shows it.
 pub(crate) fn context_is_complex(s: &Session, at: &Pos, rc: &ResolvedChar) -> bool {
-    let Some(p) = s.doc.para_at(at) else { return rc.rtl || rc.cs };
-    let off = at.off.min(p.text.len());
+    complex_in(&s.doc, s.doc.para_at(at), at.off, rc)
+}
+
+/// [`context_is_complex`] for the text at byte `off` of `p`, a paragraph of `doc` or a copy of one
+/// (a merged letter's); with no paragraph, as `rc` alone says.
+pub(crate) fn complex_in(doc: &wordcraft_doc::Document, p: Option<&wordcraft_doc::Paragraph>, off: usize, rc: &ResolvedChar) -> bool {
+    let Some(p) = p else { return rc.rtl || rc.cs };
+    let off = off.min(p.text.len());
     let before = p.text.get(..off).and_then(|t| t.chars().rev().find(|ch| ch.is_alphabetic()));
     let nearest = before.or_else(|| p.text.get(off..).and_then(|t| t.chars().find(|ch| ch.is_alphabetic())));
     match nearest {
         Some(ch) => rc.uses_complex(ch),
-        None => rc.rtl || rc.cs || s.doc.styles.resolve_para(&p.props).bidi,
+        None => rc.rtl || rc.cs || doc.styles.resolve_para(&p.props).bidi,
     }
 }
 

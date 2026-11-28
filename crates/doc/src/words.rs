@@ -1,9 +1,9 @@
 //! Words WordCraft writes into a document on its own: a table of contents' title, caption labels,
-//! "Page X of Y", header, content control and decorative-text placeholders, sample items. They
-//! are the document's text, so they are written in the language of the text that receives them,
-//! not the interface's: Hebrew text gets Hebrew words in an English interface too, and English
-//! text gets English ones in a Hebrew interface. A language without words here gets the English
-//! ones.
+//! "Page X of Y", a mail merge's greeting line, header, content control and decorative-text
+//! placeholders, sample items. They are the document's text, so they are written in the language
+//! of the text that receives them, not the interface's: Hebrew text gets Hebrew words in an
+//! English interface too, and English text gets English ones in a Hebrew interface. A language
+//! without words here gets the English ones.
 
 /// Whether `lang` (a BCP 47 tag) is Hebrew: `he`, or its old tag `iw`.
 pub fn is_hebrew(lang: Option<&str>) -> bool {
@@ -16,6 +16,10 @@ pub fn is_hebrew(lang: Option<&str>) -> bool {
 const HEBREW: &[(&str, &str)] = &[
     ("Bibliography", "ביבליוגרפיה"),
     ("Contents", "תוכן עניינים"),
+    // A letter's greeting line (`GREETINGLINE`): the name after לכבוד ("To the honour of"), which
+    // greets a man and a woman alike; a recipient with no name gets "שלום רב,".
+    ("Dear Sir or Madam,", "שלום רב,"),
+    ("Dear {name},", "לכבוד {name},"),
     ("Document subtitle", "כותרת משנה של המסמך"),
     ("Document Title", "כותרת המסמך"),
     ("Equation", "משוואה"),
@@ -52,6 +56,13 @@ pub fn caption_labels(lang: Option<&str>) -> [&'static str; 3] {
     let mut labels = ["Equation", "Figure", "Table"].map(|l| word(lang, l));
     labels.sort_unstable();
     labels
+}
+
+/// A letter's greeting line to the recipient `name` (first and last), in the language `lang`:
+/// `Dear Ada Lovelace,`, or `לכבוד נועה לוי,` in Hebrew; with no name, the greeting for anyone,
+/// `Dear Sir or Madam,` (`שלום רב,` in Hebrew).
+pub fn greeting(lang: Option<&str>, name: &str) -> String {
+    if name.is_empty() { word(lang, "Dear Sir or Madam,").to_string() } else { word(lang, "Dear {name},").replace("{name}", name) }
 }
 
 /// The text around the numbers of "Page X of Y": before the page number and between it and the

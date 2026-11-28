@@ -843,7 +843,9 @@ icons	Map Pin	סיכת מפה
 	Table Style {n}	סגנון טבלה {n}
 	Untitled draft	טיוטה ללא שם
 	Match diacritics	התאמת ניקוד וטעמים
-	All done. We made {n} replacements.	הפעולה הושלמה. מספר ההחלפות שבוצעו: {n}.
 	Type gershayim and geresh after Hebrew letters	הקלדת גרשיים וגרש אחרי אותיות עבריות
 @msg	nothing on the clipboard can be pasted here (it holds {list})	אין בלוח דבר שאפשר להדביק כאן (יש בו {list})
 address	State	מחוז
+@msg	{count} items highlighted	פריטים מסומנים: {count}
+@msg	nothing on the clipboard can be pasted here (it holds {list} and {n} more)	אין בלוח דבר שאפשר להדביק כאן (יש בו {list} ועוד {n})
+	Page numbers at the right margin	מספרי עמודים מיושרים לשוליים

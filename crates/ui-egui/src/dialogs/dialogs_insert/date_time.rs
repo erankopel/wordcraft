@@ -68,7 +68,8 @@ pub struct DateTimeForm {
     pub language: String,
     /// Whether to insert a refreshable field rather than fixed text.
     pub update: bool,
-    /// Last insertion failure; retain the window so the user can change the choice.
+    /// Last insertion failure, as the engine said it (shown through `i18n::message`); retain the
+    /// window so the user can change the choice.
     #[serde(skip)]
     pub error: Option<String>,
     /// Brief status confirmation message (e.g. after setting default preferences).
@@ -128,7 +129,7 @@ pub(super) fn date_time_ui(app: &mut WordApp, ui: &mut Ui, f: &mut DateTimeForm)
             ui.set_width(170.0);
             let language_label = ui.label(tl!("Language"));
             let shown = LANGUAGES.iter().find(|(tag, _)| *tag == f.language).map_or("", |(_, name)| name);
-            let combo = craft_ui::ComboBox::from_id_salt("date_time_lang").selected_text(tl!(shown)).width(160.0).show_ui(ui, |ui| {
+            let combo = crate::rtl::ComboBox::from_id_salt("date_time_lang").selected_text(tl!(shown)).width(160.0).show_ui(ui, |ui| {
                 for (tag, name) in LANGUAGES {
                     if ui.selectable_label(f.language == tag, tl!(name)).clicked() {
                         f.language = tag.into();
@@ -152,7 +153,8 @@ pub(super) fn date_time_ui(app: &mut WordApp, ui: &mut Ui, f: &mut DateTimeForm)
         ui.colored_label(tokens.text_dim, status);
     }
     if let Some(error) = &f.error {
-        ui.colored_label(ui.visuals().error_fg_color, error);
+        // The engine's English message, in the interface language where the catalog has it.
+        ui.colored_label(ui.visuals().error_fg_color, crate::i18n::message(error));
     }
     let (ok, cancel) = buttons(ui, "OK", "Cancel", true);
     if ok {
@@ -211,6 +213,69 @@ mod tests {
         for picture in HE_DATE_FORMATS {
             assert!(!wordcraft_engine::cmd::insert::format_date_in(picture, Some("he-IL")).chars().any(|c| c.is_ascii_alphabetic()), "{picture}");
         }
+    }
+
+    /// `app`'s Date and Time dialog drawn in the interface language `lang` (English when `None`).
+    fn drawn(lang: Option<crate::i18n::Lang>) -> egui_kittest::Harness<'static, WordApp> {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.ui.date_time_language = "en-US".into();
+        app.run("ui.dialog", json!({"name": "dateTime"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                if let Some(lang) = lang {
+                    crate::i18n::set_current(lang);
+                }
+                crate::rtl::sync(&ctx);
+                crate::dialogs::show(app, &ctx);
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            },
+            app,
+        );
+        h.run_steps(4);
+        h
+    }
+
+    /// The dialog's rows start from the reading side: a format in the list, Update
+    /// automatically and Set as Default begin at the right edge in a right-to-left interface (Hebrew),
+    /// one under the other, and at the left edge left to right; OK and Cancel stand at the far side.
+    #[test]
+    fn the_rows_start_from_the_reading_side() {
+        use egui_kittest::kittest::Queryable;
+        let hebrew = crate::i18n::fixture_lang("he", "\tLanguage\tשפה\n");
+        let first = wordcraft_engine::cmd::insert::format_date_in(DATE_FORMATS[0], Some("en-US"));
+        for (lang, mirrored) in [(None, false), (Some(hebrew), true)] {
+            let h = drawn(lang);
+            let rows = [h.get_by_label(&first).rect(), h.get_by_label("Update automatically").rect(), h.get_by_label("Set as Default").rect()];
+            let ok = h.get_by_label("OK").rect();
+            let starts: Vec<f32> = rows.iter().map(|r| if mirrored { r.max.x } else { r.min.x }).collect();
+            let spread = starts.iter().fold(f32::MIN, |a, &b| a.max(b)) - starts.iter().fold(f32::MAX, |a, &b| a.min(b));
+            assert!(spread <= 6.0, "mirrored {mirrored}: the rows start at one edge: {rows:?}");
+            if mirrored {
+                assert!(rows.iter().all(|r| r.center().x > ok.center().x), "the rows at the right, OK at the far (left) side: {rows:?} {ok:?}");
+            } else {
+                assert!(rows.iter().all(|r| r.center().x < ok.center().x), "the rows at the left, OK at the far (right) side: {rows:?} {ok:?}");
+            }
+        }
+    }
+
+    /// An insertion error the engine reports in English shows in the interface language where the
+    /// catalog has it, and the dialog keeps the engine's words for scripts.
+    #[test]
+    fn an_insertion_error_is_shown_in_the_interface_language() {
+        use egui_kittest::kittest::Queryable;
+        let message = "no document is open";
+        let hebrew = crate::i18n::fixture_lang("he", "@msg\tno document is open\tאין מסמך פתוח\n");
+        let mut h = drawn(Some(hebrew));
+        if let Some(crate::dialogs::Dialog::Insert(d)) = &mut h.state_mut().dialog
+            && let InsertDialog::DateTime(f) = &mut **d
+        {
+            f.error = Some(message.into());
+        }
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("אין מסמך פתוח").is_some(), "the message in Hebrew");
+        assert!(h.query_by_label_contains(message).is_none(), "not in English");
     }
 
     /// In a mirrored interface the two columns keep their widths: the language box stands left of

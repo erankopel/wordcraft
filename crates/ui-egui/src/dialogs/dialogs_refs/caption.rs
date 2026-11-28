@@ -114,7 +114,7 @@ pub(super) fn caption_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) ->
             r.cell(|ui| {
                 let labels: Vec<(String, &str)> = f.labels.iter().map(|l| (l.clone(), l.as_str())).collect();
                 // Shown as they go into the document.
-                let combo = craft_ui::ComboBox::from_id_salt("cap_label").selected_text(shown_label(&f.label)).width(150.0).show_ui(ui, |ui| {
+                let combo = crate::rtl::ComboBox::from_id_salt("cap_label").selected_text(shown_label(&f.label)).width(150.0).show_ui(ui, |ui| {
                     for (v, l) in &labels {
                         ui.selectable_value(&mut f.label, v.clone(), shown_label(l));
                     }
@@ -183,7 +183,7 @@ pub(super) fn numbering_ui(ui: &mut Ui, f: &mut CaptionForm, was: &CaptionForm) 
                 r.cell(|ui| {
                     let opts: Vec<(u8, String)> = (1..=9u8).map(|l| (l, crate::i18n::fmt(tl!("Heading {n}"), &[("n", &l.to_string())]))).collect();
                     let shown = opts.iter().find(|(l, _)| *l == f.chapter_level).map(|(_, s)| s.clone()).unwrap_or_default();
-                    let combo = craft_ui::ComboBox::from_id_salt("cap_level").selected_text(shown).width(150.0).show_ui(ui, |ui| {
+                    let combo = crate::rtl::ComboBox::from_id_salt("cap_level").selected_text(shown).width(150.0).show_ui(ui, |ui| {
                         for (l, s) in &opts {
                             ui.selectable_value(&mut f.chapter_level, *l, s);
                         }

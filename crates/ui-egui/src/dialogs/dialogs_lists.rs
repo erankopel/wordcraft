@@ -201,7 +201,7 @@ pub fn define_list(app: &mut WordApp, ui: &mut Ui, f: &mut ListForm) -> bool {
             r.cell(|ui| ui.label(tl!("Number style for this level:")));
             r.cell(|ui| {
                 let current = STYLES.iter().find(|(k, _)| *k == l.format).map(|(_, s)| *s).unwrap_or("");
-                craft_ui::ComboBox::from_id_salt("mll_style").selected_text(style_label(current)).show_ui(ui, |ui| {
+                crate::rtl::ComboBox::from_id_salt("mll_style").selected_text(style_label(current)).show_ui(ui, |ui| {
                     for (k, s) in STYLES {
                         if ui.selectable_label(l.format == k, style_label(s)).clicked() {
                             // A new style puts this level's number in the text if it had none (a bullet
@@ -221,7 +221,7 @@ pub fn define_list(app: &mut WordApp, ui: &mut Ui, f: &mut ListForm) -> bool {
             t.row(|r| {
                 r.cell(|ui| ui.label(tl!("Include level number from:")));
                 r.cell(|ui| {
-                    craft_ui::ComboBox::from_id_salt("mll_include").selected_text("").show_ui(ui, |ui| {
+                    crate::rtl::ComboBox::from_id_salt("mll_include").selected_text("").show_ui(ui, |ui| {
                         for k in 0..i {
                             if ui.selectable_label(false, crate::i18n::fmt(tl!("Level {n}"), &[("n", &(k + 1).to_string())])).clicked() {
                                 l.text.push_str(&format!("%{}", k + 1));
@@ -241,7 +241,7 @@ pub fn define_list(app: &mut WordApp, ui: &mut Ui, f: &mut ListForm) -> bool {
                 r.cell(|ui| {
                     ui.add_enabled_ui(l.restart, |ui| {
                         let shown = crate::i18n::fmt(tl!("Level {n}"), &[("n", &l.restart_after.clamp(1, i as u8).to_string())]);
-                        craft_ui::ComboBox::from_id_salt("mll_restart").selected_text(shown).show_ui(ui, |ui| {
+                        crate::rtl::ComboBox::from_id_salt("mll_restart").selected_text(shown).show_ui(ui, |ui| {
                             for k in 1..=i as u8 {
                                 ui.selectable_value(&mut l.restart_after, k, crate::i18n::fmt(tl!("Level {n}"), &[("n", &k.to_string())]));
                             }
@@ -254,7 +254,7 @@ pub fn define_list(app: &mut WordApp, ui: &mut Ui, f: &mut ListForm) -> bool {
             r.cell(|ui| ui.label(tl!("Link level to style:")));
             r.cell(|ui| {
                 let shown = styles.iter().find(|(id, _)| *id == l.style).map(|(_, n)| n.clone()).unwrap_or_else(|| tl!("(no style)").to_string());
-                craft_ui::ComboBox::from_id_salt("mll_link").selected_text(shown).show_ui(ui, |ui| {
+                crate::rtl::ComboBox::from_id_salt("mll_link").selected_text(shown).show_ui(ui, |ui| {
                     ui.selectable_value(&mut l.style, String::new(), tl!("(no style)"));
                     for (id, name) in &styles {
                         ui.selectable_value(&mut l.style, id.clone(), name);
@@ -305,7 +305,7 @@ pub fn define_list(app: &mut WordApp, ui: &mut Ui, f: &mut ListForm) -> bool {
                     "nothing" => tl!("Nothing"),
                     _ => tl!("Tab character"),
                 };
-                craft_ui::ComboBox::from_id_salt("mll_follow").selected_text(follow(&l.follow)).show_ui(ui, |ui| {
+                crate::rtl::ComboBox::from_id_salt("mll_follow").selected_text(follow(&l.follow)).show_ui(ui, |ui| {
                     for k in ["tab", "space", "nothing"] {
                         ui.selectable_value(&mut l.follow, k.to_string(), follow(k));
                     }
@@ -461,7 +461,7 @@ impl TrackForm {
 /// A choice from `options` ((value, label)) in a drop-down.
 fn choice(ui: &mut Ui, id: &str, value: &mut String, options: &[(&str, &str)]) {
     let label = |k: &str| options.iter().find(|(v, _)| *v == k).map(|(_, l)| tl!(l).to_string()).unwrap_or_default();
-    craft_ui::ComboBox::from_id_salt(id).selected_text(label(value)).width(150.0).show_ui(ui, |ui| {
+    crate::rtl::ComboBox::from_id_salt(id).selected_text(label(value)).width(150.0).show_ui(ui, |ui| {
         for (v, l) in options {
             ui.selectable_value(value, v.to_string(), tl!(l));
         }

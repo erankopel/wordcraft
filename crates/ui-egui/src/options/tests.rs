@@ -568,3 +568,30 @@ fn a_length_field_reads_its_number_first_in_either_direction() {
     let (number, unit) = length_field_places(crate::i18n::fixture_lang("he", "\tcm\tס\"מ\n"));
     assert!(number > unit, "right to left: number {number}, unit {unit}");
 }
+
+/// File › Options › Advanced › Editing: Cursor movement's two buttons are the `file.options`
+/// `cursorMovement` setting, and the line under them says what the chosen one does.
+#[test]
+fn advanced_cursor_movement_switches_between_logical_and_visual() {
+    use wordcraft_engine::cmd::options::CursorMovement;
+    let mut a = app();
+    a.run("file.options", json!({"pane": "advanced"})).unwrap();
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            app.ui(ui);
+        },
+        a,
+    );
+    h.run_steps(4);
+    assert_eq!(h.state().session.prefs.cursor_movement, CursorMovement::Visual, "visual by default");
+    assert!(h.query_by_label("Cursor movement:").is_some(), "the row is there");
+    h.get_by_label("Logical").click();
+    h.run_steps(4);
+    assert_eq!(h.state().session.prefs.cursor_movement, CursorMovement::Logical, "Logical sets it");
+    assert!(h.query_by_label("The arrow keys move through the text in the order it was typed.").is_some(), "and says what it does");
+    h.get_by_label("Visual").click();
+    h.run_steps(4);
+    assert_eq!(h.state().session.prefs.cursor_movement, CursorMovement::Visual, "Visual sets it back");
+}

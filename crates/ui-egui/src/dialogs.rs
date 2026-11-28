@@ -263,7 +263,12 @@ pub enum Dialog {
         #[serde(skip)]
         resume: Option<Box<Dialog>>,
         id: String,
+        /// The Name box: a built-in style's name in the interface language (Titre 1, כותרת 1).
         name: String,
+        /// What the Name box showed when the dialog opened: OK renames the style only when the
+        /// box no longer holds it, so a translated name never becomes the style's own.
+        #[serde(skip)]
+        name_was: String,
         font: String,
         size: f32,
         /// The style's complex-script font and size (Hebrew, Arabic… text, `w:cs` and `w:szCs`),
@@ -957,11 +962,13 @@ impl Dialog {
         // Word's complex script font and size, beside the Latin text ones, wherever right-to-left
         // text is written: in a right-to-left interface, or for a style such text uses.
         let complex = crate::rtl::on() || wordcraft_engine::cmd::para::style_used_for_rtl(&app.session.doc, id);
+        let shown = crate::i18n::style_name(st);
         Some(Dialog::ModifyStyle {
             back: false,
             resume: None,
             id: id.into(),
-            name: st.name.clone(),
+            name: shown.clone(),
+            name_was: shown,
             font: rc.font,
             size: rc.size,
             font_cs: rc.font_cs,

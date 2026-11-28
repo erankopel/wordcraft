@@ -478,7 +478,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: Form) -> bool {
         t.row(|r| {
             let base_label = r.cell(|ui| ui.label(tl!("Style based on:")));
             r.cell(|ui| {
-                let base = craft_ui::ComboBox::from_id_salt("tstyle_base").width(200.0).selected_text(base_name).show_ui(ui, |ui| {
+                let base = crate::rtl::ComboBox::from_id_salt("tstyle_base").width(200.0).selected_text(base_name).show_ui(ui, |ui| {
                     for (sid, sname) in &styles {
                         if ui.selectable_label(sid == based_on, sname).clicked() && sid != based_on {
                             *based_on = sid.clone();
@@ -492,7 +492,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: Form) -> bool {
         t.row(|r| {
             let region_label = r.cell(|ui| ui.label(tl!("Apply formatting to:")));
             r.cell(|ui| {
-                let part = craft_ui::ComboBox::from_id_salt("tstyle_region")
+                let part = crate::rtl::ComboBox::from_id_salt("tstyle_region")
                     .width(200.0)
                     .selected_text(tl!(PARTS.get(*region).map_or("Whole Table", |(_, l)| *l)))
                     .show_ui(ui, |ui| {
@@ -536,14 +536,14 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: Form) -> bool {
         ui.horizontal(|ui| {
             let current = LINE_STYLES.iter().find(|(s, _)| *s == pen.style).map_or("Single", |(_, n)| *n);
             let style_label = ui.label(tl!("Style:"));
-            let style = craft_ui::ComboBox::from_id_salt("tstyle_pen_style").selected_text(tl!(current)).width(90.0).show_ui(ui, |ui| {
+            let style = crate::rtl::ComboBox::from_id_salt("tstyle_pen_style").selected_text(tl!(current)).width(90.0).show_ui(ui, |ui| {
                 for (s, n) in LINE_STYLES {
                     ui.selectable_value(&mut pen.style, s, tl!(n));
                 }
             });
             style.response.labelled_by(style_label.id);
             let width_label = ui.label(tl!("Width:"));
-            let width = craft_ui::ComboBox::from_id_salt("tstyle_pen_width")
+            let width = crate::rtl::ComboBox::from_id_salt("tstyle_pen_width")
                 .selected_text(crate::i18n::fmt(tl!("{n} pt"), &[("n", &pen.width.to_string())]))
                 .width(70.0)
                 .show_ui(ui, |ui| {

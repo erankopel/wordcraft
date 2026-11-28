@@ -229,7 +229,7 @@ fn gradient(app: &mut WordApp, ui: &mut Ui, theme: &[Rgb], g: &Gradient) {
         let type_label = ui.label(tl!("Type"));
         let t = type_of(&g.kind);
         let mut pick = t;
-        let combo = craft_ui::ComboBox::from_id_salt("format_shape.type").selected_text(tl!(TYPES[t].0)).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("format_shape.type").selected_text(tl!(TYPES[t].0)).show_ui(ui, |ui| {
             for (i, (label, _)) in TYPES.iter().enumerate() {
                 ui.selectable_value(&mut pick, i, tl!(label));
             }

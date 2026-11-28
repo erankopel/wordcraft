@@ -107,7 +107,7 @@ pub(super) fn para_special(r: &mut crate::rtl::Cells, first: &mut f32, mixed: &m
     let special_label = r.cell(|ui| ui.label(tl!("Special:")));
     let shown = if blank { "" } else { tl!(SPECIAL[kind]) };
     r.cell(|ui| {
-        let combo = craft_ui::ComboBox::from_id_salt("para_special").selected_text(shown).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("para_special").selected_text(shown).show_ui(ui, |ui| {
             for (k, l) in SPECIAL.into_iter().enumerate() {
                 if ui.selectable_label(!blank && k == kind, tl!(l)).clicked() && (blank || k != kind) {
                     let by = if blank || kind == 0 { 36.0 / unit.pt_per_unit() } else { first.abs() };

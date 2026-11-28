@@ -263,7 +263,7 @@ pub(super) fn figures_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FiguresForm) ->
     ui.horizontal(|ui| {
         let label_label = ui.label(tl!("Label:"));
         let labels: Vec<(String, &str)> = f.labels.iter().map(|l| (l.clone(), l.as_str())).collect();
-        let combo = craft_ui::ComboBox::from_id_salt("tof_label").selected_text(shown_label(&f.label)).width(150.0).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("tof_label").selected_text(shown_label(&f.label)).width(150.0).show_ui(ui, |ui| {
             for (v, l) in &labels {
                 ui.selectable_value(&mut f.label, v.clone(), shown_label(l));
             }

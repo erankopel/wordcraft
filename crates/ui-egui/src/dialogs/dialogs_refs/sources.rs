@@ -175,7 +175,7 @@ pub(super) fn source_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SourceForm) -> N
             let kind_label = r.cell(|ui| ui.label(tl!("Source type:")));
             r.cell(|ui| {
                 let shown = SOURCE_TYPES.iter().find(|(k, ..)| *k == f.source.kind).map(|(_, l, _)| tl!(l).to_string()).unwrap_or_default();
-                let combo = craft_ui::ComboBox::from_id_salt("src_kind").selected_text(shown).width(200.0).show_ui(ui, |ui| {
+                let combo = crate::rtl::ComboBox::from_id_salt("src_kind").selected_text(shown).width(200.0).show_ui(ui, |ui| {
                     for (k, l, _) in SOURCE_TYPES {
                         ui.selectable_value(&mut f.source.kind, k.to_string(), tl!(l));
                     }

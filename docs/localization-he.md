@@ -48,6 +48,13 @@ right. In more detail:
 - Text fields, tooltips, the language-pack bar, Options › Language › Your languages and Add a
   language, File › Recover, the Colors dialog, Customize Keyboard and Customize Ribbon lists, the
   Print page's lists and the style gallery's and status bar's context menus are mirrored too.
+- **Drop-down lists** (`rtl::ComboBox`, every `craft_ui::ComboBox` the interface draws) start each
+  row at the right, the row as wide as the list. **Menu rows with a shortcut** (`rtl::menu_item`:
+  the ribbon's menus, the page's context menu, Search's results) are drawn shortcut at the far
+  side and named for a screen reader label first (`Bold Ctrl+B`), as they read.
+- **Insert › Date and Time** reads from the right: the formats at the right with the language to
+  their left, each list row, Update automatically and Set as Default from the right edge, OK and
+  Cancel at the far side. An error the engine reports shows in Hebrew where the catalog has it.
 - The Home › Styles gallery shows each style's sample from the right in a right-to-left document,
   and Design › Document Formatting draws its samples right to left.
 - The mini toolbar over a selection starts its rows at the right (the font box first), and the
@@ -284,8 +291,11 @@ Labels start on the region's paper (a DL envelope and A4 label sheets). Starting
   someone sets it, it follows the interface, and the box shows it ticked in the Hebrew one. **File ›
   Options › Advanced › Use Ctrl+Right Shift and Ctrl+Left Shift to set the paragraph direction**
   (`file.options` `directionKeys`) turns those keys on and off, with a note to turn them off where
-  Ctrl+Shift switches the keyboard layout (they start off on Linux and the BSDs). Both are described
-  in [typing parity](typing-parity.md).
+  Ctrl+Shift switches the keyboard layout (they start off on Linux and the BSDs). **Cursor
+  movement** (תנועת הסמן, `file.options` `cursorMovement`) beside it chooses Logical (לוגית: the
+  arrow keys move through the text in the order it was typed) or Visual (חזותית: left or right on
+  the screen, the default), with a line under it saying what the choice does. All three are
+  described in [typing parity](typing-parity.md).
 - **AutoCorrect (HE-16, done):** Hebrew text has a built-in AutoCorrect list of 96 entries of our
   own, listed for review in [the Hebrew AutoCorrect list](autocorrect-he.md): a final letter typed
   in its ordinary form (שלהמ → שלהם), most of them also after one to three of the prefix letters
@@ -307,7 +317,9 @@ Labels start on the region's paper (a DL envelope and A4 label sheets). Starting
   values it inherits. Its colour is a swatch with a palette, named by its row's label for a screen
   reader (the Font dialog's too), and the automatic colour reads אוטומטי (Automatic), not `auto`.
   New Style's Style based on lists the paragraph styles by the names the interface shows
-  (כותרת 1) and bases the new style on the style picked, by its id.
+  (כותרת 1) and bases the new style on the style picked, by its id. Modify Style's Name box shows
+  a built-in style's name as the interface does (רגיל for Normal), and OK renames the style only
+  when the box was edited, so OK alone never makes the translated name the style's own.
 - **Mail merge's Greeting Line** writes its words in the language of the text it stands in, as the
   engine's other words do (`wordcraft_doc::words`): in Hebrew text the recipient's name after
   לכבוד, which greets a man and a woman alike (לכבוד נועה לוי,), and, for a record with no name,
@@ -432,7 +444,9 @@ community link (`links_to_artcraft` in `crates/ui-egui/src/lib.rs`); its sample 
 and File › New's sample, in English and in Hebrew) leaves out the sentence that sends readers to
 the community board and its link, since the edition has no board of its own (`COMMUNITY_LINK` in
 `crates/engine/src/sample.rs`, from the same build variable, `WORDCRAFT_DEFAULT_LANGUAGE`; WordCraft's
-own builds keep the sentence and its link to getartcraft.com); see "Not done" for About. For
+own builds keep the sentence and its link to getartcraft.com). The About window (Help › Help) shows
+`crate::credits::about_ui` on its About tab (`crates/ui-egui/src/dialogs/dispatch.rs`), which in the
+edition says so in plain text, without the links. For
 the same reason the stock `README.md`, with the ArtCraft logo and those links, is not in the AppImage
 (`packaging/linux/package.sh` leaves it out of an edition with its own desktop id).
 
@@ -519,25 +533,14 @@ source and Cargo home folders are the same too: the binaries carry some of their
   the Hebrew IME and keyboard layouts on each platform, Hebrew calendar dates and gematria date
   formats, and Hebrew hyphenation (no pattern file exists for it).
 - Windows and macOS builds of the edition.
-- The About window (Help › Help) still says the program is part of the Crafting Apps from the
-  ArtCraft team and links to the ArtCraft team's site and Discord. The brand licence keeps those
-  for WordCraft's own builds, so a copy of the edition that is passed on must say instead, in plain
-  text, that it is based on WordCraft by the ArtCraft team, without the links. That page is ready as
-  `crate::credits::about_ui` (its Hebrew row is in the supplement), but the window, drawn in
-  `crates/ui-egui/src/dialogs/dispatch.rs`, doesn't call it yet: its About tab's own text has to give
-  way to `about_ui` before the AppImage is passed on.
 - The AppImage on a real Ubuntu 22.04 desktop: its glibc needs were checked as above, and its menu
   entry with `desktop-file-validate` and a throwaway HOME, not in GNOME's menu, dock and search.
-- Not mirrored yet: the Date and Time dialog; most drop-down lists still start their rows at the
-  left. Menu rows with a shortcut drawn by `rtl::menu_item` (the ribbon's menus, the page's context
-  menu) are mirrored but named for a screen reader shortcut first (`Ctrl+B Bold`); Search's results
-  set their own name, the command first.
-- Still English: the Date and Time dialog's messages; a built-in style's name in Modify Style's
-  Name box (a free text field that renames the style with what it holds: it needs to show the
-  translated name and send a name only when it was changed); and engine messages no row covers.
-- File › Options › Advanced has no control for the cursor movement setting (`file.options`
-  `cursorMovement`, visual or logical, see [typing parity](typing-parity.md)); the supplement has
-  its rows (תנועת הסמן: לוגית, חזותית).
+- Not mirrored yet: the lists of the font and size boxes (`widgets::combo`, `font_combo`: WordCraft
+  draws their rows, with font previews and section headings laid out from the left). The drop-down
+  lists of `craft_ui::ComboBox` start their rows at the right (`rtl::ComboBox`), the Date and Time
+  dialog reads from the right, and menu rows (`rtl::menu_item`) are named for a screen reader label
+  first (`Bold Ctrl+B`), as they read.
+- Still English: engine messages no row covers.
 - Installing a Language pack from a file downloaded in a browser (for a network whose filter breaks
   the download): craft-font-store at the pinned craft-libs has no public way to install a local
   archive against the pinned index's size and sha256 (its local path is the testing override, which
@@ -574,3 +577,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-28 | minor | A built-in Hebrew AutoCorrect list for Hebrew text (HE-16): 96 entries of our own, most final-letter ones also after prefix letters, listed in [autocorrect-he.md](autocorrect-he.md) for review |
 | 2026-11-28 | minor | Hebrew drop caps at full size; Hebrew text and Markdown files open with right-to-left paragraphs; a new address list's columns in Hebrew, which Address Block and Greeting Line read (State as מחוז); inserted icons described in the interface language; the Language pack bar links the index's source; the edition's sample links no ArtCraft site; Greeting Line's English words noted as not done |
 | 2026-11-28 | minor | Greeting Line greets in Hebrew in Hebrew text (לכבוד …, and שלום רב, with no name), English text unchanged; the edition's sample leaves out the community board's sentence instead of linking `example.org`; review fixes: Find's counts kept in English for scripts, Modify Style sends a complex script font or size only when it was changed or would be overwritten, the colour fields named by their rows, Match diacritics greyed with regular expressions, the page number box under the mirrored reference samples names no side, Paste Special's "and N more" in Hebrew; the Hebrew AutoCorrect list keeps a deleted or replaced entry's word as typed; a list with a ארץ column keeps its state in its מדינה column; a `.docx` file's text chunks take no direction from their letters; Markdown code lines stay left to right; Markdown Source's reset of a hand-set direction noted |
+| 2026-11-28 | minor | Insert › Date and Time read from the right, its errors in Hebrew; drop-down lists start their rows at the right (`rtl::ComboBox`); menu rows named label first; Modify Style's Name box in Hebrew, renaming only when edited; Options › Advanced › Cursor movement; the About window's edition page noted as done |

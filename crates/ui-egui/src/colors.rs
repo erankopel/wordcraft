@@ -676,7 +676,7 @@ fn custom(ui: &mut Ui, d: &mut ColorsDialog) {
         t.row(|r| {
             r.cell(|ui| ui.label(tl!("Color model:")));
             r.cell(|ui| {
-                craft_ui::ComboBox::from_id_salt("colors_model")
+                crate::rtl::ComboBox::from_id_salt("colors_model")
                     .selected_text(match d.model {
                         Model::Rgb => "RGB",
                         Model::Hsl => "HSL",

@@ -427,7 +427,7 @@ fn recipient_filter(ui: &mut Ui, fields: &[String], filter: &mut RecipientFilter
     let names: Vec<String> = fields.iter().map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect();
     let field_combo = |ui: &mut Ui, id: (&str, usize), value: &mut String, none: bool| {
         let shown = if value.is_empty() { tl!("(none)").to_string() } else { value.clone() };
-        craft_ui::ComboBox::from_id_salt(id).width(130.0).selected_text(shown).show_ui(ui, |ui| {
+        crate::rtl::ComboBox::from_id_salt(id).width(130.0).selected_text(shown).show_ui(ui, |ui| {
             if none {
                 ui.selectable_value(value, String::new(), tl!("(none)"));
             }
@@ -450,18 +450,18 @@ fn recipient_filter(ui: &mut Ui, fields: &[String], filter: &mut RecipientFilter
                     if i == 0 {
                         ui.label("");
                     } else {
-                        craft_ui::ComboBox::from_id_salt(("rf_join", i)).width(60.0).selected_text(tl!(if rule.or { "Or" } else { "And" })).show_ui(
-                            ui,
-                            |ui| {
+                        crate::rtl::ComboBox::from_id_salt(("rf_join", i))
+                            .width(60.0)
+                            .selected_text(tl!(if rule.or { "Or" } else { "And" }))
+                            .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut rule.or, false, tl!("And"));
                                 ui.selectable_value(&mut rule.or, true, tl!("Or"));
-                            },
-                        );
+                            });
                     }
                 });
                 r.cell(|ui| field_combo(ui, ("rf_field", i), &mut rule.field, false));
                 r.cell(|ui| {
-                    craft_ui::ComboBox::from_id_salt(("rf_op", i)).width(150.0).selected_text(tl!(rule.op.label())).show_ui(ui, |ui| {
+                    crate::rtl::ComboBox::from_id_salt(("rf_op", i)).width(150.0).selected_text(tl!(rule.op.label())).show_ui(ui, |ui| {
                         for op in FilterOp::ALL {
                             ui.selectable_value(&mut rule.op, op, tl!(op.label()));
                         }
@@ -497,7 +497,7 @@ fn recipient_filter(ui: &mut Ui, fields: &[String], filter: &mut RecipientFilter
                 r.cell(|ui| field_combo(ui, ("rs_field", i), field, true));
                 r.cell(|ui| {
                     ui.add_enabled_ui(!field.is_empty(), |ui| {
-                        craft_ui::ComboBox::from_id_salt(("rs_dir", i))
+                        crate::rtl::ComboBox::from_id_salt(("rs_dir", i))
                             .width(110.0)
                             .selected_text(tl!(if *desc { "Descending" } else { "Ascending" }))
                             .show_ui(ui, |ui| {

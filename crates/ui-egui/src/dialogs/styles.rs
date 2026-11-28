@@ -16,7 +16,7 @@ pub(super) fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut b
     }
     ui.horizontal(|ui| {
         ui.label(tl!("Sort order:"));
-        craft_ui::ComboBox::from_id_salt("manage_styles_sort")
+        crate::rtl::ComboBox::from_id_salt("manage_styles_sort")
             .selected_text(if *alphabetical { tl!("Alphabetical") } else { tl!("As Recommended") })
             .show_ui(ui, |ui| {
                 ui.selectable_value(alphabetical, false, tl!("As Recommended"));

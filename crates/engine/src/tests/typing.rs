@@ -989,6 +989,18 @@ fn a_tracked_border_line_at_the_top_supersedes_another_authors_formatting() {
     assert_eq!((p.props.align, p.props.borders.and_then(|b| b.bottom).is_some()), (Some(Align::Center), false));
 }
 
+/// The "+--+" table AutoFormat typed in right-to-left text makes a right-to-left table, as Insert
+/// Table does (#2634): its first column (the first run of hyphens) at the right. In left-to-right
+/// text it is left to right.
+#[test]
+fn a_table_line_typed_in_right_to_left_text_makes_a_right_to_left_table() {
+    for (above, rtl) in [("שלום\n", true), ("Hello\n", false)] {
+        let s = typed(&format!("{above}+--+------+\n"));
+        let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap_or_else(|| panic!("no table: {:?}", paras(&s)));
+        assert_eq!(t.props.bidi_visual, rtl, "{above:?}: the table takes the paragraph's direction");
+    }
+}
+
 #[test]
 fn a_tracked_table_line_keeps_its_characters_as_a_deletion() {
     let mut s = typed("+--+------+");

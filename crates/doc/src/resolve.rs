@@ -120,11 +120,21 @@ impl ResolvedChar {
             lang_bidi: c.lang_bidi.clone(),
             rtl: c.rtl.unwrap_or(false),
             cs: c.cs.unwrap_or(false),
+            // The complex-script font falls back to the other text's when nothing sets one (a
+            // file with no `w:rFonts/@w:cs` and no theme font for it, or a format with one font
+            // for every script): the letters are drawn in that face when it has them, else in the
+            // fallback faces, as before.
             font_cs: c.font_cs.clone().or_else(|| c.font.clone()).unwrap_or_else(|| crate::styles::BODY_FONT.to_string()),
             font_ea: c.font_ea.clone(),
-            size_cs: c.size_cs.or(c.size).unwrap_or(crate::props::DEFAULT_FONT_SIZE).clamp(1.0, 1638.0),
-            bold_cs: c.bold_cs.or(c.bold).unwrap_or(false),
-            italic_cs: c.italic_cs.or(c.italic).unwrap_or(false),
+            // Complex-script size, bold and italic are properties of their own (`w:szCs`, `w:bCs`,
+            // `w:iCs`, ECMA-376 §17.3.2.39, .2, .17): resolved through the same chain, never taken
+            // from the Latin size, bold or italic, with the defaults those have when nothing sets
+            // them (the default size, not bold, not italic). So a run with only `w:b` shows its
+            // Hebrew letters regular, as Word does. Formats without these values set them beside
+            // the others when read (`Document::pair_complex`).
+            size_cs: c.size_cs.unwrap_or(crate::props::DEFAULT_FONT_SIZE).clamp(1.0, 1638.0),
+            bold_cs: c.bold_cs.unwrap_or(false),
+            italic_cs: c.italic_cs.unwrap_or(false),
         }
     }
     /// The formatting complex-script text in this run is drawn with: the complex-script font,

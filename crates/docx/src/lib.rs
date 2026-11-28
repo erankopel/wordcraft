@@ -64,13 +64,25 @@ pub fn read_with(bytes: &[u8], opts: &ReadOptions) -> Result<wordcraft_doc::Docu
         craft_docx::ReadOptions { password: opts.password, chunks: opts.chunks.as_ref().map(|_| &bridge_importer as craft_docx::ChunkImporter) };
 
     let shared = craft_docx::read_with(bytes, &shared_opts)?;
-    from_shared_model(shared)
+    from_shared_model(shared).map(complex_size_default)
+}
+
+/// Word's complex-script text size when the document defaults set none (`w:szCs`): 10 pt, the
+/// size `craft-docx` gives the other text when they set no `w:sz` (ECMA-376 §17.3.2.39: the
+/// default size where no level of the style hierarchy sets one). Said in the defaults, since
+/// WordCraft's own default size is another, so the file's Hebrew and Arabic text keeps the size
+/// Word gives it, and keeps it when saved.
+fn complex_size_default(mut doc: wordcraft_doc::Document) -> wordcraft_doc::Document {
+    if doc.styles.default_chr.size_cs.is_none() {
+        std::sync::Arc::make_mut(&mut doc.styles).default_chr.size_cs = Some(10.0);
+    }
+    doc
 }
 
 /// Read a Word XML file (`.xml`).
 pub fn read_xml(bytes: &[u8]) -> Result<wordcraft_doc::Document, DocxError> {
     let shared = craft_docx::read_xml(bytes)?;
-    from_shared_model(shared)
+    from_shared_model(shared).map(complex_size_default)
 }
 
 /// Write a document as `.docx`.

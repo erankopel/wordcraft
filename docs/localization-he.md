@@ -511,10 +511,20 @@ source and Cargo home folders are the same too: the binaries carry some of their
   AutoCorrect list.
 - Hebrew spelling on the very first launch with no network (see Spelling), and the quality of the
   `he` pack inside WordCraft's affix engine, which was not examined.
-- The tables created by Convert to Table, Draw Table, autoformat and mail-merge labels are not
-  mirrored in a Hebrew-first document, and ODT and HTML export do not write the default direction
-  (DOCX and RTF do): both are follow-ups. How Microsoft Word reads `w:bidi` in the document
-  defaults was not observed.
+- How Microsoft Word reads `w:bidi` in the document defaults was not observed. HTML export marks
+  a right-to-left document's whole page `dir="rtl"` but no paragraph's own direction (`craft-html`
+  writes none), so an English paragraph in a Hebrew document reads right to left in a browser;
+  the HTML clipboard fragment carries no direction at all. ODT export says each paragraph's
+  direction and the default style's, but reading an ODT file takes no direction from its default
+  style (`craft-odf`).
+- Complex-script bold, italic and size (`w:bCs`, `w:iCs`, `w:szCs`) are WordCraft's own, as in
+  Word, but not everywhere yet: the Word 97-2003 reader (`craft-doc-binary`) reads only the
+  complex-script font, so a `.doc` file's Hebrew text takes the Latin bold, italic and size, as
+  before, until it reads sprmCFBoldBi, sprmCFItalicBi, sprmCHpsBi (and sprmCFBiDi); the ODT
+  writer gives Hebrew text the Latin bold and italic where the document sets no complex-script
+  ones (`craft-odf`); and the Font dialog's and the bullet dialog's samples (`crates/ui-egui`)
+  draw Hebrew letters without the bold, italic and size they show. A complex-script font that
+  nothing sets still falls back to the Latin font (Word's own choice there was not observed).
 - Keyboard switching of paragraph direction with the two Shift keys of Windows Hebrew keyboards,
   the Hebrew IME and keyboard layouts on each platform, Hebrew calendar dates and gematria date
   formats, and Hebrew hyphenation (no pattern file exists for it).
@@ -574,3 +584,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-28 | minor | A built-in Hebrew AutoCorrect list for Hebrew text (HE-16): 96 entries of our own, most final-letter ones also after prefix letters, listed in [autocorrect-he.md](autocorrect-he.md) for review |
 | 2026-11-28 | minor | Hebrew drop caps at full size; Hebrew text and Markdown files open with right-to-left paragraphs; a new address list's columns in Hebrew, which Address Block and Greeting Line read (State as מחוז); inserted icons described in the interface language; the Language pack bar links the index's source; the edition's sample links no ArtCraft site; Greeting Line's English words noted as not done |
 | 2026-11-28 | minor | Greeting Line greets in Hebrew in Hebrew text (לכבוד …, and שלום רב, with no name), English text unchanged; the edition's sample leaves out the community board's sentence instead of linking `example.org`; review fixes: Find's counts kept in English for scripts, Modify Style sends a complex script font or size only when it was changed or would be overwritten, the colour fields named by their rows, Match diacritics greyed with regular expressions, the page number box under the mirrored reference samples names no side, Paste Special's "and N more" in Hebrew; the Hebrew AutoCorrect list keeps a deleted or replaced entry's word as typed; a list with a ארץ column keeps its state in its מדינה column; a `.docx` file's text chunks take no direction from their letters; Markdown code lines stay left to right; Markdown Source's reset of a hand-set direction noted |
+| 2026-11-28 | minor | Hebrew letters take only the complex-script bold, italic and size (`w:bCs`, `w:iCs`, `w:szCs`, RTL-11), as in Word: a Word file's run with only `w:b`, `w:i` or `w:sz` leaves them plain, and with no `w:szCs` in its defaults they are 10 pt; HTML, Markdown, RTF, LaTeX and Word 97-2003 files give them the Latin values when read, ODT its sizes; Convert Text to Table, Quick Tables, Draw Table, the "+--+" AutoFormat table and mail-merge labels are right to left in right-to-left text; ODT and HTML export write a right-to-left document's default direction |

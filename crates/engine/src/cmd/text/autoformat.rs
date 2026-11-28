@@ -451,6 +451,9 @@ pub(super) fn apply_table_line(s: &mut Session, at: &Pos, cols: &[usize]) -> Res
     let block = at.path.0.first().copied().unwrap_or(0) as usize;
     let width = s.doc.sections().get(s.doc.section_index_of(block)).map(|(_, sp)| sp.text_width()).unwrap_or(468.0).max(36.0);
     let mut t = Table::new(1, cols.len(), width);
+    // The typed line's paragraph reads right to left: so does the table, its first column (the
+    // first run of hyphens) at the right.
+    t.props.bidi_visual = crate::cmd::table::rtl_table_at(s, at);
     for (i, d) in cols.iter().enumerate() {
         let w = (width * *d as f32 / total).max(6.0);
         if let Some(g) = t.grid.get_mut(i) {

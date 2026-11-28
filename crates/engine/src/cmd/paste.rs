@@ -336,6 +336,13 @@ pub fn merge_formatting(s: &Session, frag: &mut Fragment) {
                 if src.italic == Some(true) {
                     run.props.italic = Some(true);
                 }
+                // Hebrew and Arabic letters keep their own emphasis (`w:bCs`, `w:iCs`).
+                if src.bold_cs == Some(true) {
+                    run.props.bold_cs = Some(true);
+                }
+                if src.italic_cs == Some(true) {
+                    run.props.italic_cs = Some(true);
+                }
                 if src.underline.is_some_and(|u| u != wordcraft_doc::props::Underline::None) {
                     run.props.underline = src.underline;
                 }

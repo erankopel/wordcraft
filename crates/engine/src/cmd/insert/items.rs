@@ -44,12 +44,12 @@ fn page_number_paragraph(style: &str, align: Align, x_of_y: Option<(&str, &str)>
     para.props.tabs = Some(vec![TabStop { pos: 0.0, align: TabAlign::Clear, leader: Default::default() }]);
     if let Some((before, between)) = x_of_y {
         para.insert_text(0, &format!("{before}{between}"), &CharProps::default())?;
-        para.insert_object(before.len(), field, &CharProps { bold: Some(true), ..Default::default() })?;
+        para.insert_object(before.len(), field, &CharProps { bold: Some(true), bold_cs: Some(true), ..Default::default() })?;
         let end = para.len();
         para.insert_object(
             end,
             InlineObject::Field { instr: "NUMPAGES".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
-            &CharProps { bold: Some(true), ..Default::default() },
+            &CharProps { bold: Some(true), bold_cs: Some(true), ..Default::default() },
         )?;
     } else {
         para.insert_object(0, field, &CharProps::default())?;
@@ -499,8 +499,10 @@ pub(super) fn cover_page(s: &mut Session, v: &Value) -> CmdResult {
     for _ in 0..14 {
         blocks.push(Block::Para(Paragraph::new()));
     }
-    blocks
-        .push(Block::Para(Paragraph::with_text(&author, CharProps { bold: Some(true), color: Some(TextColor::Rgb(accent)), ..Default::default() })));
+    blocks.push(Block::Para(Paragraph::with_text(
+        &author,
+        CharProps { bold: Some(true), bold_cs: Some(true), color: Some(TextColor::Rgb(accent)), ..Default::default() },
+    )));
     let mut date = Paragraph::with_text(&crate::cmd::words::long_date(lang), CharProps::default());
     date.insert_text(date.len(), "\u{000C}", &CharProps::default())?;
     blocks.push(Block::Para(date));

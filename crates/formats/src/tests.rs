@@ -1247,3 +1247,80 @@ fn latex_export_keeps_repeated_spaces() {
     let d = crate::import("tex", tex.as_bytes()).unwrap().unwrap();
     assert_eq!(para_texts(&d), vec!["a  b   c".to_string()]);
 }
+
+/// שלום (Hebrew letters).
+const SHALOM: &str = "\u{05E9}\u{05DC}\u{05D5}\u{05DD}";
+
+/// The (bold, italic, size) the Hebrew letters of the first paragraph are drawn with.
+fn hebrew_format(d: &Document) -> (bool, bool, f32) {
+    let p = d.body.iter().find_map(|b| b.as_para()).expect("a paragraph");
+    let (_, c) = p.run_ranges().find(|(r, _)| p.text.get(r.clone()).is_some_and(|t| t.contains(SHALOM))).expect("the Hebrew run");
+    let cs = d.styles.resolve_char(p.props.style.as_deref(), c).complex();
+    (cs.bold, cs.italic, cs.size)
+}
+
+/// RTL-11: formats with one bold, italic and size for every script (HTML, Markdown, RTF) give
+/// them to Hebrew text too, said with the complex-script values, now that those are resolved on
+/// their own: the Hebrew letters look as they did.
+#[test]
+fn hebrew_text_read_from_single_format_files_keeps_its_bold_italic_and_size() {
+    let html = format!("<p><b><i><span style=\"font-size:20pt\">{SHALOM}</span></i></b></p>");
+    let d = import("html", html.as_bytes()).unwrap().unwrap();
+    assert_eq!(hebrew_format(&d), (true, true, 20.0), "HTML");
+    let d = import("md", format!("***{SHALOM}***").as_bytes()).unwrap().unwrap();
+    let (bold, italic, _) = hebrew_format(&d);
+    assert!(bold && italic, "Markdown");
+    let rtf = b"{\\rtf1\\ansi{\\b\\i\\fs40 \\u1513?\\u1500?\\u1493?\\u1501?}}";
+    let d = import("rtf", rtf).unwrap().unwrap();
+    assert_eq!(hebrew_format(&d), (true, true, 20.0), "RTF");
+}
+
+/// A document whose paragraphs read right to left by default, as the edition's new documents do.
+fn rtl_document() -> Document {
+    let mut d = Document::from_text(&format!("{SHALOM}\nHello"));
+    let st = Arc::make_mut(&mut d.styles);
+    st.default_para.bidi = Some(true);
+    st.default_chr.lang = Some("en-US".into());
+    st.default_chr.lang_bidi = Some("he-IL".into());
+    d
+}
+
+/// The `styles.xml` of an ODT package.
+fn odt_styles(bytes: &[u8]) -> String {
+    let mut zip = craft_zip::Archive::open(bytes, craft_zip::Limits { max_entries: 100, max_total_bytes: 1 << 26 }).unwrap();
+    String::from_utf8(zip.read("styles.xml", 1 << 26).unwrap().unwrap()).unwrap()
+}
+
+/// ODT export says a right-to-left document's default direction in its default paragraph style,
+/// as DOCX and RTF do; the package still opens, its paragraphs with their directions. A
+/// left-to-right document's default style says none.
+#[test]
+fn odt_export_writes_the_default_direction() {
+    let default_style = |styles: &str| {
+        let at = styles.find("<style:default-style style:family=\"paragraph\">").unwrap();
+        styles[at..at + styles[at..].find("/>").unwrap()].to_string()
+    };
+    let rtl = export("odt", &rtl_document()).unwrap().unwrap();
+    assert!(default_style(&odt_styles(&rtl)).contains("style:writing-mode=\"rl-tb\""), "{}", default_style(&odt_styles(&rtl)));
+    let back = import("odt", &rtl).unwrap().unwrap();
+    let dirs: Vec<bool> = back.body.iter().filter_map(|b| b.as_para()).map(|p| back.styles.resolve_para(&p.props).bidi).collect();
+    assert_eq!(dirs.first(), Some(&true), "the Hebrew paragraph reads right to left after a round trip");
+    let flat = String::from_utf8(export("fodt", &rtl_document()).unwrap().unwrap()).unwrap();
+    assert!(default_style(&flat).contains("style:writing-mode=\"rl-tb\""), "flat ODT");
+
+    let ltr = export("odt", &Document::from_text("Hello")).unwrap().unwrap();
+    assert!(!default_style(&odt_styles(&ltr)).contains("writing-mode"), "a left-to-right document says nothing");
+}
+
+/// HTML export reads right to left when the document does by default (`dir="rtl"`, in the
+/// document's language as a whole); a left-to-right document's page is unchanged.
+#[test]
+fn html_export_writes_the_default_direction() {
+    let rtl = String::from_utf8(export("html", &rtl_document()).unwrap().unwrap()).unwrap();
+    assert!(rtl.contains("<html lang=\"he-IL\" dir=\"rtl\">"), "{}", &rtl[..rtl.len().min(200)]);
+    let ltr_doc = Document::from_text("Hello");
+    let ltr = String::from_utf8(export("html", &ltr_doc).unwrap().unwrap()).unwrap();
+    assert!(!ltr.contains("dir=\"rtl\""));
+    let shared = wordcraft_docx::to_shared_model(&ltr_doc).unwrap();
+    assert_eq!(ltr, craft_html::doc::export(&shared), "unchanged");
+}

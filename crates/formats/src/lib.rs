@@ -100,6 +100,15 @@ pub(crate) fn rtl_by_first_letter(doc: &mut Document) {
     }
 }
 
+/// A document read from a format with one size, bold and italic for every script (Markdown,
+/// HTML, RTF as `craft-rtf` reads it, LaTeX): its Hebrew and Arabic text takes them too, said
+/// explicitly, since WordCraft resolves the complex-script values on their own
+/// ([`Document::pair_complex`]).
+pub(crate) fn one_format_for_all_scripts(mut doc: Document) -> Document {
+    doc.pair_complex(true);
+    doc
+}
+
 /// Export `doc` in the format named by `ext`. `None` = not our format.
 pub fn export(ext: &str, doc: &Document) -> Option<Result<Vec<u8>, String>> {
     let ext = ext.trim_start_matches('.').to_ascii_lowercase();

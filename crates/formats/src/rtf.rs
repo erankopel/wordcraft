@@ -4,7 +4,7 @@ use wordcraft_doc::Document;
 
 pub fn import(bytes: &[u8]) -> Result<Document, String> {
     let shared = craft_rtf::doc::import(bytes)?;
-    wordcraft_docx::from_shared_model(shared).map_err(|e| e.to_string())
+    wordcraft_docx::from_shared_model(shared).map(crate::one_format_for_all_scripts).map_err(|e| e.to_string())
 }
 
 pub fn parse(bytes: &[u8]) -> Result<crate::model::Flow, String> {

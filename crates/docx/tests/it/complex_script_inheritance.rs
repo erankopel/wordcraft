@@ -201,3 +201,25 @@ fn split_runs_add_no_phantom_tracked_formatting() {
         assert_eq!((old.rtl, old.lang_bidi.as_deref()), (run.props.rtl, run.props.lang_bidi.as_deref()));
     }
 }
+
+/// RTL-11: a run that sets only the Latin bold, italic and size (`w:b`, `w:i`, `w:sz`, as a
+/// Latin-only generator writes it) formats its Latin text alone: its Hebrew letters stay regular
+/// and upright at the default size, 10 pt when the document defaults set no `w:szCs` (as no
+/// `w:sz` gives 10 pt), as Word shows them. So it stays through saves.
+#[test]
+fn latin_only_bold_italic_and_size_leave_hebrew_letters_plain() {
+    let run = r#"<w:b/><w:i/><w:sz w:val="40"/>"#;
+    check_generations(&package(run, "", "", ""), |d| {
+        let p = paragraph(d);
+        let c = d.styles.resolve_char(p.props.style.as_deref(), &p.runs[0].props);
+        assert_eq!((c.bold, c.italic, c.size), (true, true, 20.0), "the Latin text");
+        let cs = c.complex();
+        assert_eq!((cs.bold, cs.italic, cs.size), (false, false, 10.0), "the Hebrew letters");
+    });
+    // Sizes in the document defaults: the Hebrew letters take the complex-script one only.
+    check_generations(&package(run, r#"<w:sz w:val="24"/><w:szCs w:val="28"/>"#, "", ""), |d| {
+        let p = paragraph(d);
+        let cs = d.styles.resolve_char(p.props.style.as_deref(), &p.runs[0].props).complex();
+        assert_eq!((cs.bold, cs.size), (false, 14.0));
+    });
+}

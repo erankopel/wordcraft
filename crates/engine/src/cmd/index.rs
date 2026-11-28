@@ -252,12 +252,21 @@ type Line = Vec<(String, CharProps)>;
 fn refs(line: &mut Line, node: &Node, sep: &str) {
     for (k, r) in node.pages.iter().enumerate() {
         line.push((if k == 0 { sep.to_string() } else { ", ".into() }, CharProps::default()));
-        line.push((r.page.clone(), CharProps { bold: r.bold.then_some(true), italic: r.italic.then_some(true), ..Default::default() }));
+        line.push((
+            r.page.clone(),
+            CharProps {
+                bold: r.bold.then_some(true),
+                bold_cs: r.bold.then_some(true),
+                italic: r.italic.then_some(true),
+                italic_cs: r.italic.then_some(true),
+                ..Default::default()
+            },
+        ));
     }
     for (k, see) in node.see.iter().enumerate() {
         let lead = if k > 0 || !node.pages.is_empty() { "; " } else { ". " };
         line.push((lead.into(), CharProps::default()));
-        line.push((see.clone(), CharProps { italic: Some(true), ..Default::default() }));
+        line.push((see.clone(), CharProps { italic: Some(true), italic_cs: Some(true), ..Default::default() }));
     }
 }
 

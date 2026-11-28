@@ -274,6 +274,10 @@ pub(super) fn labels(s: &mut Session, v: &Value) -> CmdResult {
     let (page_w, page_h) = if prod.paper == "A4" { (595.3, 841.9) } else { (612.0, 792.0) };
     let h_gap = (prod.h_pitch - prod.width).max(0.0);
     let v_gap = (prod.v_pitch - prod.height).max(0.0);
+    // Labels made from a right-to-left document (its paragraph at the caret) read right to left:
+    // the first label at the sheet's top right, each label's lines from the right. The sheet's
+    // columns fill the page from margin to margin, so every label keeps its place on the sheet.
+    let rtl = crate::cmd::table::rtl_table_at(s, &s.sel.focus);
     let mut d = Document::new();
     d.last_section.page_w = page_w;
     d.last_section.page_h = page_h;
@@ -297,6 +301,7 @@ pub(super) fn labels(s: &mut Session, v: &Value) -> CmdResult {
         t.props.style = None;
         t.props.borders = Some(wordcraft_doc::props::Borders::default());
         t.props.fixed = true;
+        t.props.bidi_visual = rtl;
         t.grid = grid_cols.iter().map(|c| if c.is_some() { prod.width } else { h_gap }).collect();
         for (row, r) in t.rows.iter_mut().zip(&grid_rows) {
             row.props.height = Some(if r.is_some() { prod.height } else { v_gap });
@@ -322,8 +327,12 @@ pub(super) fn labels(s: &mut Session, v: &Value) -> CmdResult {
                     .take(20)
                     .map(|l| {
                         let mut p = Paragraph::with_text(l, CharProps::default()).styled("NoSpacing");
+                        // Start-aligned, from the start side (the right in a right-to-left label).
                         p.props.align = Some(Align::Left);
                         p.props.indent_left = Some(9.0);
+                        if rtl {
+                            p.props.bidi = Some(true);
+                        }
                         para_block(p)
                     })
                     .collect();

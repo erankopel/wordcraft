@@ -886,3 +886,48 @@ fn a_hebrew_drop_cap_is_drawn_as_large_as_a_latin_one() {
     let (cap_ratio, text_ratio) = (big_cap / latin_cap, big_text / latin_text);
     assert!((cap_ratio - text_ratio).abs() < 0.05, "the letter grows with the text: ×{cap_ratio} for ×{text_ratio}");
 }
+
+/// RTL-11: Hebrew letters are set in the complex-script bold, italic and size alone (`w:bCs`,
+/// `w:iCs`, `w:szCs`), as Word sets them: a run that sets only bold, only italic or only a size
+/// (what a Latin-only generator writes) leaves its Hebrew letters as they were, while its Latin
+/// words take it as before; the complex-script values take the Hebrew letters on their own.
+#[test]
+fn hebrew_letters_take_only_the_complex_script_bold_italic_and_size() {
+    crate::test_fonts();
+    let text = "שלום world";
+    let latin_at = text.find('w').unwrap();
+    // The (bold, italic, size) the Hebrew letter at 0 and the Latin word are drawn with, with the
+    // run's direct formatting set by `set`.
+    let drawn = |set: &dyn Fn(&mut wordcraft_doc::props::CharProps)| {
+        let mut d = doc_of(&[(text, true)]);
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        set(&mut p.runs[0].props);
+        let l = lay(&d);
+        let (pl, _) = first_line(&l, 0);
+        let at = |off: usize| {
+            let c = pl.clusters.iter().find(|c| c.start == off).unwrap();
+            let rc = &pl.styles[c.style as usize].rc;
+            (rc.bold, rc.italic, rc.size)
+        };
+        (at(0), at(latin_at))
+    };
+    let (hebrew, latin) = drawn(&|_| {});
+    assert!(!hebrew.0 && !hebrew.1 && !latin.0 && !latin.1, "plain text: {hebrew:?} {latin:?}");
+
+    let (h, l) = drawn(&|c| c.bold = Some(true));
+    assert_eq!(h, hebrew, "only w:b: the Hebrew letters stay regular");
+    assert!(l.0 && !l.1 && l.2 == latin.2, "only w:b: the Latin word is bold, as before: {l:?}");
+
+    let (h, l) = drawn(&|c| c.italic = Some(true));
+    assert_eq!(h, hebrew, "only w:i: the Hebrew letters stay upright");
+    assert!(l.1 && !l.0 && l.2 == latin.2, "only w:i: the Latin word is italic, as before: {l:?}");
+
+    let big = latin.2 * 2.0;
+    let (h, l) = drawn(&|c| c.size = Some(big));
+    assert_eq!(h, hebrew, "only w:sz: the Hebrew letters keep their size");
+    assert_eq!(l, (false, false, big), "only w:sz: the Latin word takes it, as before");
+
+    let (h, l) = drawn(&|c| (c.bold_cs, c.italic_cs, c.size_cs) = (Some(true), Some(true), Some(big)));
+    assert_eq!(h, (true, true, big), "the complex-script values format the Hebrew letters");
+    assert_eq!(l, latin, "and leave the Latin word as it was");
+}

@@ -78,13 +78,18 @@ impl DefineBulletForm {
         }
     }
 
-    /// The bullet's formatting as the preview draws it, at [`Self::preview_pt`].
+    /// The bullet's formatting as the preview draws it, at [`Self::preview_pt`]. A complex script
+    /// bullet (a Hebrew letter) takes the same size, bold and italic: those no longer fall back to
+    /// the Latin ones. The dialog has no complex script font.
     pub fn chr(&self) -> wordcraft_doc::props::CharProps {
         wordcraft_doc::props::CharProps {
             size: Some(self.preview_pt()),
+            size_cs: Some(self.preview_pt()),
             font: (!self.font.is_empty()).then(|| self.font.clone()),
             bold: self.bold.then_some(true),
+            bold_cs: self.bold.then_some(true),
             italic: self.italic.then_some(true),
+            italic_cs: self.italic.then_some(true),
             color: wordcraft_doc::Rgb::parse(&self.color).map(wordcraft_doc::props::TextColor::Rgb),
             ..Default::default()
         }
@@ -287,8 +292,12 @@ mod tests {
         assert_eq!(at("72"), 20.0, "kept to the rows");
         assert_eq!(at("abc"), 11.0);
         // The preview draws the character with these props: `previews::glyph` keeps their size.
-        let f = DefineBulletForm { size: "16".into(), ..DefineBulletForm::plain("•") };
-        assert_eq!(f.chr().size, Some(16.0));
+        let f = DefineBulletForm { size: "16".into(), bold: true, italic: true, ..DefineBulletForm::plain("•") };
+        let c = f.chr();
+        assert_eq!(c.size, Some(16.0));
+        // A Hebrew letter as the bullet is drawn the same: complex script size, bold and italic
+        // don't fall back to the Latin ones.
+        assert_eq!((c.size_cs, c.bold_cs, c.italic_cs), (c.size, c.bold, c.italic), "complex script letters drawn alike");
     }
 
     /// Symbol… hands the form to the Symbol dialog, whose OK brings it back with the character

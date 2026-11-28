@@ -145,7 +145,6 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     if *complex {
         sample_props.font_cs = Some(app.previews.font_stored(font_cs));
         sample_props.size_cs = Some(super::font::preview_size(size_cs).min(40.0));
-        (sample_props.bold_cs, sample_props.italic_cs) = (Some(*bold), Some(*italic));
     }
     crate::widgets::section(ui, "", |ui| {
         crate::rtl::Table::new("fontdlg").columns(2).spacing(vec2(10.0, 6.0)).show(ui, |t| {
@@ -362,7 +361,7 @@ fn paragraph_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     let align_label = ui.label(tl!("Alignment:"));
                     let shown =
                         if mixed.contains("align") { "" } else { ALIGNS.iter().find(|(v, _)| v == align).map_or(align.as_str(), |(_, l)| tl!(l)) };
-                    let combo = craft_ui::ComboBox::from_id_salt("para_align").selected_text(shown).show_ui(ui, |ui| {
+                    let combo = crate::rtl::ComboBox::from_id_salt("para_align").selected_text(shown).show_ui(ui, |ui| {
                         for (v, l) in ALIGNS {
                             if ui.selectable_value(align, v.to_string(), tl!(l)).clicked() {
                                 mixed.remove("align");
@@ -1014,7 +1013,7 @@ fn phonetic_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let align_label = r.cell(|ui| ui.label(tl!("Alignment:")));
             r.cell(|ui| {
                 let shown = ALIGNS.iter().find(|(k, _)| k == align).map_or("Center", |(_, l)| l);
-                let combo = craft_ui::ComboBox::from_id_salt("phonetic_align").selected_text(tl!(shown)).show_ui(ui, |ui| {
+                let combo = crate::rtl::ComboBox::from_id_salt("phonetic_align").selected_text(tl!(shown)).show_ui(ui, |ui| {
                     for (k, l) in ALIGNS {
                         ui.selectable_value(align, k.to_string(), tl!(l));
                     }
@@ -1070,7 +1069,7 @@ fn new_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let based_label = r.cell(|ui| ui.label(tl!("Style based on:")));
             r.cell(|ui| {
                 let shown = styles.iter().find(|(id, _)| id == based_on).map_or_else(|| based_on.clone(), |(_, shown)| shown.clone());
-                let combo = craft_ui::ComboBox::from_id_salt("ns_based_on").selected_text(shown).width(220.0).show_ui(ui, |ui| {
+                let combo = crate::rtl::ComboBox::from_id_salt("ns_based_on").selected_text(shown).width(220.0).show_ui(ui, |ui| {
                     for (id, shown) in &styles {
                         ui.selectable_value(based_on, id.clone(), shown.as_str());
                     }
@@ -1092,7 +1091,8 @@ fn new_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
 }
 
 fn modify_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
-    let Dialog::ModifyStyle { back, resume, id, name, font, size, font_cs, size_cs, complex, bold, italic, color, before, after } = d else {
+    let Dialog::ModifyStyle { back, resume, id, name, name_was, font, size, font_cs, size_cs, complex, bold, italic, color, before, after } = d
+    else {
         return false;
     };
     let fams = app.previews.families();
@@ -1205,7 +1205,13 @@ fn modify_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             // Automatic, picked in the colour's drop-down.
             chr["color"] = json!("Auto");
         }
-        let _ = app.run("styles.modify", json!({"style": id, "name": name, "chr": chr, "para": {"spaceBefore": *before, "spaceAfter": *after}}));
+        let mut params = json!({"style": id, "chr": chr, "para": {"spaceBefore": *before, "spaceAfter": *after}});
+        // A new name only when the box was edited: it shows a built-in style's translated name,
+        // which must not become the style's own.
+        if name.trim() != name_was.trim() {
+            params["name"] = json!(name.trim());
+        }
+        let _ = app.run("styles.modify", params);
     }
     if (ok || cancel) && *back {
         app.dialog = Some(Dialog::ManageStyles { alphabetical: false, selected: id.clone() });
@@ -1301,13 +1307,9 @@ pub(crate) fn search_results(app: &mut WordApp, ui: &mut Ui, query: &str, enter:
 
 /// One of Search's results: a menu row with `label` at the side reading starts from and its
 /// `shortcut` at the far side, so a right-to-left interface mirrors it. A screen reader reads the
-/// label first, as the row reads, then the shortcut.
+/// label first, as the row reads, then the shortcut ([`crate::rtl::menu_item`]).
 fn search_row(ui: &mut Ui, label: &str, shortcut: &str, width: f32) -> egui::Response {
-    let row = ui.add(crate::rtl::menu_item(ui, label, shortcut, width));
-    let name = if shortcut.is_empty() { label.to_string() } else { format!("{label} {shortcut}") };
-    let enabled = ui.is_enabled();
-    row.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &name));
-    row
+    ui.add(crate::rtl::menu_item(ui, label, shortcut, width))
 }
 
 fn paste_special_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
@@ -1721,7 +1723,7 @@ fn merge_rule_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 if fields.is_empty() {
                     ui.text_edit_singleline(field);
                 } else {
-                    craft_ui::ComboBox::from_id_salt("merge_rule_field").selected_text(field.as_str()).width(200.0).show_ui(ui, |ui| {
+                    crate::rtl::ComboBox::from_id_salt("merge_rule_field").selected_text(field.as_str()).width(200.0).show_ui(ui, |ui| {
                         for f in fields.iter() {
                             ui.selectable_value(field, f.clone(), f);
                         }
@@ -1947,6 +1949,42 @@ mod tests {
         let h = dialog_harness(app);
         let color = h.get_by_role_and_label(Role::Button, "Color:").accesskit_node().value();
         assert_eq!(color.as_deref(), Some("123456"), "Color: the hex value");
+    }
+
+    /// Modify Style's Name box shows a built-in style's translated name; OK without an edit keeps
+    /// the style's own name (it used to rename Normal to the translation), and an edited name
+    /// renames the style.
+    #[test]
+    fn modify_style_renames_only_when_the_name_was_edited() {
+        // The language is thread-local: put English back even when an assertion fails.
+        struct English;
+        impl Drop for English {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _english = English;
+        crate::i18n::set_current(crate::i18n::fixture_lang("he", "\tNormal\t\u{05E8}\u{05D2}\u{05D9}\u{05DC}\n"));
+        let stored = |app: &WordApp| app.session.doc.styles.get("Normal").map(|st| st.name.clone()).unwrap_or_default();
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+        let english = stored(&app);
+        let mut d = Dialog::modify_style(&app, "Normal");
+        let Some(Dialog::ModifyStyle { name, .. }) = &d else { panic!("Modify Style opens") };
+        assert_ne!(name, &english, "the Name box shows the translated name");
+        let mut app = app;
+        app.dialog = d.take();
+        let mut h = dialog_harness(app);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        assert_eq!(stored(h.state()), english, "OK without an edit keeps the style's name");
+        let mut d = Dialog::modify_style(h.state(), "Normal");
+        let Some(Dialog::ModifyStyle { name, .. }) = &mut d else { panic!("Modify Style opens again") };
+        *name = "  Body ".into();
+        h.state_mut().dialog = d;
+        h.run_steps(3);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        assert_eq!(stored(h.state()), "Body", "an edited name renames the style, without the spaces around it");
     }
 
     /// UWB-04: New Style's "Style based on" shows a built-in style by its name in the interface

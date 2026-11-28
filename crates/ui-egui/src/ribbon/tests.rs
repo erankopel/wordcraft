@@ -392,6 +392,23 @@ fn page_setup_menus_mark_the_current_setting() {
     assert_eq!(first_words, ["Narrow", "Landscape", "A4", "Right"], "{checked:?}");
 }
 
+/// Hyphenation's Automatic and None rows expose which is chosen as selected state and are named
+/// by their label alone (the chosen one read "✓ Automatic", with no state); the mark follows a
+/// change of the setting.
+#[test]
+fn the_hyphenation_menu_marks_the_setting_as_state_not_text() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+    let mut h =
+        egui_kittest::Harness::builder().with_size(vec2(400.0, 400.0)).build_ui_state(|ui, app: &mut WordApp| hyphenation_items(ui, app), app);
+    for value in [true, false] {
+        h.state_mut().run("layout.hyphenation", json!({"value": value})).unwrap();
+        h.run_steps(2);
+        let ticked = |label: &str| h.get_by_label(label).accesskit_node().toggled() == Some(egui::accesskit::Toggled::True);
+        assert_eq!((ticked("Automatic"), ticked("None")), (value, !value), "automatic hyphenation {value}");
+    }
+}
+
 /// The Language menu's built-in short list, as `language_checks` takes it.
 fn short() -> Vec<(String, String)> {
     PROOFING_LANGUAGES.iter().map(|(t, n)| ((*t).to_string(), (*n).to_string())).collect()

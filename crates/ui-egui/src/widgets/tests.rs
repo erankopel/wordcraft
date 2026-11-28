@@ -789,3 +789,36 @@ fn layout_fit_one_page_button_renders_in_light_and_dark_themes() {
         assert!(button.rect().height() >= 40.0, "button must have allocated height in {theme:?}");
     }
 }
+
+/// An icon menu row (Insert › Shapes, New Drawing Canvas) is mirrored in a right-to-left
+/// interface, its text at the right and its shortcut at the left (it was drawn left to right in
+/// every language), and is named like a text menu row: the label, then the shortcut (AGENTS.md
+/// rule 21; it was named by the label alone).
+#[test]
+fn an_icon_menu_row_is_mirrored_and_named_with_its_shortcut() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::{NodeT as _, Queryable};
+    fn painted(shape: &egui::Shape, s: &str) -> Option<egui::Rect> {
+        match shape {
+            egui::Shape::Text(t) if t.galley.text() == s => Some(egui::Rect::from_min_size(t.pos, t.galley.size())),
+            egui::Shape::Vec(v) => v.iter().find_map(|x| painted(x, s)),
+            _ => None,
+        }
+    }
+    let hebrew = crate::i18n::fixture_lang("he", "\tHome\tבית\n");
+    for mirrored in [false, true] {
+        let h = egui_kittest::Harness::new_ui(move |ui| {
+            crate::i18n::set_current(if mirrored { hebrew } else { crate::i18n::Lang::EN });
+            let _ = icon_menu_item(ui, "canvas", "Shapes", "Ctrl+M", 240.0);
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        });
+        let row = h.get_by_role(Role::Button);
+        assert_eq!(row.accesskit_node().label().unwrap_or_default(), "Shapes Ctrl+M", "mirrored {mirrored}: label, then shortcut");
+        let row = row.rect();
+        let find = |s: &str| h.output().shapes.iter().find_map(|c| painted(&c.shape, s)).expect("painted");
+        let (text, shortcut) = (find("Shapes"), find("Ctrl+M"));
+        let text_nearer_right = row.max.x - text.max.x < text.min.x - row.min.x;
+        assert_eq!(text_nearer_right, mirrored, "mirrored {mirrored}: text {text:?} in row {row:?}");
+        assert_eq!(shortcut.center().x < text.center().x, mirrored, "mirrored {mirrored}: the shortcut on the far side of the text");
+    }
+}

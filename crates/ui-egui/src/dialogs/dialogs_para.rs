@@ -248,7 +248,7 @@ pub fn tabs(app: &mut WordApp, ui: &mut Ui, f: &mut TabsForm) -> bool {
                                     }
                                     // Alignment, picked in place.
                                     let mut a = t.align;
-                                    craft_ui::ComboBox::from_id_salt("tab_align")
+                                    crate::rtl::ComboBox::from_id_salt("tab_align")
                                         .width(86.0)
                                         .selected_text(tl!(crate::ruler_tabs::kind_label(a)))
                                         .show_ui(ui, |ui| {
@@ -269,7 +269,7 @@ pub fn tabs(app: &mut WordApp, ui: &mut Ui, f: &mut TabsForm) -> bool {
                                         .find(|(v, _, _)| *v == l)
                                         .map(|(_, _, fill)| if fill.is_empty() { tl!("None").to_string() } else { (*fill).to_string() })
                                         .unwrap_or_default();
-                                    craft_ui::ComboBox::from_id_salt("tab_leader")
+                                    crate::rtl::ComboBox::from_id_salt("tab_leader")
                                         .width(64.0)
                                         .selected_text(shown)
                                         .show_ui(ui, |ui| {
@@ -634,7 +634,7 @@ fn lines(ui: &mut Ui, id: &str, l: &mut LineForm, theme: &[Rgb], fill: Option<Rg
         crate::rtl::vertical(ui, |ui| {
             ui.label(tl!("Style:"));
             let current = STYLES.iter().find(|(s, _)| *s == l.style).map(|(_, n)| *n).unwrap_or("Single");
-            craft_ui::ComboBox::from_id_salt((id, "style")).selected_text(tl!(current)).width(120.0).show_ui(ui, |ui| {
+            crate::rtl::ComboBox::from_id_salt((id, "style")).selected_text(tl!(current)).width(120.0).show_ui(ui, |ui| {
                 for (s, n) in STYLES {
                     ui.selectable_value(&mut l.style, s, tl!(n));
                 }
@@ -642,7 +642,7 @@ fn lines(ui: &mut Ui, id: &str, l: &mut LineForm, theme: &[Rgb], fill: Option<Rg
             ui.label(tl!("Color:"));
             color_menu(ui, theme, &mut l.color);
             ui.label(tl!("Width:"));
-            craft_ui::ComboBox::from_id_salt((id, "width"))
+            crate::rtl::ComboBox::from_id_salt((id, "width"))
                 .selected_text(crate::i18n::fmt(tl!("{n} pt"), &[("n", &l.width.to_string())]))
                 .width(120.0)
                 .show_ui(ui, |ui| {

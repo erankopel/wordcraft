@@ -212,14 +212,66 @@ fn menu_layout() -> Layout {
 }
 
 /// A menu item: `text`, with its keyboard shortcut at the far side. `min_width` keeps a menu's
-/// items one width.
-pub fn menu_item<'a>(ui: &Ui, text: &'a str, shortcut: &'a str, min_width: f32) -> egui::Button<'a> {
+/// items one width. A screen reader reads the label first, as the row reads, then the shortcut
+/// (AGENTS.md rule 21): a mirrored row draws the shortcut first, which egui would read first.
+pub fn menu_item<'a>(ui: &Ui, text: &'a str, shortcut: &'a str, min_width: f32) -> impl egui::Widget + use<'a> {
     let button = if flows(ui) {
         egui::Button::new(egui::RichText::new(shortcut).weak()).right_text(text)
     } else {
         egui::Button::new(text).shortcut_text(shortcut)
     };
-    button.min_size(egui::vec2(min_width, 0.0))
+    let button = button.min_size(egui::vec2(min_width, 0.0));
+    move |ui: &mut Ui| {
+        let row = ui.add(button);
+        let name = if shortcut.is_empty() { text.to_string() } else { format!("{text} {shortcut}") };
+        let enabled = ui.is_enabled();
+        row.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &name));
+        row
+    }
+}
+
+/// A drop-down list: [`craft_ui::ComboBox`], whose menu lays its rows out from the left (egui's
+/// menu layout), with the rows starting from the side reading starts from: in a right-to-left
+/// interface each row's text is at the right, the row as wide as the list, and a row of several
+/// items runs right to left. Elsewhere it is exactly `craft_ui::ComboBox`.
+#[must_use = "You should call .show_ui"]
+pub struct ComboBox<'a>(craft_ui::ComboBox<'a>);
+
+impl<'a> ComboBox<'a> {
+    /// A combo box without a label.
+    pub fn from_id_salt(id_salt: impl egui::AsIdSalt) -> Self {
+        Self(craft_ui::ComboBox::from_id_salt(id_salt))
+    }
+
+    /// The button's minimum width.
+    pub fn width(self, width: f32) -> Self {
+        Self(self.0.width(width))
+    }
+
+    /// The maximum height of the menu's contents.
+    pub fn height(self, height: f32) -> Self {
+        Self(self.0.height(height))
+    }
+
+    /// What the button shows as the selected value.
+    pub fn selected_text(self, selected_text: impl egui::IntoAtoms<'a>) -> Self {
+        Self(self.0.selected_text(selected_text))
+    }
+
+    /// Shows the button, and `menu_contents` in the menu while it is open, laid out from the
+    /// reading start ([`list_rows`]).
+    pub fn show_ui<R>(self, ui: &mut Ui, menu_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<Option<R>> {
+        self.0.show_ui(ui, |ui| list_rows(ui, menu_contents))
+    }
+}
+
+/// A list's rows in a menu, from the side reading starts from: in a right-to-left interface every
+/// row is as wide as the list with its text at the right. Elsewhere this is just `add`.
+pub fn list_rows<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if !on() || flows(ui) {
+        return add(ui);
+    }
+    ui.with_layout(Layout::top_down_justified(Align::Max), add).inner
 }
 
 /// `Response::context_menu`, with its items aligned to the side reading starts from.
@@ -482,6 +534,79 @@ mod tests {
         assert!(x('W') > x('ה'), "right to left, the English word first: {} {}", x('W'), x('ה'));
         let both = field("Hello\nשלום");
         assert!(ink(&both, 0).0 < 1.0 && 300.0 - ink(&both, 1).1 < 1.0, "{:?} {:?}", ink(&both, 0), ink(&both, 1));
+    }
+
+    /// AGENTS.md rule 21: a menu row is named for a screen reader by its label first, then its
+    /// shortcut, in a mirrored interface too, where the shortcut is drawn first (it was named
+    /// `Ctrl+B Bold` there).
+    #[test]
+    fn a_menu_item_is_named_label_first_in_either_direction() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{NodeT as _, Queryable};
+        let hebrew = fixture_lang("he", "\tHome\tבית\n");
+        for mirrored in [false, true] {
+            let drawn = std::rc::Rc::new(std::cell::Cell::new(false));
+            let seen = drawn.clone();
+            let h = egui_kittest::Harness::new_ui(move |ui| {
+                set_current(if mirrored { hebrew } else { Lang::EN });
+                root(ui, |ui| {
+                    seen.set(flows(ui));
+                    ui.add(menu_item(ui, "Bold", "Ctrl+B", 120.0));
+                });
+                set_current(Lang::EN);
+            });
+            assert_eq!(drawn.get(), mirrored, "drawn mirrored: {mirrored}");
+            let name = h.get_by_role(Role::Button).accesskit_node().label().unwrap_or_default();
+            assert_eq!(name, "Bold Ctrl+B", "mirrored {mirrored}: the label first");
+        }
+    }
+
+    /// Where the text `text` was painted in `shapes`.
+    fn painted(shapes: &[egui::epaint::ClippedShape], text: &str) -> Option<Rect> {
+        fn find(shape: &egui::Shape, text: &str) -> Option<Rect> {
+            match shape {
+                egui::Shape::Text(t) if t.galley.text() == text => Some(Rect::from_min_size(t.pos, t.galley.size())),
+                egui::Shape::Vec(v) => v.iter().find_map(|s| find(s, text)),
+                _ => None,
+            }
+        }
+        shapes.iter().find_map(|c| find(&c.shape, text))
+    }
+
+    /// A drop-down list's rows start from the reading side: in a right-to-left interface a row's
+    /// text is at the right of the list (craft_ui's menu put it at the left), left to right at the
+    /// left.
+    #[test]
+    fn a_drop_down_list_starts_its_rows_at_the_reading_side() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let hebrew = fixture_lang("he", "\tHome\tבית\n");
+        for mirrored in [false, true] {
+            let mut h = egui_kittest::Harness::new_ui(move |ui| {
+                set_current(if mirrored { hebrew } else { Lang::EN });
+                sync(ui.ctx());
+                root(ui, |ui| {
+                    let label = ui.label("Size");
+                    let combo = ComboBox::from_id_salt("rows").selected_text("One").width(240.0).show_ui(ui, |ui| {
+                        let _ = ui.selectable_label(true, "One");
+                        let _ = ui.selectable_label(false, "Second");
+                    });
+                    combo.response.labelled_by(label.id);
+                });
+                set_current(Lang::EN);
+            });
+            h.get_by_role(Role::ComboBox).click();
+            h.run();
+            let row = h.get_by_label("Second").rect();
+            let text = painted(&h.output().shapes, "Second").expect("the row's text is painted");
+            let (lead, trail) = (text.min.x - row.min.x, row.max.x - text.max.x);
+            assert!(row.width() > text.width() + 40.0, "a row as wide as the list: {row:?} {text:?}");
+            if mirrored {
+                assert!(trail < lead, "mirrored: the text at the row's right: {row:?} {text:?}");
+            } else {
+                assert!(lead < trail, "left to right: the text at the row's left: {row:?} {text:?}");
+            }
+        }
     }
 
     /// A form reads from the reading start: the label of a row first, its field after it, so in a

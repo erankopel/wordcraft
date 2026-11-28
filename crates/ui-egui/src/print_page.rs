@@ -91,7 +91,7 @@ fn choice(ui: &mut Ui, salt: &str, current: &mut String, items: &[(&str, &str)],
     let shown = items.iter().find(|(id, _)| *id == current.as_str()).map_or("", |(_, l)| *l);
     let mut changed = false;
     // The list reads from the right in a right-to-left interface, as the box does.
-    let combo = craft_ui::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
+    let combo = crate::rtl::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
         crate::rtl::root(ui, |ui| {
             for (id, item) in items {
                 if ui.selectable_label(current == id, tl!(item)).clicked() && current != id {
@@ -110,7 +110,7 @@ fn choice_named(ui: &mut Ui, salt: &str, current: &mut String, items: &[(&str, &
     let shown = items.iter().find(|(id, _)| *id == current.as_str()).map_or("", |(_, l)| *l);
     let mut changed = false;
     // The list reads from the right in a right-to-left interface, as the box does.
-    let combo = craft_ui::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
+    let combo = crate::rtl::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
         crate::rtl::root(ui, |ui| {
             for (id, item) in items {
                 if ui.selectable_label(current == id, tl!(item)).clicked() && current != id {

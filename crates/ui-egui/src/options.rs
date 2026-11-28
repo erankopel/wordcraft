@@ -235,7 +235,7 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
         use wordcraft_engine::cmd::view::PaperColor;
         let label = ui.label(tl!("Screen paper color:"));
         let selected = app.session.prefs.paper_color;
-        let combo = craft_ui::ComboBox::from_id_salt("screen_paper_color").selected_text(tl!(selected.label())).width(220.0).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("screen_paper_color").selected_text(tl!(selected.label())).width(220.0).show_ui(ui, |ui| {
             for color in PaperColor::ALL {
                 if ui.selectable_label(selected == color, tl!(color.label())).clicked() {
                     let _ = app.run("view.paperColor", json!({"value": color}));
@@ -599,6 +599,7 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     // Word's keys for the paragraph direction; off by default where Ctrl+Shift switches layouts.
     flag(app, ui, "Use Ctrl+Right Shift and Ctrl+Left Shift to set the paragraph direction", "directionKeys", pr.direction_keys);
     note(ui, "Turn this off if Ctrl+Shift switches your keyboard layout.");
+    cursor_movement_picker(app, ui, pr.cursor_movement);
     let mut guides = app.ui.alignment_guides;
     if ui
         .checkbox(&mut guides, tl!("Show alignment guides when moving pictures and shapes"))
@@ -627,7 +628,7 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
                 let auto = app.session.prefs.units.is_none();
                 let name = UNITS.iter().find(|(u, _)| *u == units).map_or("Inches", |(_, n)| n);
                 let shown = if auto { format!("{} ({})", tl!("Automatic"), tl!(name)) } else { tl!(name).to_string() };
-                let combo = craft_ui::ComboBox::from_id_salt("options_units").selected_text(shown).width(200.0).show_ui(ui, |ui| {
+                let combo = crate::rtl::ComboBox::from_id_salt("options_units").selected_text(shown).width(200.0).show_ui(ui, |ui| {
                     if ui.selectable_label(auto, tl!("Automatic")).clicked() {
                         set(app, json!({"units": "auto"}));
                     }
@@ -651,7 +652,7 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
                     if system.territory.is_empty() { system.language.clone() } else { format!("{}-{}", system.language, system.territory) };
                 let automatic = crate::i18n::fmt(tl!("Automatic ({region})"), &[("region", system_tag.as_str())]);
                 let shown = chosen.clone().unwrap_or_else(|| automatic.clone());
-                let combo = craft_ui::ComboBox::from_id_salt("options_region").selected_text(shown).width(200.0).show_ui(ui, |ui| {
+                let combo = crate::rtl::ComboBox::from_id_salt("options_region").selected_text(shown).width(200.0).show_ui(ui, |ui| {
                     if ui.selectable_label(chosen.is_none(), automatic.as_str()).clicked() {
                         set(app, json!({"region": "auto"}));
                     }
@@ -754,7 +755,7 @@ fn theme_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::theme::Appearance;
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Interface theme:"));
-        let combo = craft_ui::ComboBox::from_id_salt("interface_theme").selected_text(tl!(app.ui.theme.label())).width(220.0).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("interface_theme").selected_text(tl!(app.ui.theme.label())).width(220.0).show_ui(ui, |ui| {
             for a in Appearance::ALL {
                 if ui.selectable_label(app.ui.theme == a, tl!(a.label())).clicked() {
                     let _ = app.run("ui.theme", json!({"value": a.code()}));
@@ -772,13 +773,14 @@ fn status_count_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::StatusCount;
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Status bar count:"));
-        let combo = craft_ui::ComboBox::from_id_salt("status_count").selected_text(tl!(app.ui.status_count.label())).width(220.0).show_ui(ui, |ui| {
-            for c in StatusCount::ALL {
-                if ui.selectable_label(app.ui.status_count == c, tl!(c.label())).clicked() {
-                    let _ = app.run("ui.statusCount", json!({"value": c.code()}));
+        let combo =
+            crate::rtl::ComboBox::from_id_salt("status_count").selected_text(tl!(app.ui.status_count.label())).width(220.0).show_ui(ui, |ui| {
+                for c in StatusCount::ALL {
+                    if ui.selectable_label(app.ui.status_count == c, tl!(c.label())).clicked() {
+                        let _ = app.run("ui.statusCount", json!({"value": c.code()}));
+                    }
                 }
-            }
-        });
+            });
         combo.response.labelled_by(label.id);
     });
     note(ui, "You can also right-click the count in the status bar to change it.");
@@ -797,7 +799,7 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
     let selected = size.percent().map_or_else(|| auto.clone(), |pct| format!("{pct}%"));
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Interface size:"));
-        let combo = craft_ui::ComboBox::from_id_salt("interface_size").selected_text(selected).width(220.0).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("interface_size").selected_text(selected).width(220.0).show_ui(ui, |ui| {
             if ui.selectable_label(size.is_auto(), auto).clicked() {
                 let _ = app.run("ui.interfaceSize", json!({"value": "auto"}));
             }
@@ -818,6 +820,33 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
     );
 }
 
+/// Cursor movement in text that mixes right-to-left and left-to-right writing (`file.options`
+/// `cursorMovement`, see docs/typing-parity.md): Logical, through the text in the order it was
+/// typed, or Visual, across the screen (the default). A line says what the choice does. The two
+/// radio buttons are a radio group labelled by the row's label, as the pane's other pickers are
+/// labelled by theirs; each button keeps its own name (`labelled_by` on a button would replace it).
+fn cursor_movement_picker(app: &mut WordApp, ui: &mut Ui, now: wordcraft_engine::cmd::options::CursorMovement) {
+    use wordcraft_engine::cmd::options::CursorMovement;
+    ui.horizontal(|ui| {
+        let label = ui.label(tl!("Cursor movement:"));
+        ui.scope_builder(egui::UiBuilder::new().accessibility_role(egui::accesskit::Role::RadioGroup), |ui| {
+            ui.ctx().accesskit_node_builder(ui.unique_id(), |node| node.push_labelled_by(label.id.accesskit_id()));
+            for (m, name) in [(CursorMovement::Logical, tl!("Logical")), (CursorMovement::Visual, tl!("Visual"))] {
+                if ui.radio(now == m, name).clicked() && now != m {
+                    set(app, json!({"cursorMovement": m.name()}));
+                }
+            }
+        });
+    });
+    note(
+        ui,
+        match now {
+            CursorMovement::Logical => "The arrow keys move through the text in the order it was typed.",
+            CursorMovement::Visual => "The arrow keys move the caret left or right on the screen.",
+        },
+    );
+}
+
 /// Animation effects: on, off, or follow the system's setting (the default). Under "Use system
 /// setting" a line says what the system reports, so it is plain what the choice comes to here.
 fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
@@ -825,7 +854,7 @@ fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Animation effects:"));
         let combo =
-            craft_ui::ComboBox::from_id_salt("animation_effects").selected_text(tl!(app.ui.animations.label())).width(220.0).show_ui(ui, |ui| {
+            crate::rtl::ComboBox::from_id_salt("animation_effects").selected_text(tl!(app.ui.animations.label())).width(220.0).show_ui(ui, |ui| {
                 for a in Animations::ALL {
                     if ui.selectable_label(app.ui.animations == a, tl!(a.label())).clicked() {
                         let _ = app.run("ui.animations", json!({"value": a.code()}));
@@ -860,7 +889,7 @@ fn file_dialogs_picker(app: &mut WordApp, ui: &mut Ui) {
     };
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Open and save with:"));
-        let combo = craft_ui::ComboBox::from_id_salt("file_dialogs").selected_text(name(app.ui.file_dialogs)).width(260.0).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("file_dialogs").selected_text(name(app.ui.file_dialogs)).width(260.0).show_ui(ui, |ui| {
             for d in FileDialogs::ALL {
                 if ui.selectable_label(app.ui.file_dialogs == d, name(d)).clicked() {
                     let _ = app.run("ui.fileDialogs", json!({"value": d.code()}));
@@ -879,7 +908,7 @@ fn display_server_picker(app: &mut WordApp, ui: &mut Ui) {
     let name = |d: DisplayServer| if d == DisplayServer::Auto { tl!(d.label()) } else { d.label() };
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Display server:"));
-        let combo = craft_ui::ComboBox::from_id_salt("display_server").selected_text(name(app.ui.display_server)).width(220.0).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("display_server").selected_text(name(app.ui.display_server)).width(220.0).show_ui(ui, |ui| {
             for d in DisplayServer::ALL {
                 if ui.selectable_label(app.ui.display_server == d, name(d)).clicked() {
                     let _ = app.run("ui.displayServer", json!({"value": d.code()}));
@@ -896,20 +925,21 @@ fn scroll_speed_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::scroll::ScrollSpeed;
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Mouse wheel scroll speed:"));
-        let combo = craft_ui::ComboBox::from_id_salt("scroll_speed").selected_text(tl!(app.ui.scroll_speed.label())).width(220.0).show_ui(ui, |ui| {
-            for s in ScrollSpeed::ALL {
-                if ui.selectable_label(app.ui.scroll_speed == s, tl!(s.label())).clicked() {
-                    let _ = app.run("ui.scrollSpeed", json!({"value": s.code()}));
+        let combo =
+            crate::rtl::ComboBox::from_id_salt("scroll_speed").selected_text(tl!(app.ui.scroll_speed.label())).width(220.0).show_ui(ui, |ui| {
+                for s in ScrollSpeed::ALL {
+                    if ui.selectable_label(app.ui.scroll_speed == s, tl!(s.label())).clicked() {
+                        let _ = app.run("ui.scrollSpeed", json!({"value": s.code()}));
+                    }
                 }
-            }
-        });
+            });
         combo.response.labelled_by(label.id);
     });
     // Windows and browsers do not report touchpads in points.
     if !cfg!(any(target_os = "windows", target_arch = "wasm32")) {
         let row = ui.horizontal(|ui| {
             let label = ui.label(tl!("Touchpad scroll speed:"));
-            let combo = craft_ui::ComboBox::from_id_salt("touchpad_scroll_speed")
+            let combo = crate::rtl::ComboBox::from_id_salt("touchpad_scroll_speed")
                 .selected_text(tl!(app.ui.touchpad_scroll_speed.label()))
                 .width(220.0)
                 .show_ui(ui, |ui| {
@@ -938,7 +968,7 @@ fn language_picker(app: &mut WordApp, ui: &mut Ui) {
     let current = if app.ui.language == AUTO { auto_label.clone() } else { Lang::from_pref(&app.ui.language).name().to_string() };
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Interface language:"));
-        let combo = craft_ui::ComboBox::from_id_salt("interface_language").selected_text(current).width(220.0).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("interface_language").selected_text(current).width(220.0).show_ui(ui, |ui| {
             if ui.selectable_label(app.ui.language == AUTO, auto_label.as_str()).clicked() {
                 let _ = app.run("ui.language", json!({"value": AUTO}));
             }
@@ -1049,7 +1079,7 @@ fn numeral_picker(app: &mut WordApp, ui: &mut Ui) {
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Numerals:"));
         let mut sel = app.session.view.numeral;
-        let combo = craft_ui::ComboBox::from_id_salt("numerals").selected_text(tl!(sel.label())).width(220.0).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("numerals").selected_text(tl!(sel.label())).width(220.0).show_ui(ui, |ui| {
             for m in [NumeralMode::Arabic, NumeralMode::Hindi, NumeralMode::Context, NumeralMode::System] {
                 ui.selectable_value(&mut sel, m, tl!(m.label()));
             }

@@ -60,7 +60,7 @@ pub(crate) use language::{
 pub(crate) use language::{display_name, language_list, language_name, same_language, tag_for_pack};
 use layout::layout;
 #[cfg(test)]
-use layout::{columns_items, margins_items, orientation_items};
+use layout::{columns_items, hyphenation_items, margins_items, orientation_items};
 use mailings::mailings;
 use picture::picture_format;
 use references::{references, zotero};

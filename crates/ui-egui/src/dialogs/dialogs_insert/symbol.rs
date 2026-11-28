@@ -359,7 +359,7 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
             ui.label(tl!("Subset:"));
             let current = f.selected.and_then(subset_of).unwrap_or("");
             let mut chosen = None;
-            craft_ui::ComboBox::from_id_salt("symbol_subset").selected_text(subset_name(current)).width(170.0).show_ui(ui, |ui| {
+            crate::rtl::ComboBox::from_id_salt("symbol_subset").selected_text(subset_name(current)).width(170.0).show_ui(ui, |ui| {
                 for (name, a, b) in SUBSETS {
                     let i = f.chars.partition_point(|c| (*c as u32) < *a);
                     if f.chars.get(i).is_some_and(|c| (*c as u32) <= *b) && ui.selectable_label(*name == current, subset_name(name)).clicked() {

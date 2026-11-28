@@ -203,7 +203,7 @@ pub(super) fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, tar
             }
             GoToWhat::Bookmark => {
                 let label = ui.label(tl!("Enter bookmark name:"));
-                craft_ui::ComboBox::from_id_salt("goto_bookmark")
+                crate::rtl::ComboBox::from_id_salt("goto_bookmark")
                     .width(220.0)
                     .selected_text(target.as_str())
                     .show_ui(ui, |ui| {

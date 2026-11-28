@@ -411,7 +411,7 @@ pub(super) fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> boo
             ui.label(egui::RichText::new(tl!("Pick a field from the list")).font(semibold(12.5)));
             ui.label(tl!("Categories:"));
             let shown = tl!(f.category.as_str()).to_string();
-            craft_ui::ComboBox::from_id_salt("field_category").selected_text(shown).width(190.0).show_ui(ui, |ui| {
+            crate::rtl::ComboBox::from_id_salt("field_category").selected_text(shown).width(190.0).show_ui(ui, |ui| {
                 for c in FIELD_CATEGORIES {
                     ui.selectable_value(&mut f.category, (*c).to_string(), tl!(c));
                 }
@@ -493,14 +493,14 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
             }
             ui.label(tl!("Format:"));
             let shown = NUMBER_FORMATS.iter().find(|(v, _)| *v == f.number_format).map(|(_, l)| *l).unwrap_or("(none)");
-            craft_ui::ComboBox::from_id_salt("field_number").selected_text(if shown == "(none)" { tl!(shown) } else { shown }).width(200.0).show_ui(
-                ui,
-                |ui| {
+            crate::rtl::ComboBox::from_id_salt("field_number")
+                .selected_text(if shown == "(none)" { tl!(shown) } else { shown })
+                .width(200.0)
+                .show_ui(ui, |ui| {
                     for (v, l) in NUMBER_FORMATS {
                         ui.selectable_value(&mut f.number_format, (*v).to_string(), if *l == "(none)" { tl!(l) } else { l });
                     }
-                },
-            );
+                });
         }
         FieldKind::Bookmark => {
             ui.label(tl!("Bookmark name:"));
@@ -508,7 +508,7 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
                 ui.add(egui::TextEdit::singleline(&mut f.target).desired_width(200.0));
                 ui.label(egui::RichText::new(tl!("The document has no bookmarks yet.")).small().color(t.text_dim));
             } else {
-                craft_ui::ComboBox::from_id_salt("field_bookmark").selected_text(f.target.clone()).width(200.0).show_ui(ui, |ui| {
+                crate::rtl::ComboBox::from_id_salt("field_bookmark").selected_text(f.target.clone()).width(200.0).show_ui(ui, |ui| {
                     for b in &f.bookmarks {
                         ui.selectable_value(&mut f.target, b.clone(), b);
                     }
@@ -530,7 +530,7 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
         }
         FieldKind::Style => {
             ui.label(tl!("Style name:"));
-            craft_ui::ComboBox::from_id_salt("field_style").selected_text(f.target.clone()).width(200.0).show_ui(ui, |ui| {
+            crate::rtl::ComboBox::from_id_salt("field_style").selected_text(f.target.clone()).width(200.0).show_ui(ui, |ui| {
                 for n in &f.styles {
                     ui.selectable_value(&mut f.target, n.clone(), n);
                 }
@@ -556,7 +556,7 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
         ui.add_space(4.0);
         ui.label(tl!("Format:"));
         let shown = TEXT_FORMATS.iter().find(|(v, _)| *v == f.text_format).map(|(_, l)| *l).unwrap_or("(none)");
-        craft_ui::ComboBox::from_id_salt("field_text").selected_text(tl!(shown)).width(200.0).show_ui(ui, |ui| {
+        crate::rtl::ComboBox::from_id_salt("field_text").selected_text(tl!(shown)).width(200.0).show_ui(ui, |ui| {
             for (v, l) in TEXT_FORMATS {
                 if ui.selectable_label(f.text_format == *v, tl!(l)).clicked() {
                     f.choose_text_format(v);

@@ -822,3 +822,77 @@ fn an_icon_menu_row_is_mirrored_and_named_with_its_shortcut() {
         assert_eq!(shortcut.center().x < text.center().x, mirrored, "mirrored {mirrored}: the shortcut on the far side of the text");
     }
 }
+
+/// The font and font size boxes' lists start their rows at the reading side, as `rtl::ComboBox`'s
+/// do: in a right-to-left interface a row's text (and the Recently Used and All Fonts headings) is at
+/// the right of a row as wide as the list, which drops from the field's right edge; left to right
+/// at the left of its row, from the field's left edge. The rows keep their names, and Down and Enter still pick
+/// from the font list (AGENTS.md rule 21).
+#[test]
+fn the_font_and_size_lists_start_their_rows_at_the_reading_side() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::{By, Queryable};
+    fn painted(shapes: &[egui::epaint::ClippedShape], s: &str) -> Option<egui::Rect> {
+        fn find(shape: &egui::Shape, s: &str) -> Option<egui::Rect> {
+            match shape {
+                egui::Shape::Text(t) if t.galley.text() == s => Some(egui::Rect::from_min_size(t.pos, t.galley.size())),
+                egui::Shape::Vec(v) => v.iter().find_map(|x| find(x, s)),
+                _ => None,
+            }
+        }
+        shapes.iter().find_map(|c| find(&c.shape, s))
+    }
+    let hebrew = crate::i18n::fixture_lang("he", "\tHome\tבית\n");
+    for mirrored in [false, true] {
+        let fonts: Vec<String> = ["Arial", "Georgia", "Times New Roman"].map(String::from).to_vec();
+        let recent: Vec<String> = ["Georgia"].map(String::from).to_vec();
+        let sizes: Vec<String> = ["8", "10", "12"].map(String::from).to_vec();
+        let picked = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
+        let picked_c = picked.clone();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(500.0, 600.0)).build_ui(move |ui| {
+            crate::i18n::set_current(if mirrored { hebrew } else { crate::i18n::Lang::EN });
+            crate::rtl::sync(ui.ctx());
+            crate::rtl::root(ui, |ui| {
+                ui.add_space(20.0);
+                if let Some(f) = font_combo_with_recent(ui, "font_rows", 150.0, "Arial", &fonts, &recent, None) {
+                    *picked_c.borrow_mut() = Some(f);
+                }
+                let _ = combo_hint(ui, "size_rows", 52.0, "10", &sizes, None, "Font Size");
+            });
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        });
+        h.run_steps(2);
+        let side_of = |row: egui::Rect, text: egui::Rect| {
+            let (lead, trail) = (text.min.x - row.min.x, row.max.x - text.max.x);
+            // Left to right a row is as wide as its text (the rows were always laid out so).
+            if mirrored { trail < lead } else { lead <= trail + 0.5 }
+        };
+
+        // The font list, opened by its arrow.
+        let field = h.get(By::new().role(Role::TextInput).value("Arial")).rect();
+        h.get_by_label("Font options").click();
+        h.run_steps(3);
+        let row = h.get_by_label("Times New Roman").rect();
+        let text = painted(&h.output().shapes, "Times New Roman").expect("the font row is painted");
+        if mirrored {
+            assert!(row.width() > text.width() + 40.0, "mirrored: a row as wide as the list: {row:?} {text:?}");
+        }
+        assert!(side_of(row, text), "mirrored {mirrored}: the font's name at the reading side: {row:?} {text:?}");
+        let heading = painted(&h.output().shapes, "All Fonts").expect("the heading is painted");
+        assert!(side_of(row, heading), "mirrored {mirrored}: the heading at the reading side: {row:?} {heading:?}");
+        let edge = if mirrored { (row.max.x - field.max.x).abs() } else { (row.min.x - field.min.x).abs() };
+        assert!(edge < 20.0, "mirrored {mirrored}: the list drops from the field's reading side: {row:?} {field:?}");
+        h.key_press(egui::Key::ArrowDown);
+        h.run_steps(2);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert!(picked.borrow().is_some(), "mirrored {mirrored}: the keyboard still picks from the list");
+
+        // The size list, opened by its arrow.
+        h.get_by_label("Font Size options").click();
+        h.run_steps(3);
+        let row = h.get_by_label("12").rect();
+        let text = painted(&h.output().shapes, "12").expect("the size row is painted");
+        assert!(side_of(row, text), "mirrored {mirrored}: the size at the reading side: {row:?} {text:?}");
+    }
+}

@@ -606,27 +606,48 @@ fn combo_impl(ui: &mut Ui, options: ComboOptions<'_>) -> Option<String> {
                 ui.ctx().request_discard("font list resized");
             }
             s.rows = n;
-            let area = egui::Area::new(list_id).order(egui::Order::Tooltip).fixed_pos(resp.rect.left_bottom()).sizing_pass(resize);
+            // The list drops from the field's reading start: its left edge under the field's left in a
+            // left-to-right interface, its right edge under the field's right in a right-to-left one
+            // (the list is wider than the field, so it grows the way the row reads).
+            let (pivot, at) = if crate::rtl::on() {
+                (egui::Align2::RIGHT_TOP, resp.rect.right_bottom())
+            } else {
+                (egui::Align2::LEFT_TOP, resp.rect.left_bottom())
+            };
+            let area = egui::Area::new(list_id).order(egui::Order::Tooltip).pivot(pivot).fixed_pos(at).sizing_pass(resize);
             let shown = area.show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style())
                     .show(ui, |ui| {
-                        let item = |k: usize| matches.get(k).and_then(|&i| items.get(i));
-                        let row = |k: usize| section_row(k, recent_shown, &item);
-                        let (mut picked, offset, view_h) = list_rows(
-                            ui,
-                            RowListOptions { width, current, n, row: &row, highlight: lit, scroll, preview, recent_rows: recent_shown.len() },
-                        );
-                        if !s.typed {
-                            ui.separator();
-                            if ui.button(tl!("Add Font…")).clicked() {
-                                picked = Some(ADD_FONT.to_string());
+                        // In a right-to-left interface the list and the Add Font… button sit against
+                        // the popup's right edge, as the list reads.
+                        let body = |ui: &mut Ui| {
+                            let item = |k: usize| matches.get(k).and_then(|&i| items.get(i));
+                            let row = |k: usize| section_row(k, recent_shown, &item);
+                            let (mut picked, offset, view_h) = list_rows(
+                                ui,
+                                RowListOptions { width, current, n, row: &row, highlight: lit, scroll, preview, recent_rows: recent_shown.len() },
+                            );
+                            if !s.typed {
+                                ui.separator();
+                                if ui.button(tl!("Add Font…")).clicked() {
+                                    picked = Some(ADD_FONT.to_string());
+                                }
+                                #[cfg(target_arch = "wasm32")]
+                                if ui.button(tl!("Load System Installed Fonts…")).clicked() {
+                                    picked = Some(LOAD_SYSTEM_FONTS.to_string());
+                                }
                             }
-                            #[cfg(target_arch = "wasm32")]
-                            if ui.button(tl!("Load System Installed Fonts…")).clicked() {
-                                picked = Some(LOAD_SYSTEM_FONTS.to_string());
-                            }
+                            (picked, offset, view_h)
+                        };
+                        if crate::rtl::on() {
+                            // Held to the width the list has from the left (its rows and the scroll
+                            // bar): content against the right edge would take all the width offered.
+                            let rows_w = if preview.is_some() { (width + 60.0).max(COMBO_PREVIEW_ROW_W) } else { width + 60.0 };
+                            ui.set_max_width(rows_w + ui.spacing().scroll.allocated_width());
+                            ui.with_layout(egui::Layout::top_down(egui::Align::Max), body).inner
+                        } else {
+                            body(ui)
                         }
-                        (picked, offset, view_h)
                     })
                     .inner
             });
@@ -663,6 +684,9 @@ fn combo_impl(ui: &mut Ui, options: ComboOptions<'_>) -> Option<String> {
 
 /// Height of a row drawn by a combo's preview closure (`Previews::font_preview_fn`'s entries).
 pub const COMBO_PREVIEW_ROW_H: f32 = 24.0;
+
+/// Width of a row drawn by a combo's preview closure (`Previews::font_preview_fn`'s entries).
+pub const COMBO_PREVIEW_ROW_W: f32 = 260.0;
 
 /// A combo's scrolling list. Only the rows in view are built: the font menu lists every installed
 /// family and each preview loads that font, so building all rows loaded every font on the system
@@ -727,14 +751,17 @@ pub(super) fn highlight_row(entry: usize, recent: usize) -> usize {
 
 /// A section heading's row of `size`: dim text, a rule across the list above it after the
 /// first row, nothing to click. The row asks for no more than `size`: the list's width is its
-/// entries' (a sizing pass offers an unbounded width).
+/// entries' (a sizing pass offers an unbounded width). In a mirrored list the text starts at the
+/// right.
 fn heading_row(ui: &mut Ui, text: &str, size: egui::Vec2, rule: bool) {
     let weak = ui.visuals().weak_text_color();
     let line = ui.visuals().widgets.noninteractive.bg_stroke;
     if rule {
         ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), line);
     }
-    ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+    let layout =
+        if crate::rtl::flows(ui) { egui::Layout::right_to_left(egui::Align::Center) } else { egui::Layout::left_to_right(egui::Align::Center) };
+    ui.allocate_ui_with_layout(size, layout, |ui| {
         ui.set_min_size(size);
         ui.add_space(6.0);
         ui.add(egui::Label::new(egui::RichText::new(text).small().color(weak)).selectable(false));
@@ -754,12 +781,30 @@ struct RowDrawOptions<'rows, 'text> {
     recent_rows: usize,
 }
 
+/// In a right-to-left interface the rows start at the right (as [`crate::rtl::list_rows`] lays them out): each row is as
+/// wide as the list, its text (a font's name drawn in that font, a size) against the right edge, and the
+/// current entry's mark on that side.
 fn draw_rows(ui: &mut Ui, options: RowDrawOptions<'_, '_>) -> Option<String> {
+    let list_w = options.width + 60.0;
+    ui.set_min_width(list_w);
+    if crate::rtl::on() {
+        // Rows as wide as the list take all the width they are offered: hold the list to the width
+        // its rows had from the left (a font's picture row is wider than the field's list).
+        let rows_w = if options.preview.is_some() { list_w.max(COMBO_PREVIEW_ROW_W) } else { list_w };
+        ui.set_max_width(rows_w);
+        // Each row as wide as the list, its text at the right (also where the popup already lays out
+        // from the right, which `rtl::list_rows` leaves alone).
+        return ui.with_layout(egui::Layout::top_down_justified(egui::Align::Max), |ui| draw_rows_in(ui, options)).inner;
+    }
+    draw_rows_in(ui, options)
+}
+
+fn draw_rows_in(ui: &mut Ui, options: RowDrawOptions<'_, '_>) -> Option<String> {
     let RowDrawOptions { width, current, range, row, highlight, preview, row_height: row_h, recent_rows } = options;
     let mut out = None;
     let tokens = Tokens::get(ui.ctx());
     let (fill, accent) = (tokens.checked, tokens.accent);
-    ui.set_min_width(width + 60.0);
+    let mirrored = crate::rtl::flows(ui);
     // A family in Recently Used is marked there only: marked again under All Fonts it would look as
     // if two were chosen.
     let current_is_recent = (1..=recent_rows).any(|k| matches!(row(k), Some(Row::Item(r)) if r == current));
@@ -783,7 +828,9 @@ fn draw_rows(ui: &mut Ui, options: RowDrawOptions<'_, '_>) -> Option<String> {
                 if it == current && !(in_all_fonts && current_is_recent) {
                     let r = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), row_h));
                     ui.painter().rect_filled(r, 3.0, fill);
-                    ui.painter().rect_filled(Rect::from_min_size(r.min, vec2(3.0, row_h)), 1.5, accent);
+                    // The mark at the reading start of the row.
+                    let mark_x = if mirrored { r.max.x - 3.0 } else { r.min.x };
+                    ui.painter().rect_filled(Rect::from_min_size(pos2(mark_x, r.min.y), vec2(3.0, row_h)), 1.5, accent);
                 }
                 let resp = p(ui, it);
                 if resp.hovered() {

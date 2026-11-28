@@ -42,6 +42,10 @@ pub struct Previews {
 struct FontAtlas {
     generation: u64,
     atlas: PreviewAtlas,
+    /// How far from its left edge each entry's picture is drawn on (its ink's right end, in
+    /// points), by atlas key: a mirrored list sets the name, not the picture's empty end, against
+    /// the row's right edge.
+    ink: HashMap<String, f32>,
 }
 
 /// Side of each square texture page the pictures of a [`PreviewAtlas`] share, in pixels.
@@ -270,7 +274,7 @@ impl Previews {
             let ppp = ui.ctx().pixels_per_point();
             let frame = ui.ctx().cumulative_frame_nr();
             let key = font_key(name, ppp);
-            let (r, resp) = ui.allocate_exact_size(vec2(260.0, crate::widgets::COMBO_PREVIEW_ROW_H), Sense::click());
+            let (r, resp) = ui.allocate_exact_size(vec2(crate::widgets::COMBO_PREVIEW_ROW_W, crate::widgets::COMBO_PREVIEW_ROW_H), Sense::click());
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), name));
             let t = Tokens::get(ui.ctx());
             if resp.hovered() {
@@ -283,6 +287,7 @@ impl Previews {
                 if fonts.generation != generation {
                     fonts.generation = generation;
                     fonts.atlas.clear();
+                    fonts.ink.clear();
                 }
                 fonts.atlas.get(frame, &key)
             };
@@ -303,15 +308,28 @@ impl Previews {
                 }
                 let mut img = font_entry_image(name, ppp);
                 ink_mask(&mut img);
-                atlas.lock().atlas.add(ui.ctx(), frame, &key, img)
+                let ink = ink_right(&img) as f32 / ppp;
+                let mut fonts = atlas.lock();
+                fonts.ink.insert(key.clone(), ink);
+                fonts.atlas.add(ui.ctx(), frame, &key, img)
             });
+            // In a mirrored list (right-to-left interface) the row is set against the list's right edge
+            // and its name starts at the right, as the list reads.
+            let mirrored = crate::rtl::flows(ui);
             match hit {
                 Some((id, uv)) => {
                     let sz = uv.size() * ATLAS as f32 / ppp;
-                    ui.painter().image(id, Rect::from_min_size(pos2(r.min.x + 6.0, r.center().y - sz.y / 2.0), sz), uv, t.text);
+                    let x = if mirrored {
+                        let ink = atlas.lock().ink.get(&key).copied().unwrap_or(sz.x).min(sz.x);
+                        r.max.x - 6.0 - ink
+                    } else {
+                        r.min.x + 6.0
+                    };
+                    ui.painter().image(id, Rect::from_min_size(pos2(x, r.center().y - sz.y / 2.0), sz), uv, t.text);
                 }
                 None => {
-                    ui.painter().text(pos2(r.min.x + 8.0, r.center().y), egui::Align2::LEFT_CENTER, name, regular(12.0), t.text);
+                    let (x, align) = if mirrored { (r.max.x - 8.0, egui::Align2::RIGHT_CENTER) } else { (r.min.x + 8.0, egui::Align2::LEFT_CENTER) };
+                    ui.painter().text(pos2(x, r.center().y), align, name, regular(12.0), t.text);
                 }
             }
             resp
@@ -445,6 +463,16 @@ pub fn ink_mask(img: &mut egui::ColorImage) {
         let ink = 255u32.saturating_sub(lum.min(255)) * u32::from(a) / 255;
         *p = egui::Color32::from_white_alpha(u8::try_from(ink).unwrap_or(u8::MAX));
     }
+}
+
+/// Where the ink of an [`ink_mask`]ed picture ends: the number of pixel columns up to and including
+/// the last one with any ink (0 for a blank picture).
+fn ink_right(img: &egui::ColorImage) -> usize {
+    let [w, _] = img.size;
+    if w == 0 {
+        return 0;
+    }
+    img.pixels.chunks(w).filter_map(|row| row.iter().rposition(|p| p.a() > 0)).max().map_or(0, |last| last + 1)
 }
 
 /// A font list entry: `name` in its own face, 244×22 pt. The face is read for the preview alone

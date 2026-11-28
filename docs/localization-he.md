@@ -576,11 +576,13 @@ sprms: the `[patch]` entry and the folder are removed and the `rev` moved in a c
 - Windows and macOS builds of the edition.
 - The AppImage on a real Ubuntu 22.04 desktop: its glibc needs were checked as above, and its menu
   entry with `desktop-file-validate` and a throwaway HOME, not in GNOME's menu, dock and search.
-- Not mirrored yet: the lists of the font and size boxes (`widgets::combo`, `font_combo`: WordCraft
-  draws their rows, with font previews and section headings laid out from the left). The drop-down
-  lists of `craft_ui::ComboBox` start their rows at the right (`rtl::ComboBox`), the Date and Time
-  dialog reads from the right, and menu rows (`rtl::menu_item`) are named for a screen reader label
-  first (`Bold Ctrl+B`), as they read.
+- Mirrored now: the drop-down lists of `craft_ui::ComboBox` start their rows at the right
+  (`rtl::ComboBox`), and so do the lists of the font and size boxes (`widgets::combo`,
+  `font_combo`, which WordCraft draws itself: each font's name in its own face, the Recently Used
+  Fonts and All Fonts headings and the current entry's mark at the right, the font list dropping
+  from the box's right edge, as the size list does); the Date and Time dialog reads from the
+  right, and menu rows (`rtl::menu_item`) are named for a screen reader label first (`Bold
+  Ctrl+B`), as they read. How Word's Hebrew interface aligns these two lists was not observed.
 - Still English: engine messages no row covers.
 - Installing a Language pack from a file downloaded in a browser (for a network whose filter breaks
   the download): craft-font-store at the pinned craft-libs has no public way to install a local
@@ -623,3 +625,4 @@ sprms: the `[patch]` entry and the folder are removed and the `rev` moved in a c
 | 2026-11-28 | minor | Hebrew letters take only the complex-script bold, italic and size (`w:bCs`, `w:iCs`, `w:szCs`, RTL-11), as in Word: a Word file's run with only `w:b`, `w:i` or `w:sz` leaves them plain, and with no `w:szCs` in its defaults they are 10 pt; HTML, Markdown, RTF, LaTeX and Word 97-2003 files give them the Latin values when read, ODT its sizes; Convert Text to Table, Quick Tables, Draw Table, the "+--+" AutoFormat table and mail-merge labels are right to left in right-to-left text; ODT and HTML export write a right-to-left document's default direction |
 | 2026-11-28 | minor | Word-fidelity review of RTL-11: spaces and punctuation of a run without `w:rtl` keep its Latin font, size, bold and italic (ECMA-376 §17.3.2.26), also after a save; typed Hebrew, and what is typed after it, says `w:rtl` as in Word; a `w:rtl` paragraph mark takes the complex-script size; a file without styles at 10 pt in both scripts; an unset complex-script default size kept through a save; HTML export and the HTML clipboard format Hebrew letters with their own values; labels take the direction of new documents; complex-script pairing reaches note separators, the glossary and tracked formatting; bold, italic (Latin and complex-script) and the other toggle properties combine by exclusive or across the table, paragraph and character styles (ECMA-376 §17.7.3), direct formatting outright, so Strong in a bold heading is regular as in Word |
 | 2026-11-28 | minor | Word 97-2003 files: Hebrew bold, italic and size and the run direction read as the file gives them (sprmCFBoldBi, sprmCFItalicBi, sprmCHpsBi, sprmCFBiDi), apart from the Latin ones, through a patched copy of `craft-doc-binary` (Patched craft-libs code); unset values inherit as in Word, at a base complex-script size of 10 pt |
+| 2026-11-28 | minor | The font and font size boxes' lists start their rows at the right in the Hebrew interface (the font names still drawn in their own faces), the font list dropping from the box's right edge |

@@ -3365,20 +3365,20 @@ fn glyph_texts(bytes: &[u8]) -> Vec<(String, f64, f64)> {
     t.0
 }
 
-/// A Hebrew watermark in the PDF (and so in print): every letter from a face that has it, so each
-/// reads back as its letter (the default watermark font, Aptos, is drawn in Carlito, which has no
-/// Hebrew letters: they were empty boxes), written where it reads: ס rightmost (typing order wrote
-/// ידוס), and DRAFT and 2026 left to right, to the left of the Hebrew word, where the
-/// bidirectional algorithm puts them.
+/// A Hebrew watermark in the PDF (and so in print), written where it reads: DRAFT and 2026 left to
+/// right, to the left of the Hebrew word, where the bidirectional algorithm puts them (typing order
+/// wrote 2026 after the Hebrew word's letters). The watermark is in Source Sans 3, a fixed test font
+/// every build has, so its Latin letters and digits always read back. With a face that has Hebrew
+/// letters installed, every letter is drawn from it, so each reads back as its letter (the
+/// watermark's font has none: they were empty boxes), ס rightmost (typing order wrote ידוס);
+/// without one the four letters are empty boxes (U+FFFD), which can't tell which is which, still
+/// in the Hebrew word's place.
 #[test]
 fn a_hebrew_watermark_is_written_right_to_left() {
-    if wordcraft_fonts::FontDb::global().fallback_for('ס', 0).is_none() {
-        eprintln!("skipped: no font with Hebrew letters installed");
-        return;
-    }
+    let hebrew_face = wordcraft_fonts::FontDb::global().fallback_for('ס', 0).is_some();
     let mut d = Document::new();
     d.body = vec![para_block(Paragraph::with_text("Body", CharProps::default()))];
-    let wm = Watermark { text: "סודי DRAFT 2026".into(), diagonal: false, ..Default::default() };
+    let wm = Watermark { text: "סודי DRAFT 2026".into(), font: "Source Sans 3".into(), diagonal: false, ..Default::default() };
     let [_, size] = wm.frame(d.last_section.page_w, d.last_section.page_h);
     d.settings.watermark = Some(wm);
     // The watermark's glyphs: those one box high (glyph space is a thousandth of the size).
@@ -3387,19 +3387,24 @@ fn a_hebrew_watermark_is_written_right_to_left() {
         .filter(|(t, _, scale)| (scale * 1000.0 - f64::from(size)).abs() < 0.5 && t.as_str() != " ")
         .map(|(t, x, _)| (t, x))
         .collect();
-    let mut read: Vec<String> = glyphs.iter().map(|g| g.0.clone()).collect();
+    let first_x = |s: &str| glyphs.iter().find(|g| g.0 == s).map(|g| g.1);
+    let latin: Vec<f64> = "DRAFT".chars().filter_map(|c| first_x(&c.to_string())).collect();
+    let digits: Vec<f64> = glyphs.iter().filter(|g| g.0.chars().all(|c| c.is_ascii_digit())).map(|g| g.1).collect();
+    let he: Vec<&(String, f64)> = glyphs.iter().filter(|g| !g.0.chars().all(|c| c.is_ascii_alphanumeric())).collect();
+    assert!(latin.len() == 5 && latin.windows(2).all(|w| w[0] < w[1]), "DRAFT left to right: {glyphs:?}");
+    assert_eq!((digits.len(), he.len()), (4, 4), "a glyph a digit and a letter: {glyphs:?}");
+    let he_x: Vec<f64> = he.iter().map(|g| g.1).collect();
+    let (max, min) = (|v: &[f64]| v.iter().copied().fold(f64::MIN, f64::max), |v: &[f64]| v.iter().copied().fold(f64::MAX, f64::min));
+    assert!(max(&latin) < min(&digits) && max(&digits) < min(&he_x), "DRAFT, 2026, then the Hebrew word: {glyphs:?}");
+    if !hebrew_face {
+        eprintln!("no font with Hebrew letters installed: the letters are not read back");
+        return;
+    }
+    let mut read: Vec<String> = he.iter().map(|g| g.0.clone()).collect();
     read.sort();
-    let mut want: Vec<String> = "סודיDRAFT2026".chars().map(String::from).collect();
+    let mut want: Vec<String> = "סודי".chars().map(String::from).collect();
     want.sort();
     assert_eq!(read, want, "each letter reads back once, none as an empty box");
-    let xs = |keep: fn(char) -> bool| -> Vec<f64> {
-        let order = "סודיDRAFT2026";
-        order.chars().filter(|c| keep(*c)).filter_map(|c| glyphs.iter().find(|g| g.0 == c.to_string()).map(|g| g.1)).collect()
-    };
-    let (he, latin) = (xs(|c| ('\u{5D0}'..='\u{5EA}').contains(&c)), xs(|c| c.is_ascii_alphabetic()));
-    assert!(he.windows(2).all(|w| w[0] > w[1]), "ס rightmost: {glyphs:?}");
-    assert!(latin.windows(2).all(|w| w[0] < w[1]), "DRAFT left to right: {glyphs:?}");
-    let digits: Vec<f64> = glyphs.iter().filter(|g| g.0.chars().all(|c| c.is_ascii_digit())).map(|g| g.1).collect();
-    let (max, min) = (|v: &[f64]| v.iter().copied().fold(f64::MIN, f64::max), |v: &[f64]| v.iter().copied().fold(f64::MAX, f64::min));
-    assert!(max(&latin) < min(&digits) && max(&digits) < min(&he), "DRAFT, 2026, then the Hebrew word: {glyphs:?}");
+    let order: Vec<f64> = "סודי".chars().filter_map(|c| first_x(&c.to_string())).collect();
+    assert!(order.len() == 4 && order.windows(2).all(|w| w[0] > w[1]), "ס rightmost: {glyphs:?}");
 }

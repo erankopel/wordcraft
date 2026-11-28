@@ -1327,18 +1327,27 @@ fn a_labelled_split_button_shows_only_its_icon_when_compact() {
     }
 }
 
-/// Design › Watermark writes each word in the language of the text at the caret, as the engine
-/// writes its own words, and shows the word it writes whatever the interface language: טיוטה in
-/// Hebrew text, DRAFT in English text (in a Hebrew interface too, whose catalog says טיוטה for the
-/// interface's DRAFT). Custom Watermark starts from that language's word too (חסוי, CONFIDENTIAL).
+/// Design › Watermark in Hebrew text writes each word in Hebrew, as the engine writes its own
+/// words, and shows the word it writes whatever the interface language (טיוטה in an English
+/// interface, its name marked as Hebrew for screen readers); Custom Watermark starts from חסוי. In
+/// other text the items write the English words under their translated labels, as they always did:
+/// DRAFT in an English interface, the catalog's word for the label in another (טיוטה in a Hebrew
+/// interface, ENTWURF in a German one), and Custom Watermark starts from CONFIDENTIAL.
 #[test]
 fn the_watermark_gallery_writes_its_words_in_the_language_of_the_text() {
     use crate::i18n::{Lang, fixture_lang, set_current};
-    use egui_kittest::kittest::Queryable;
-    for (text, hebrew_interface, draft, confidential) in
-        [("שלום עולם", false, "טיוטה", "חסוי"), ("Hello world", false, "DRAFT", "CONFIDENTIAL"), ("Hello world", true, "DRAFT", "CONFIDENTIAL")]
-    {
-        set_current(if hebrew_interface { fixture_lang("he", "\tDRAFT\tטיוטה\n\tCONFIDENTIAL\tחסוי\n") } else { Lang::EN });
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let he = || fixture_lang("he", "\tDRAFT\tטיוטה\n\tCONFIDENTIAL\tחסוי\n");
+    let de = || fixture_lang("de", "\tDRAFT\tENTWURF\n");
+    // (text, interface, the item's label, what it writes, Custom Watermark's text, a Hebrew name)
+    let cases: [(&str, fn() -> Lang, &str, &str, &str, bool); 4] = [
+        ("שלום עולם", || Lang::EN, "טיוטה", "טיוטה", "חסוי", true),
+        ("Hello world", || Lang::EN, "DRAFT", "DRAFT", "CONFIDENTIAL", false),
+        ("Hello world", he, "טיוטה", "DRAFT", "CONFIDENTIAL", false),
+        ("Hallo Welt", de, "ENTWURF", "DRAFT", "CONFIDENTIAL", false),
+    ];
+    for (text, interface, label, writes, confidential, hebrew_name) in cases {
+        set_current(interface());
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text(text)), crate::Services::default());
         let opened = crate::dialogs::Dialog::open("watermark", &mut app);
         let Some(crate::dialogs::Dialog::Watermark { text: default, .. }) = opened else { panic!("the dialog opens") };
@@ -1348,11 +1357,15 @@ fn the_watermark_gallery_writes_its_words_in_the_language_of_the_text() {
             .allow_missing_glyphs()
             .build_ui_state(|ui, app: &mut WordApp| super::design::watermark_menu(ui, app), app);
         h.run_steps(2);
-        // An item's name is its word, then its (empty) shortcut.
-        h.get_by_label_contains(draft).click();
+        // An item's name is its label, then its (empty) shortcut.
+        let item = h.get_by_label_contains(label);
+        let language = item.accesskit_node().data().language().map(str::to_string);
+        assert_eq!(language.as_deref() == Some("he"), hebrew_name, "{label:?}'s language: {language:?}");
+        item.click();
         h.run_steps(2);
         let written = h.state().session.doc.settings.watermark.as_ref().map(|w| w.text.clone());
-        assert_eq!(written.as_deref(), Some(draft), "the item shows the word it writes in {text:?}");
+        assert_eq!(written.as_deref(), Some(writes), "{label:?} in {text:?}");
+        assert_eq!(h.state().want_system_arabic, hebrew_name, "the Hebrew interface font is asked for Hebrew labels");
     }
     set_current(Lang::EN);
 }

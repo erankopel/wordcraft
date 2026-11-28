@@ -473,7 +473,8 @@ fn draw_watermark(ctx: &mut RenderContext, view: Affine, doc: &Document, page: &
 
 /// Where each glyph of the watermark goes on `page`: its face, its glyph id and the map from its
 /// outline (font units) to page points. The glyphs are where layout placed them
-/// ([`wordcraft_layout::watermark_run`]: fallback faces, right-to-left text in visual order), and
+/// ([`wordcraft_layout::watermark_run`]: fallback faces, right-to-left text in visual order; laid
+/// out once and kept, so every page draws the same layout), and
 /// the line is stretched over the watermark's box (Word's `v:textpath fitshape`): its advance
 /// across the box, its em down it with the em's foot on the box's bottom; the box centred on the
 /// margins and, when diagonal, turned 45°, as the PDF export stretches and turns the same glyphs.

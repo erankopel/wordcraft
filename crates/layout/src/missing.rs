@@ -13,8 +13,9 @@ use crate::display::{DisplayOptions, Draw, page_display};
 use crate::para::draws_something;
 
 // The watermark text as laid out for output, which the PDF export and the page raster both draw
-// (`display::watermark_run`); the crate root exports it from here. Strict export checks these same
-// glyphs (`missing_watermark_glyphs`), so the check and the exporters can't drift.
+// (`display::watermark_run`, laid out once and kept); the crate root exports it from here. Strict
+// export checks these same glyphs (`missing_watermark_glyphs`), so the check and the exporters
+// can't drift.
 pub use crate::display::watermark_run;
 
 /// Most distinct code points [`DocLayout::missing_glyphs`] lists: a hostile file full of unmapped
@@ -240,8 +241,10 @@ pub fn layout_metafile_text(
 /// counts them; sorted by code point. The watermark is on every page, so it counts once.
 pub fn missing_watermark_glyphs(doc: &Document, wm: &wordcraft_doc::Watermark, max_chars: usize) -> MissingGlyphs {
     let mut found = Found::default();
-    for r in watermark_run(doc, wm, max_chars).map(|t| t.runs).unwrap_or_default() {
-        found.run(&r.face, r.glyphs.iter().map(|g| g.0), &r.text, &r.ranges);
+    if let Some(t) = watermark_run(doc, wm, max_chars) {
+        for r in &t.runs {
+            found.run(&r.face, r.glyphs.iter().map(|g| g.0), &r.text, &r.ranges);
+        }
     }
     found.finish()
 }

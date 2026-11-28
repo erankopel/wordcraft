@@ -360,7 +360,10 @@ impl Exporter<'_> {
     /// baseline of the faces it is drawn in) on the box's bottom; the box centred on the margins
     /// (`area`, else the page) and, when diagonal, turned 45° counterclockwise. The glyphs are where
     /// layout placed them ([`wordcraft_layout::watermark_run`]: fallback faces, right-to-left text
-    /// in visual order), written as body text's are.
+    /// in visual order; laid out once and kept, so every page writes the same layout), written as
+    /// body text's are. They are written in ems at a size of one, the size folded into the
+    /// transform with the stretch, so a long line in a large box stays within the numbers a PDF
+    /// takes.
     fn watermark(&mut self, s: &mut Surface, wm: &wordcraft_doc::Watermark, w: f32, h: f32, area: Rect) {
         let Some(text) = wordcraft_layout::watermark_run(self.doc, wm, super::WATERMARK_MAX_CHARS) else { return };
         let raw_w = text.width;
@@ -375,11 +378,11 @@ impl Exporter<'_> {
         let (c, sn) = (angle.cos(), angle.sin());
         let (dx, dy) = (-bw / 2.0, bh / 2.0 - descent * bh);
         let (cx, cy) = if area.w > 0.0 && area.h > 0.0 { (area.x + area.w / 2.0, area.y + area.h / 2.0) } else { (w / 2.0, h.min(2000.0) / 2.0) };
-        s.push_transform(&Transform::from_row(c * stretch, sn * stretch, -sn, c, c * dx - sn * dy + cx, sn * dx + c * dy + cy));
+        let (a, b) = (c * stretch * size, sn * stretch * size);
+        s.push_transform(&Transform::from_row(a, b, -sn * size, c * size, c * dx - sn * dy + cx, sn * dx + c * dy + cy));
         let paint = GlyphPaint { color: wm.color, alpha: if wm.semitransparent { 0.5 } else { 1.0 }, bold: false, italic: false };
         for run in &text.runs {
-            let glyphs: Vec<(u32, f32, f32)> = run.glyphs.iter().map(|&(g, x, y)| (g, x * size, y * size)).collect();
-            self.glyphs(s, &run.face, size, &glyphs, paint, (&run.text, &run.ranges));
+            self.glyphs(s, &run.face, 1.0, &run.glyphs, paint, (&run.text, &run.ranges));
         }
         s.pop();
     }

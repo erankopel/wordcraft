@@ -72,7 +72,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("design.scaleFontSizes", "Scale Font Sizes", "Design › Document Formatting", scale_font_sizes)
             .params(r#"{"delta": pt (-1638..1638, not 0) | "percent": number (-99..1000, not 0; 10 = +10%)} (exactly one)"#),
         CommandSpec::new("design.watermark", "Watermark", "Design › Page Background", watermark)
-            .params(r#"{"text"?: string, "remove"?: bool, "diagonal"?: bool, "color"?: "RRGGBB"}"#),
+            .params(r#"{"text"?: string (default: the watermark's own, or for a new one DRAFT in the language of the text at the caret), "remove"?: bool, "diagonal"?: bool, "color"?: "RRGGBB"}"#),
         CommandSpec::new("design.pageColor", "Page Color", "Design › Page Background", |s, v| {
             s.doc.settings.page_color = p::str(v, "color").and_then(Rgb::parse);
             s.doc.settings.page_picture = None;
@@ -260,7 +260,12 @@ fn watermark(s: &mut Session, v: &Value) -> CmdResult {
         s.doc.settings.watermark = None;
         return sel_result(s);
     }
-    let mut wm = s.doc.settings.watermark.clone().unwrap_or_default();
+    // A new watermark without text of its own says DRAFT in the language of the text at the caret
+    // (טיוטה in Hebrew text), as Design › Watermark's first word does.
+    let mut wm = match s.doc.settings.watermark.clone() {
+        Some(wm) => wm,
+        None => Watermark { text: super::words::word(super::words::caret_lang(s).as_deref(), "DRAFT").into(), ..Default::default() },
+    };
     if let Some(t) = p::str(v, "text") {
         wm.text = t.chars().take(200).collect();
     }

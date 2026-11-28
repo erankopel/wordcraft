@@ -111,16 +111,41 @@ pub(super) fn design(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
-/// Design › Watermark's menu. A watermark is the document's text, so each word is written in the
-/// language of the text at the caret, as the engine writes its own words (טיוטה for DRAFT in Hebrew
-/// text), and the item shows the word it writes, whatever the interface language.
+/// Design › Watermark's menu. A watermark is the document's text, so in Hebrew text (the
+/// language of the text at the caret, as the engine decides it for its own words) each item
+/// writes the Hebrew word and shows it, whatever the interface language: טיוטה for DRAFT. In other
+/// text an item writes the English word under its translated label, as the menu always did.
 pub(super) fn watermark_menu(ui: &mut Ui, app: &mut WordApp) {
-    let lang = wordcraft_engine::cmd::words::caret_lang(&app.session);
-    for w in wordcraft_engine::cmd::words::WATERMARKS {
-        let text = wordcraft_engine::cmd::words::word(lang.as_deref(), w);
-        mi_text(ui, app, text, "design.watermark", json!({"text": text}));
+    use wordcraft_engine::cmd::words::{WATERMARKS, caret_lang, is_hebrew, word};
+    let lang = caret_lang(&app.session);
+    let hebrew = is_hebrew(lang.as_deref());
+    if hebrew {
+        // An interface in another language may have no face with Hebrew letters: ask for the
+        // installed one (the right-to-left interface font, which has them) from the next frame.
+        app.want_system_arabic = true;
+    }
+    for w in WATERMARKS {
+        if hebrew {
+            hebrew_item(ui, app, word(lang.as_deref(), w));
+        } else {
+            mi(ui, app, w, "design.watermark", json!({"text": w}));
+        }
     }
     ui.separator();
     mi(ui, app, "Custom Watermark…", "ui.dialog", json!({"name": "watermark"}));
     mi(ui, app, "Remove Watermark", "design.watermark", json!({"remove": true}));
+}
+
+/// A watermark menu item that writes, and shows, the Hebrew `text`. Screen readers are told its
+/// name is Hebrew, so they read it in Hebrew in an interface in another language.
+fn hebrew_item(ui: &mut Ui, app: &mut WordApp, text: &str) {
+    let id = "design.watermark";
+    let sc = crate::widgets::shortcut_text(app, id);
+    let enabled = crate::widgets::enabled(app, id);
+    let resp = ui.add_enabled(enabled, crate::rtl::menu_item(ui, text, &sc, 200.0));
+    ui.ctx().accesskit_node_builder(resp.id, |node| node.set_language("he"));
+    if resp.clicked() {
+        crate::widgets::run_from_ribbon(app, id, json!({"text": text}));
+        ui.close();
+    }
 }

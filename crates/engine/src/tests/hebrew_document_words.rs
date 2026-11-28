@@ -301,3 +301,20 @@ fn a_hebrew_watermark_keeps_its_text_and_draws_its_letters() {
     let report = run(&mut s, "file.strictReport", json!({}));
     assert_eq!(report["strict"], "passed", "{report}");
 }
+
+/// `design.watermark` without a text, in a document that has no watermark, says DRAFT in the
+/// language of the text at the caret: טיוטה in a Hebrew document (it was the English DRAFT), DRAFT
+/// in English text. A watermark that is there keeps its text.
+#[test]
+fn a_new_watermark_without_text_says_draft_in_the_language_of_the_text() {
+    let text = |s: &Session| s.doc.settings.watermark.as_ref().map(|w| w.text.clone()).unwrap_or_default();
+    let mut s = hebrew_document();
+    run(&mut s, "design.watermark", json!({"diagonal": false}));
+    assert!(hebrew(&text(&s)) && !latin(&text(&s)), "{:?}", text(&s));
+    let mut english = Session::new(Document::new());
+    run(&mut english, "design.watermark", json!({}));
+    assert_eq!(text(&english), "DRAFT");
+    run(&mut english, "design.watermark", json!({"text": "SAMPLE"}));
+    run(&mut english, "design.watermark", json!({"diagonal": true}));
+    assert_eq!(text(&english), "SAMPLE", "a watermark that is there keeps its text");
+}

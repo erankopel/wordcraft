@@ -2270,17 +2270,15 @@ fn a_picture_too_large_to_decode_says_so_in_its_box() {
     assert!(!grid.iter().flatten().any(|p| *p == Some(true)), "with no size message");
 }
 
-/// A Hebrew watermark is drawn as layout placed it: every letter from a face that has it (the
-/// default watermark font, Aptos, is drawn in Carlito, which has no Hebrew letters: they were
-/// empty boxes) and reading right to left on the page, ס rightmost (typing order drew ידוס). DRAFT
-/// and 2026 read left to right, to the left of the Hebrew word, where the bidirectional algorithm
-/// puts them.
+/// A Hebrew watermark is drawn as layout placed it, reading right to left on the page: ס rightmost
+/// (typing order drew ידוס). DRAFT and 2026 read left to right, to the left of the Hebrew word,
+/// where the bidirectional algorithm puts them. With a face that has Hebrew letters installed,
+/// every letter is drawn from a face that has it (the default watermark font, Aptos, is drawn in a
+/// stand-in with no Hebrew letters: they were empty boxes); without one the letters are empty
+/// boxes, still in their places.
 #[test]
 fn a_hebrew_watermark_draws_its_letters_right_to_left() {
-    if FontDb::global().fallback_for('ס', 0).is_none() {
-        eprintln!("skipped: no font with Hebrew letters installed");
-        return;
-    }
+    let hebrew_face = FontDb::global().fallback_for('ס', 0).is_some();
     let mut d = Document::new();
     d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Body", wordcraft_doc::CharProps::default()))];
     let wm = wordcraft_doc::Watermark { text: "סודי DRAFT 2026".into(), diagonal: false, ..Default::default() };
@@ -2299,13 +2297,16 @@ fn a_hebrew_watermark_draws_its_letters_right_to_left() {
         })
         .collect();
     let placed = watermark_glyphs(&d, &lay.pages[0], &wm);
-    assert_eq!(placed.len(), chars.len(), "every glyph is drawn");
-    assert!(chars.iter().all(|(c, gid, covered)| *c == ' ' || (*gid != 0 && *covered)), "a face that has it draws each: {chars:?}");
+    if hebrew_face {
+        assert!(chars.iter().all(|(c, gid, covered)| *c == ' ' || (*gid != 0 && *covered)), "a face that has it draws each: {chars:?}");
+    } else {
+        eprintln!("no font with Hebrew letters installed: their faces are not checked");
+    }
     let xs = |keep: fn(char) -> bool| -> Vec<f64> {
         chars.iter().zip(&placed).filter(|((c, ..), _)| keep(*c)).map(|(_, (_, _, at))| at.as_coeffs()[4]).collect()
     };
     let (he, latin, digits) = (xs(|c| ('\u{5D0}'..='\u{5EA}').contains(&c)), xs(|c| c.is_ascii_alphabetic()), xs(|c| c.is_ascii_digit()));
-    assert_eq!((he.len(), latin.len(), digits.len()), (4, 5, 4));
+    assert_eq!((he.len(), latin.len(), digits.len()), (4, 5, 4), "a glyph a letter");
     assert!(he.windows(2).all(|w| w[0] > w[1]), "ס rightmost: {he:?}");
     assert!(latin.windows(2).all(|w| w[0] < w[1]) && digits.windows(2).all(|w| w[0] < w[1]), "{latin:?} {digits:?}");
     let (max, min) = (|v: &[f64]| v.iter().copied().fold(f64::MIN, f64::max), |v: &[f64]| v.iter().copied().fold(f64::MAX, f64::min));

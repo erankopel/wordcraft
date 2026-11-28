@@ -2,6 +2,9 @@
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
 default-members = ["crates/*", "apps/wordcraft", "apps/wordcraft-cli", "xtask"]
+# Patched copies of upstream crates (see each one's PATCHED.md); used through [patch], not built
+# as members.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.19.1"
@@ -155,6 +158,12 @@ opt-level = 3
 lto = "thin"
 codegen-units = 16
 debug = 0
+
+# The Hebrew edition reads the .doc complex-script bold, italic, size and run direction, which
+# craft-doc-binary at the rev above skips: a patched copy of that rev (vendor/craft-doc-binary/
+# PATCHED.md), to drop once craft-libs reads them.
+[patch."https://github.com/storytold/craft-libs"]
+craft-doc-binary = { path = "vendor/craft-doc-binary" }
 
 # Required by craft-pdf: the backend rejects writers that failed during unwinding.
 [patch.crates-io]

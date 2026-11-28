@@ -168,21 +168,3 @@ fn reads_compressed_and_utf16_document_text() {
         assert_body_texts(&read_with_password(&input, Some("ignored")).expect("unprotected password ignored"), &expected);
     }
 }
-
-/// The `.doc` reader reads no complex-script bold, italic or size (sprmCFBoldBi, sprmCFItalicBi,
-/// sprmCHpsBi): the Hebrew letters of a bold, italic, 16 pt run are drawn so, as before WordCraft
-/// resolved the complex-script values on their own, and its Latin text is unchanged.
-#[test]
-fn hebrew_text_keeps_the_runs_bold_italic_and_size() {
-    use craft_wordmodel::props::CharProps;
-    let mut src = craft_wordmodel::Document::new();
-    let props = CharProps { bold: Some(true), italic: Some(true), size: Some(16.0), ..Default::default() };
-    src.body = vec![craft_wordmodel::para_block(craft_wordmodel::Paragraph::with_text("שלום world", props))];
-    let doc = read(&craft_doc_binary::write(&src).expect("write .doc")).expect("read .doc");
-    let p = doc.body.iter().find_map(|b| b.as_para()).expect("a paragraph");
-    let run = p.runs.iter().find(|r| r.len > 0).expect("a run");
-    let c = doc.styles.resolve_char(p.props.style.as_deref(), &run.props);
-    assert_eq!((c.bold, c.italic, c.size), (true, true, 16.0), "the Latin text");
-    let cs = c.complex();
-    assert_eq!((cs.bold, cs.italic, cs.size), (true, true, 16.0), "the Hebrew letters");
-}

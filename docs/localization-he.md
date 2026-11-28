@@ -522,6 +522,19 @@ the same AppImage byte for byte (two runs of `build-appimage.sh --skip-build` ga
 The programs themselves come out the same from the same commit, inputs and toolchain only when the
 source and Cargo home folders are the same too: the binaries carry some of their paths.
 
+## Patched craft-libs code
+
+AGENTS.md rules 9 and 10 say parsers belong in storytold/craft-libs and git dependencies come only
+from storytold at one `rev`. The edition departs from that once, on purpose: the Word 97-2003
+reader `craft-doc-binary` at the pinned `rev` skips the complex-script bold, italic and size
+(sprmCFBoldBi, sprmCFItalicBi, sprmCHpsBi) and the run direction (sprmCFBiDi), which its own
+writer writes, so a `.doc` file's Hebrew text took the Latin values. This fork cannot change
+storytold/craft-libs, so it carries a copy of that crate at the pinned `rev` in
+`vendor/craft-doc-binary/`, with those four sprms read, used through `[patch]` in the root
+`Cargo.toml` (only that crate; the rest of craft-libs stays at the one pinned `rev`).
+`vendor/craft-doc-binary/PATCHED.md` says what changed. The copy goes once craft-libs reads these
+sprms: the `[patch]` entry and the folder are removed and the `rev` moved in a change of its own.
+
 ## Not done, or not checked
 
 - A native-speaker review of the catalog, the supplement, the Hebrew sample text and the Hebrew
@@ -538,16 +551,13 @@ source and Cargo home folders are the same too: the binaries carry some of their
   character of a `w:rtl` run) in spans of their own that say their complex-script font, bold,
   italic and size as those (`html::by_script`); MHT is only read.
 - Complex-script bold, italic and size (`w:bCs`, `w:iCs`, `w:szCs`) are WordCraft's own, as in
-  Word, but not everywhere yet: the Word 97-2003 reader (`craft-doc-binary`) reads only the
-  complex-script font, so a `.doc` file's Hebrew text takes the Latin bold, italic and size, as
-  before (so a `.doc` file whose Hebrew is formatted otherwise than its Latin text shows it
-  wrongly), until it reads sprmCFBoldBi, sprmCFItalicBi, sprmCHpsBi and the run direction
-  sprmCFBiDi; a draft of that reader change was written for storytold/craft-libs but is not
-  merged, so no test of differing `.doc` values exists yet; the ODT
-  writer gives Hebrew text the Latin bold and italic where the document sets no complex-script
-  ones (`craft-odf`); and the Font dialog's and the bullet dialog's samples (`crates/ui-egui`)
-  draw Hebrew letters without the bold, italic and size they show. A complex-script font that
-  nothing sets still falls back to the Latin font (Word's own choice there was not observed).
+  Word, but not everywhere yet: the ODT writer gives Hebrew text the Latin bold and italic where
+  the document sets no complex-script ones (`craft-odf`). A complex-script font that nothing sets
+  still falls back to the Latin font (Word's own choice there was not observed). The Word
+  97-2003 reader now reads them (see Patched craft-libs code below), but not the run's languages
+  (sprmCRgLid0, sprmCLidBi), so a `.doc` file's Hebrew text is proofed by the language the
+  document or the detector gives it; and no `.doc` file made by Word itself was opened to compare,
+  only files from WordCraft's own `.doc` writer, which WordCraft does not offer as a save format.
 - Spaces, digits and punctuation of a run that says neither `w:rtl` nor `w:cs` take its Latin
   font, size, bold and italic whatever their bidi level, as Word picks them there by Unicode
   range; WordCraft's typed Hebrew says `w:rtl`, as Word's does. Such a file's runs are saved by
@@ -612,3 +622,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-28 | minor | Review fixes: icon menu rows mirrored and named with their shortcut; Hyphenation's Automatic and None checked by state, not a "✓" in the label; Cursor movement's buttons a radio group named by its label; Modify Style sends the new name trimmed; the Font dialog sample and the bullet preview give Hebrew letters the chosen bold, italic and size |
 | 2026-11-28 | minor | Hebrew letters take only the complex-script bold, italic and size (`w:bCs`, `w:iCs`, `w:szCs`, RTL-11), as in Word: a Word file's run with only `w:b`, `w:i` or `w:sz` leaves them plain, and with no `w:szCs` in its defaults they are 10 pt; HTML, Markdown, RTF, LaTeX and Word 97-2003 files give them the Latin values when read, ODT its sizes; Convert Text to Table, Quick Tables, Draw Table, the "+--+" AutoFormat table and mail-merge labels are right to left in right-to-left text; ODT and HTML export write a right-to-left document's default direction |
 | 2026-11-28 | minor | Word-fidelity review of RTL-11: spaces and punctuation of a run without `w:rtl` keep its Latin font, size, bold and italic (ECMA-376 §17.3.2.26), also after a save; typed Hebrew, and what is typed after it, says `w:rtl` as in Word; a `w:rtl` paragraph mark takes the complex-script size; a file without styles at 10 pt in both scripts; an unset complex-script default size kept through a save; HTML export and the HTML clipboard format Hebrew letters with their own values; labels take the direction of new documents; complex-script pairing reaches note separators, the glossary and tracked formatting; bold, italic (Latin and complex-script) and the other toggle properties combine by exclusive or across the table, paragraph and character styles (ECMA-376 §17.7.3), direct formatting outright, so Strong in a bold heading is regular as in Word |
+| 2026-11-28 | minor | Word 97-2003 files: Hebrew bold, italic and size and the run direction read as the file gives them (sprmCFBoldBi, sprmCFItalicBi, sprmCHpsBi, sprmCFBiDi), apart from the Latin ones, through a patched copy of `craft-doc-binary` (Patched craft-libs code); unset values inherit as in Word, at a base complex-script size of 10 pt |

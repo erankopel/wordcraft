@@ -24,14 +24,11 @@ pub fn read(bytes: &[u8]) -> Result<wordcraft_doc::Document, DocbinError> {
 
 /// Read a document that may be password-protected, preserving the shared reader's diagnostics.
 pub fn read_with_password(bytes: &[u8], password: Option<&str>) -> Result<wordcraft_doc::Document, DocbinError> {
+    // The reader takes the complex-script font, bold, italic and size (sprmCFtcBi,
+    // sprmCFBoldBi, sprmCFItalicBi, sprmCHpsBi) on their own, so values a file leaves unset stay
+    // unset and inherit as in Word, not from the Latin ones.
     let shared = craft_doc_binary::read_with_password(bytes, password)?;
-    let mut doc = from_shared_model(shared)?;
-    // `craft-doc-binary` reads the complex-script font (sprmCFtcBi) but not the complex-script
-    // bold, italic and size (sprmCFBoldBi, sprmCFItalicBi, sprmCHpsBi): until it does, Hebrew
-    // and Arabic text takes the others, said explicitly, as it did before WordCraft resolved
-    // the complex-script values on their own.
-    doc.pair_complex(true);
-    Ok(doc)
+    from_shared_model(shared)
 }
 
 #[cfg(test)]

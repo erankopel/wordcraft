@@ -635,7 +635,7 @@ impl Document {
     /// ([`Self::for_each_para_mut`]: notes, separators, the glossary), and the formatting a
     /// tracked formatting change records as before it. For a document read from a
     /// format with one size, bold and italic for every script (plain text, Markdown, HTML, RTF,
-    /// LaTeX, Word 97-2003 as read): its Hebrew and Arabic text keeps the formatting the file
+    /// LaTeX): its Hebrew and Arabic text keeps the formatting the file
     /// gives it, since WordCraft resolves the complex-script values on their own, as Word does.
     pub fn pair_complex(&mut self, emphasis: bool) {
         let one = |c: &mut CharProps| {

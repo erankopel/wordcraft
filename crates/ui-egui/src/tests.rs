@@ -7477,6 +7477,44 @@ fn select_recipients_opens_the_recipient_list() {
     assert!(b.dialog.is_none());
 }
 
+/// Type a New List… in the Hebrew interface names the list's columns in Hebrew, by the catalog's
+/// words, and Address Block and Greeting Line still find the name and the address in them: the
+/// engine knows each of those words. Another interface keeps the English names, the only others
+/// the engine knows.
+#[test]
+fn a_new_list_typed_in_the_hebrew_interface_fills_the_address_block() {
+    struct English;
+    impl Drop for English {
+        fn drop(&mut self) {
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        }
+    }
+    let _english = English;
+    crate::i18n::set_current(crate::i18n::fixture_lang("de", "\tFirst Name\tVorname\n\tCity\tStadt\n"));
+    let mut a = app();
+    a.run("ui.dialog", json!({"name": "newRecipientList"})).unwrap();
+    let Some(dialogs::Dialog::RecipientList { fields, .. }) = a.dialog.clone() else { panic!("no list: {:?}", a.dialog) };
+    assert_eq!(fields, dialogs::NEW_LIST_FIELDS, "German names would leave Address Block empty");
+    let Some(he) = crate::i18n::Lang::from_code("he") else {
+        eprintln!("skipped the Hebrew part: built without the Hebrew catalog (CRAFT_I18N_DIR)");
+        return;
+    };
+    crate::i18n::set_current(he);
+    let mut a = app();
+    a.run("ui.dialog", json!({"name": "newRecipientList"})).unwrap();
+    let Some(dialogs::Dialog::RecipientList { fields, .. }) = a.dialog.clone() else { panic!("no list: {:?}", a.dialog) };
+    assert_eq!(fields.len(), dialogs::NEW_LIST_FIELDS.len());
+    for (field, english) in fields.iter().zip(dialogs::NEW_LIST_FIELDS) {
+        assert!(field != english && field.chars().any(wordcraft_doc::bidi::is_rtl_script), "{english} is named in Hebrew: {field}");
+    }
+    let rows = vec![vec!["נועה".to_string(), "לוי".into(), "הרצל 12".into(), "חיפה".into(), "3303012".into()]];
+    a.load_recipients(dialogs::recipient_table(&fields, &rows).unwrap()).unwrap();
+    let matched = a.session.run("mailings.matchFields", &json!({})).unwrap();
+    for (key, field) in ["firstName", "lastName", "address", "city", "postal"].into_iter().zip(&fields) {
+        assert_eq!(matched["address"][key].as_str(), Some(field.as_str()), "{key}: {matched}");
+    }
+}
+
 /// #339: Ctrl+F9 opens the Field dialog (#321) and Edit Field… shows the selected field's code;
 /// scripts and agents get an error instead of a dialog.
 #[test]

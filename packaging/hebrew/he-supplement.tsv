@@ -846,3 +846,4 @@ icons	Map Pin	סיכת מפה
 	All done. We made {n} replacements.	הפעולה הושלמה. מספר ההחלפות שבוצעו: {n}.
 	Type gershayim and geresh after Hebrew letters	הקלדת גרשיים וגרש אחרי אותיות עבריות
 @msg	nothing on the clipboard can be pasted here (it holds {list})	אין בלוח דבר שאפשר להדביק כאן (יש בו {list})
+address	State	מחוז

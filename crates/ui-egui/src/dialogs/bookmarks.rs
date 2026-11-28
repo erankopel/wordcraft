@@ -153,10 +153,20 @@ pub(super) fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, cat
     ui.label(egui::RichText::new(name).color(t.text_dim));
     let (ok, cancel) = buttons(ui, tl!("Insert"));
     if (ok || insert) && !selected.is_empty() {
-        let _ = app.run("insert.icon", json!({"id": selected.as_str()}));
+        let _ = app.run("insert.icon", icon_params(selected));
         return true;
     }
     cancel
+}
+
+/// What the dialog sends `insert.icon` for the icon `id`: its name as the interface shows it is
+/// the picture's alternative text, so a picture inserted in the Hebrew interface is described in
+/// Hebrew.
+pub(super) fn icon_params(id: &str) -> serde_json::Value {
+    match wordcraft_render::icon_lib::find(id) {
+        Some(icon) => json!({"id": id, "alt": crate::i18n::tc("icons", icon.name)}),
+        None => json!({"id": id}),
+    }
 }
 
 /// The library's icons that match every word of `query` (in `category`, when given): by the
@@ -307,5 +317,21 @@ mod tests {
         assert_eq!(english, ["cloud"], "the library's English still works");
         assert!(office.contains(&"folder") && office.len() == super::icon_search("", Some(Category::Office)).len(), "{office:?}");
         assert!(nowhere.is_empty(), "the category still narrows");
+    }
+
+    /// The icon dialog describes the picture it inserts by the icon's name as the interface
+    /// shows it: in Hebrew in the Hebrew interface, in English in the English one.
+    #[test]
+    fn an_inserted_icon_is_described_in_the_interface_language() {
+        let alt = |lang: Lang| {
+            set_current(lang);
+            let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            let inserted = app.run("insert.icon", super::icon_params("heart"));
+            set_current(Lang::EN);
+            inserted.unwrap();
+            wordcraft_engine::cmd::objects::selected(&app.session).map(|(_, o)| o.alt_text().to_string())
+        };
+        assert_eq!(alt(fixture_lang("he", "icons\tHeart\tלב\n")).as_deref(), Some("לב"));
+        assert_eq!(alt(Lang::EN).as_deref(), Some("Heart"));
     }
 }

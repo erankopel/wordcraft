@@ -24,12 +24,15 @@ pub fn decode_as(b: &[u8], label: &str) -> Option<String> {
     Some(enc.decode(b).0.into_owned())
 }
 
-/// A document with one paragraph per line.
+/// A document with one paragraph per line; a line whose first letter is right to left is a
+/// right-to-left paragraph.
 pub fn import(bytes: &[u8]) -> Document {
     let text = decode(bytes);
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let clean: String = text.chars().filter(|c| !c.is_control() || matches!(c, '\n' | '\t' | '\u{000C}')).collect();
-    Document::from_text(&clean)
+    let mut doc = Document::from_text(&clean);
+    crate::rtl_by_first_letter(&mut doc);
+    doc
 }
 
 /// [`import`] onto `page`: plain text gives no page size (#1381).

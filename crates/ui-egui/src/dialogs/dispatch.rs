@@ -1757,7 +1757,8 @@ fn match_fields_dialog(ui: &mut Ui, d: &mut Dialog) -> bool {
         crate::rtl::Table::new("match_fields").columns(2).spacing(vec2(24.0, 6.0)).striped(true).show(ui, |t| {
             for (part, key) in ADDRESS_PARTS {
                 t.row(|r| {
-                    r.cell(|ui| ui.label(tl!(part)));
+                    // As an address words it: a state is not the country in every language.
+                    r.cell(|ui| ui.label(crate::i18n::tc("address", part)));
                     r.cell(|ui| match address.get(key).and_then(Value::as_str) {
                         Some(f) => ui.label(egui::RichText::new(f).strong()),
                         None => ui.label(egui::RichText::new(tl!("(not matched)")).weak()),

@@ -102,3 +102,4 @@ icons	Power	לחצן הפעלה	the power button symbol ⏻; 'הפעלה וכי�
 	Style{n}	סגנון {n}	the name New Style offers a style (Style1, Style2… in English, without a space); "סגנון{n}" keeps the English form, the space reads better in Hebrew
 	Match diacritics	התאמת ניקוד וטעמים	the Find dialog's option that makes Hebrew points and cantillation marks count; "התאמת סימנים דיאקריטיים" is the technical alternative, "התאמת ניקוד" the shorter one
 	Type gershayim and geresh after Hebrew letters	הקלדת גרשיים וגרש אחרי אותיות עבריות	the AutoCorrect option hebrewMarks (AutoFormat As You Type tab); keeps the English order, 'גרש וגרשיים' is the more usual order in Hebrew
+address	State	מחוז	the address part State/Province (Match Fields; a recipient-list column the merge reads as the state). The plain row gives State and Country the same word, מדינה, so here a state is מחוז (district); a US address would call its state מדינה

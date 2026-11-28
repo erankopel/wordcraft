@@ -230,6 +230,32 @@ fn markdown_round_trip() {
     check_round_trip("md", true);
 }
 
+/// A Hebrew text or Markdown file reads right to left: a paragraph whose first letter is right to
+/// left gets the right-to-left direction, as typing it does (headings, list items and table cells
+/// too). English lines, a line that starts in English and blank lines keep theirs.
+#[test]
+fn hebrew_paragraphs_of_text_and_markdown_files_open_right_to_left() {
+    use wordcraft_doc::StoryRef;
+    let directions = |doc: &Document| -> Vec<(String, Option<bool>)> {
+        let body = StoryRef::Body;
+        doc.para_paths(body).iter().filter_map(|p| doc.para(body, p)).map(|p| (p.text.clone(), p.props.bidi)).collect()
+    };
+    let txt = "שלום עולם\nHello world\n12. שורה שנייה\nEnglish first, אחר כך עברית\n\nסוף";
+    let d = import("txt", txt.as_bytes()).unwrap().unwrap();
+    let rtl = |text: &str| ["שלום עולם", "12. שורה שנייה", "סוף"].contains(&text).then_some(true);
+    for (text, bidi) in directions(&d) {
+        assert_eq!(bidi, rtl(&text), "text line {text:?}");
+    }
+    let md = "# כותרת\n\nפסקה ראשונה.\n\n- פריט\n- item\n\n| עמודה | Column |\n|---|---|\n| תא | cell |\n\nPlain English, then עברית.\n";
+    let d = crate::import_on("md", md.as_bytes(), &d.last_section).unwrap().unwrap();
+    let paras = directions(&d);
+    let hebrew = ["כותרת", "פסקה ראשונה.", "פריט", "עמודה", "תא"];
+    assert!(hebrew.iter().all(|h| paras.iter().any(|(t, _)| t == h)), "every Hebrew block is read: {paras:?}");
+    for (text, bidi) in paras {
+        assert_eq!(bidi, hebrew.contains(&text.as_str()).then_some(true), "Markdown paragraph {text:?}");
+    }
+}
+
 /// A code line of backticks must not be mistaken for the closing fence when the file comes
 /// back: the writer's fence has to be one backtick longer than any content line.
 #[test]

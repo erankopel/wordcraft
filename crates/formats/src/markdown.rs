@@ -10,12 +10,18 @@ fn shared_section(page: &SectionProps) -> craft_wordmodel::SectionProps {
     wordcraft_docx::to_shared_model(&d).map(|s| s.last_section).unwrap_or_default()
 }
 
+/// A Markdown document; a paragraph whose first letter is right to left reads right to left.
 pub fn import(text: &str) -> Document {
-    wordcraft_docx::from_shared_model(craft_markdown::import(text)).unwrap_or_default()
+    let mut doc = wordcraft_docx::from_shared_model(craft_markdown::import(text)).unwrap_or_default();
+    crate::rtl_by_first_letter(&mut doc);
+    doc
 }
 
+/// [`import`] onto `page`: Markdown gives no page size.
 pub fn import_on(text: &str, page: &SectionProps) -> Document {
-    wordcraft_docx::from_shared_model(craft_markdown::import_on(text, &shared_section(page))).unwrap_or_default()
+    let mut doc = wordcraft_docx::from_shared_model(craft_markdown::import_on(text, &shared_section(page))).unwrap_or_default();
+    crate::rtl_by_first_letter(&mut doc);
+    doc
 }
 
 /// [`import_on`] returning the document and the 0-based starting line of each top-level block.

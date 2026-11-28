@@ -8504,6 +8504,20 @@ fn insert_icon_places_a_picture_of_the_requested_size_that_saves_and_recolours()
     assert!(s.run("picture.iconColor", &json!({})).is_err());
 }
 
+/// `insert.icon`'s `alt` describes the picture in place of the library's English name (the icon
+/// dialog sends the name the interface shows, Hebrew in the Hebrew one); with a blank one the
+/// picture keeps the English name, as without one.
+#[test]
+fn insert_icon_takes_its_alternative_text() {
+    let alt = |params: serde_json::Value| {
+        let mut s = s();
+        run(&mut s, "insert.icon", params);
+        crate::cmd::objects::selected(&s).map(|(_, o)| o.alt_text().to_string())
+    };
+    assert_eq!(alt(json!({"id": "heart", "alt": "לב"})).as_deref(), Some("לב"));
+    assert_eq!(alt(json!({"id": "heart", "alt": " "})).as_deref(), Some("Heart"));
+}
+
 /// Print Markup (#589): `file.printMarkup` or a command's `markup` puts the comments into PDFs
 /// (balloons beside the scaled page) and at the end of HTML, Markdown and text copies.
 #[test]

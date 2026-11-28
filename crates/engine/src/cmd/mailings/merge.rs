@@ -44,19 +44,23 @@ pub(super) fn mergefield_name(instr: &str) -> Option<String> {
     Some(field_words(rest).into_iter().next().map(|(name, _)| name).unwrap_or_default())
 }
 
-/// Which columns hold address parts.
+/// Which columns hold address parts: a column named for the part in English, or in Hebrew (the
+/// names the Hebrew interface gives a new list's columns, and the usual alternatives), whatever
+/// its spaces, underscores and case.
 pub(super) fn address_map(headers: &[String]) -> Value {
-    let find = |names: &[&str]| headers.iter().find(|h| names.iter().any(|n| h.replace([' ', '_'], "").eq_ignore_ascii_case(n))).cloned();
+    let squeezed = |s: &str| s.replace([' ', '_'], "");
+    let find = |names: &[&str]| headers.iter().find(|h| names.iter().any(|n| squeezed(h).eq_ignore_ascii_case(&squeezed(n)))).cloned();
+    // Country is מדינה in Hebrew, so a state or province is מחוז, never מדינה.
     json!({
-        "firstName": find(&["FirstName", "First", "GivenName"]),
-        "lastName": find(&["LastName", "Last", "Surname", "FamilyName"]),
-        "company": find(&["Company", "Organization", "CompanyName"]),
-        "address": find(&["Address", "AddressLine1", "Address1", "Street"]),
-        "city": find(&["City", "Town"]),
-        "state": find(&["State", "Province", "Region"]),
-        "postal": find(&["PostalCode", "ZIP", "ZipCode", "Postcode"]),
-        "country": find(&["Country"]),
-        "title": find(&["Title", "CourtesyTitle"]),
+        "firstName": find(&["FirstName", "First", "GivenName", "שם פרטי", "פרטי"]),
+        "lastName": find(&["LastName", "Last", "Surname", "FamilyName", "שם משפחה", "משפחה"]),
+        "company": find(&["Company", "Organization", "CompanyName", "חברה", "שם החברה", "ארגון"]),
+        "address": find(&["Address", "AddressLine1", "Address1", "Street", "כתובת", "כתובת 1", "שורת כתובת 1", "רחוב"]),
+        "city": find(&["City", "Town", "עיר", "יישוב", "ישוב"]),
+        "state": find(&["State", "Province", "Region", "מחוז", "אזור"]),
+        "postal": find(&["PostalCode", "ZIP", "ZipCode", "Postcode", "מיקוד"]),
+        "country": find(&["Country", "מדינה", "ארץ"]),
+        "title": find(&["Title", "CourtesyTitle", "תואר", "תואר נימוס"]),
     })
 }
 

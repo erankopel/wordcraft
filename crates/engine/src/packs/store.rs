@@ -50,8 +50,8 @@ fn pack(e: &PackEntry) -> Pack {
         name: e.name.clone(),
         version: e.version.clone(),
         url: e.url.clone(),
-        // TODO(CP4): the index's optional `source` once craft-font-store's PackEntry carries it.
-        source: None,
+        // The index's optional upstream source (the font store takes only an `https://` one).
+        source: e.source.clone(),
         size: e.size,
         licence: e.licence.clone(),
         class: e.class.clone(),

@@ -115,13 +115,19 @@ Hebrew catalog as the build embeds it, supplement and corrections included.
   New Tab and New Group make `כרטיסייה חדשה` and `קבוצה חדשה` (the engine names a new tab's first
   group in English; the dialog renames it). File › Recover and its Discard question name the copy
   of a document that was never saved `טיוטה ללא שם` (the copy itself keeps the engine's English
-  name, which `file.recover` and the control channel report). The columns of a new mail-merge
-  address list stay English: Address Block and Greeting Line find a name and an address by those
-  English column names (`address_map` in `crates/engine/src/cmd/mailings/merge.rs`), so Hebrew
-  ones would leave them empty until the engine knows the Hebrew names too.
+  name, which `file.recover` and the control channel report). Type a New List… names a new
+  mail-merge address list's columns in Hebrew (שם פרטי, שם משפחה, כתובת, עיר, מיקוד), and Address
+  Block and Greeting Line find the name and the address in them: the engine knows each address
+  part by its Hebrew name as by its English one (`address_map` in
+  `crates/engine/src/cmd/mailings/merge.rs`: also תואר, חברה, רחוב, יישוב, מחוז, מדינה and a few
+  alternatives). Country is מדינה, so a state or province is מחוז, in the list and in Match Fields
+  (a context row, `address`, for State; the plain row gives State and Country the same word).
+- **Pictures described in the interface language:** an icon inserted from Insert › Icons is
+  described (its alternative text) by the icon's name as the interface shows it, Hebrew in the
+  Hebrew interface (`insert.icon` takes `alt`; without it the library's English name).
 
 - **Review:** no native Hebrew speaker has read the catalog or the supplement. The rows were
-  written from the plain meaning of the English, like the rest of the catalog. The 84 rows least
+  written from the plain meaning of the English, like the rest of the catalog. The 105 rows least
   likely to be right, each with the reason, are in `packaging/hebrew/he-uncertain.tsv`: start there.
   The proper home for the rows is craft-i18n (the 49 rows that name shared things, such as colours,
   belong in its `common.tsv`); this repository keeps them only so that the edition can be built.
@@ -194,8 +200,8 @@ AGPL-3.0-or-later, so craft-i18n's ADR 0004 makes it Download-only: it is never 
 which is why the edition has no spell check on its first launch and needs one online click.
 
 Once the list of packs is known, the bar names the pack's licence and links its source next to
-Install; after the person's Install it says that Hebrew proofing is installed, with the licence and
-source, until it is closed. Before the list is known (a fresh profile) the bar's Install fetches the
+Install (the upstream source the pack index names, else the pack's archive); after the person's
+Install it says that Hebrew proofing is installed, with the licence and source, until it is closed. Before the list is known (a fresh profile) the bar's Install fetches the
 list and then the pack, and Options › Language says the language is available to download, with
 the same Install, instead of "not available yet". A download that a network stops is explained in
 Hebrew with what to try: a security certificate the network puts in place of the server's (a filter
@@ -285,6 +291,13 @@ Labels start on the region's paper (a DL envelope and A4 label sheets). Starting
   with a palette, and the automatic colour reads אוטומטי (Automatic), not `auto`. New Style's
   Style based on lists the paragraph styles by the names the interface shows (כותרת 1) and bases
   the new style on the style picked, by its id.
+- **Text and Markdown files:** these formats carry no direction, so on opening (and when a
+  Markdown source is applied) a paragraph whose first letter is Hebrew or another right-to-left
+  letter becomes a right-to-left paragraph, as typing such a letter into a new paragraph does:
+  headings, list items and table cells too. Lines that start in English, numbers alone and blank
+  lines keep the left-to-right direction, and an English file opens as before (see "Not done").
+- **Drop caps:** a Hebrew first letter is dropped at the size of a Latin one (the complex script
+  size grows with the Latin size), not drawn at the size of the text beside it.
 - **Checked and already right:** the caret steps over a letter with all its points as one stop;
   Ctrl+arrow crosses a pointed word in one step in reading order; the word count is the same with
   or without points; typed Hebrew is never underlined as misspelled English.
@@ -358,7 +371,10 @@ fonts), `open-hebrew-fonts.sha256`, `BUILD-INFO.txt`, WordCraft's `NOTICE`, `LIC
 the ArtCraft Team's (`docs/brand/LICENSE-brand.txt`), which keeps them and the links to its community
 for WordCraft's own builds. The edition, a modified version, says in plain text that it is based on
 WordCraft by the ArtCraft team, and has no Discord button, Help › Community Discord or Backstage
-community link (`links_to_artcraft` in `crates/ui-egui/src/lib.rs`); see "Not done" for About. For
+community link (`links_to_artcraft` in `crates/ui-egui/src/lib.rs`); its sample document (`--sample`
+and File › New's sample, in English and in Hebrew) links its community board to `example.org`, a
+domain kept for examples, not to getartcraft.com (`COMMUNITY_LINK` in `crates/engine/src/sample.rs`,
+from the same build variable, `WORDCRAFT_DEFAULT_LANGUAGE`); see "Not done" for About. For
 the same reason the stock `README.md`, with the ArtCraft logo and those links, is not in the AppImage
 (`packaging/linux/package.sh` leaves it out of an edition with its own desktop id).
 
@@ -460,9 +476,9 @@ source and Cargo home folders are the same too: the binaries carry some of their
   set their own name, the command first.
 - Still English: the Date and Time dialog's messages; a built-in style's name in Modify Style's
   Name box (a free text field that renames the style with what it holds: it needs to show the
-  translated name and send a name only when it was changed); the alternative text an inserted icon
-  gets (`insert.icon` takes none, so the English name is written); and engine messages no row
-  covers.
+  translated name and send a name only when it was changed); Greeting Line's words (`Dear …,`,
+  `Dear Sir or Madam,`), which the engine writes in English whatever the text's language; and
+  engine messages no row covers.
 - File › Options › Advanced has no control for the cursor movement setting (`file.options`
   `cursorMovement`, visual or logical, see [typing parity](typing-parity.md)); the supplement has
   its rows (תנועת הסמן: לוגית, חזותית).
@@ -470,10 +486,10 @@ source and Cargo home folders are the same too: the binaries carry some of their
   the download): craft-font-store at the pinned craft-libs has no public way to install a local
   archive against the pinned index's size and sha256 (its local path is the testing override, which
   skips the pin), and the downloads trust only the certificates compiled into rustls, not the
-  system's, so an inspecting network's certificate is refused. Both need craft-libs changes. The
-  bar's source link is the pack's archive until the engine reads the index's `source`.
-- A Hebrew Markdown or text file opens left to right: these formats carry no direction, and only new
-  blank documents take the edition's right-to-left default.
+  system's, so an inspecting network's certificate is refused. Both need craft-libs changes.
+- A Hebrew text or Markdown file opens with right-to-left paragraphs but not as a right-to-left
+  document: its tables are not mirrored, its blank lines stay left to right, and the document
+  defaults are the stock ones (only new blank documents take the edition's right-to-left default).
 - Watermarks in Hebrew text: Design › Watermark's words and Custom Watermark's `CONFIDENTIAL` are
   still written in English, even where the menu shows them in Hebrew, because a Hebrew watermark is
   not drawn right yet. Its text is shaped in the watermark's own font with no fallback
@@ -498,3 +514,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-27 | minor | File › Recover's Discard question names an untitled copy as the Recover page does; corrects the row above: Find and Replace has no Match diacritics, and its searches keep the setting the last search sent |
 | 2026-11-27 | minor | Find and Replace's Match diacritics box, sent with the dialog's searches; the dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored, the Find and Create Source fields from the right; Modify Style's complex script font and size and its Automatic colour, New Style's Based on by translated names; check boxes for the direction keys (Options › Advanced) and gershayim (AutoCorrect Options) |
 | 2026-11-28 | minor | A built-in Hebrew AutoCorrect list for Hebrew text (HE-16): 96 entries of our own, most final-letter ones also after prefix letters, listed in [autocorrect-he.md](autocorrect-he.md) for review |
+| 2026-11-28 | minor | Hebrew drop caps at full size; Hebrew text and Markdown files open with right-to-left paragraphs; a new address list's columns in Hebrew, which Address Block and Greeting Line read (State as מחוז); inserted icons described in the interface language; the Language pack bar links the index's source; the edition's sample links no ArtCraft site; Greeting Line's English words noted as not done |

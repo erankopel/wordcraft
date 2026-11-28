@@ -852,3 +852,24 @@ fn punctuation_in_hebrew_text_takes_the_complex_script_font() {
     let latin = drawn_formats("Hello, world.", true, None);
     assert!(latin.iter().all(|(_, font, size)| font == "Source Sans 3" && *size == 12.0), "{latin:?}");
 }
+
+/// A Hebrew drop cap spans its lines as a Latin one does: the letter is drawn at the
+/// complex-script size, which grows with the Latin size, not at the size of the text beside it.
+#[test]
+fn a_hebrew_drop_cap_is_drawn_as_large_as_a_latin_one() {
+    crate::test_fonts();
+    // The drawn size of the dropped letter and of the letter after it.
+    let sizes = |text: &str| {
+        let mut d = doc_of(&[(&text.repeat(6), true)]);
+        d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().props.drop_cap = Some(3);
+        let l = lay(&d);
+        let (pl, _) = first_line(&l, 0);
+        let size = |k: usize| pl.clusters.get(k).map(|c| pl.styles[c.style as usize].rc.size).unwrap_or(f32::NAN);
+        (size(0), size(1))
+    };
+    let (latin_cap, latin_text) = sizes("Every line of this paragraph wraps around a large first letter. ");
+    assert!(latin_cap > 2.0 * latin_text, "the Latin letter at {latin_cap} pt beside text at {latin_text} pt");
+    let (cap, text) = sizes("כל שורה בפסקה הזאת נכרכת סביב אות ראשונה גדולה. ");
+    assert!(cap > 2.0 * text, "the Hebrew letter at {cap} pt beside text at {text} pt");
+    assert!((cap - latin_cap).abs() < 0.5, "as large as the Latin one: {cap} and {latin_cap} pt");
+}

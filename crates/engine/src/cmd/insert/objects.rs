@@ -135,7 +135,7 @@ fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str)
         media: key.clone(),
         w,
         h,
-        alt: alt.to_string(),
+        alt: wordcraft_doc::para::cap_alt(alt),
         float: Float::default(),
         crop: [0.0; 4],
         fx: Default::default(),
@@ -153,9 +153,10 @@ fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str)
 }
 
 /// Insert › Icons: a library icon (original artwork drawn in code, `wordcraft_render::icon_lib`)
-/// rendered to a PNG picture `size` points square (default 1 inch) in `color` (default black).
-/// Without an `id` it lists the library (narrowed by `query` and `category`) and asks a front end
-/// for its icon picker.
+/// rendered to a PNG picture `size` points square (default 1 inch) in `color` (default black),
+/// described by `alt` (the icon's name as the interface shows it; the library's English name when
+/// it is missing or blank). Without an `id` it lists the library (narrowed by `query` and
+/// `category`) and asks a front end for its icon picker.
 pub(super) fn icon(s: &mut Session, v: &Value) -> CmdResult {
     use wordcraft_render::icon_lib;
     let Some(id) = p::str(v, "id") else {
@@ -179,7 +180,8 @@ pub(super) fn icon(s: &mut Session, v: &Value) -> CmdResult {
     if png.is_empty() {
         return Err(CmdError::Failed("couldn't draw the icon".into()));
     }
-    let mut r = place_picture(s, png, Some(size), icon.name)?;
+    let alt = p::str(v, "alt").filter(|a| !a.trim().is_empty()).unwrap_or(icon.name);
+    let mut r = place_picture(s, png, Some(size), alt)?;
     r["icon"] = json!(icon.id);
     Ok(r)
 }

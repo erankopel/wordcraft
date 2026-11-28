@@ -70,6 +70,31 @@ pub fn import_on(ext: &str, bytes: &[u8], page: &wordcraft_doc::SectionProps) ->
     Some(Ok(doc))
 }
 
+/// Plain text and Markdown say nothing of direction: give each paragraph whose first strong
+/// letter is right to left (Hebrew, Arabic…) the right-to-left direction, as typing those letters
+/// into a paragraph does, unless the paragraph, its style or the document defaults set one.
+/// Paragraphs without such a letter (English, numbers, blank lines) stay as they are.
+pub(crate) fn rtl_by_first_letter(doc: &mut Document) {
+    use wordcraft_doc::StoryRef;
+    if doc.styles.default_para.bidi.is_some() {
+        return;
+    }
+    let stories: Vec<StoryRef> = std::iter::once(StoryRef::Body).chain(doc.parts.keys().map(|id| StoryRef::Part(*id))).collect();
+    for story in stories {
+        for path in doc.para_paths(story) {
+            let Some(p) = doc.para(story, &path) else { continue };
+            let styled = || doc.styles.chain(p.props.style.as_deref().unwrap_or("Normal")).iter().any(|st| st.para.bidi.is_some());
+            if p.props.bidi.is_some() || !wordcraft_doc::bidi::first_strong_is_rtl(&p.text) || styled() {
+                continue;
+            }
+            if let Ok(p) = doc.para_mut(story, &path) {
+                p.props.bidi = Some(true);
+                p.touch();
+            }
+        }
+    }
+}
+
 /// Export `doc` in the format named by `ext`. `None` = not our format.
 pub fn export(ext: &str, doc: &Document) -> Option<Result<Vec<u8>, String>> {
     let ext = ext.trim_start_matches('.').to_ascii_lowercase();

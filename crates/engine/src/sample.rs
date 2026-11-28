@@ -5,6 +5,13 @@ use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, CharProps, NumRef, Rgb, TabAlign, TabLeader, TabStop, TextColor};
 use wordcraft_doc::{Block, Document, ListKind, Paragraph, PartKind, Table, para_block};
 
+/// Where the samples' "community board" links: ArtCraft's site in WordCraft's own builds. An
+/// edition, built with `WORDCRAFT_DEFAULT_LANGUAGE` (the variable the interface's
+/// `links_to_artcraft` follows), is a modified version, and `docs/brand/LICENSE-brand.txt` keeps
+/// the links to the ArtCraft community for WordCraft's own builds: its samples link a domain kept
+/// for examples instead.
+const COMMUNITY_LINK: &str = if option_env!("WORDCRAFT_DEFAULT_LANGUAGE").is_none() { "https://getartcraft.com/" } else { "https://example.org/" };
+
 fn para(text: &str) -> Paragraph {
     Paragraph::with_text(text, CharProps::default())
 }
@@ -119,11 +126,7 @@ pub fn sample_document() -> Document {
     );
     b.push(Block::Para(m));
     let mut h = para("Questions go to the front desk, or to the notice board by the sink. ");
-    add(
-        &mut h,
-        "Visit the community board",
-        CharProps { style: Some("Hyperlink".into()), link: Some("https://getartcraft.com/".into()), ..Default::default() },
-    );
+    add(&mut h, "Visit the community board", CharProps { style: Some("Hyperlink".into()), link: Some(COMMUNITY_LINK.into()), ..Default::default() });
     add(&mut h, " for events.", CharProps::default());
     b.push(Block::Para(h));
     d.body = b.into_iter().map(std::sync::Arc::new).collect();
@@ -330,11 +333,7 @@ fn hebrew_sample_document() -> Document {
     );
     b.push(Block::Para(m));
     let mut h = para("שאלות אפשר להפנות לדלפק בכניסה, או ללוח המודעות ליד הכיור. ");
-    add(
-        &mut h,
-        "בקרו בלוח הקהילה",
-        CharProps { style: Some("Hyperlink".into()), link: Some("https://getartcraft.com/".into()), ..Default::default() },
-    );
+    add(&mut h, "בקרו בלוח הקהילה", CharProps { style: Some("Hyperlink".into()), link: Some(COMMUNITY_LINK.into()), ..Default::default() });
     add(&mut h, " כדי לשמוע על אירועים.", CharProps::default());
     b.push(Block::Para(h));
     d.body = b.into_iter().map(std::sync::Arc::new).collect();

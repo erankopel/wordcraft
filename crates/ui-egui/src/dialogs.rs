@@ -861,7 +861,7 @@ impl Dialog {
                         filter: RecipientFilter::from_session(m),
                     }
                 } else {
-                    let fields: Vec<String> = NEW_LIST_FIELDS.iter().map(ToString::to_string).collect();
+                    let fields = mailings::new_list_fields();
                     let rows = vec![vec![String::new(); fields.len()]];
                     Dialog::RecipientList { fields, rows, message: String::new(), filter: RecipientFilter::default() }
                 }

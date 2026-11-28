@@ -812,3 +812,28 @@ fn merge_uses_only_filtered_records_in_sort_order() {
     assert!(s.run("mailings.finish", &json!({})).is_err());
     assert!(s.run("mailings.editRecipients", &json!({})).is_ok());
 }
+
+/// A list whose columns have Hebrew names (as the Hebrew interface names a new list's columns)
+/// fills Address Block and Greeting Line as one with English names does; Hebrew country and
+/// district columns stay apart.
+#[test]
+fn address_block_and_greeting_line_fill_from_hebrew_column_names() {
+    let mut s = Session::new(Document::new());
+    let csv = "תואר,שם פרטי,שם משפחה,חברה,כתובת,עיר,מחוז,מיקוד,מדינה\nד״ר,נועה,לוי,אורט,הרצל 12,חיפה,מחוז חיפה,3303012,ישראל";
+    s.run("mailings.recipients", &json!({"csv": csv})).unwrap();
+    let m = s.run("mailings.matchFields", &json!({})).unwrap();
+    for key in ["title", "firstName", "lastName", "company", "address", "city", "state", "postal", "country"] {
+        assert!(m["address"][key].is_string(), "{key} is matched: {m}");
+    }
+    assert_ne!(m["address"]["state"], m["address"]["country"], "{m}");
+    s.run("mailings.addressBlock", &json!({})).unwrap();
+    s.run("text.newParagraph", &json!({})).unwrap();
+    s.run("mailings.greetingLine", &json!({})).unwrap();
+    s.run("mailings.preview", &json!({"value": true})).unwrap();
+    let t = s.doc.plain_text(StoryRef::Body);
+    for part in ["ד״ר נועה לוי", "אורט", "הרצל 12", "חיפה, מחוז חיפה 3303012", "ישראל"] {
+        assert!(t.contains(part), "the address block has {part}: {t}");
+    }
+    assert!(t.contains("נועה לוי,"), "the greeting line names her: {t}");
+    assert!(!t.contains("Sir or Madam"), "{t}");
+}

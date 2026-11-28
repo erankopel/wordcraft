@@ -38,11 +38,18 @@ pub(super) fn font_sample_props(
     } else {
         Underline::None
     };
+    let pt = preview_size(size).min(40.0);
+    // Complex script letters (Hebrew, Arabic) take their own bold, italic and size, which no
+    // longer fall back to the Latin ones: the sample gives them what the dialog shows. With
+    // complex scripts on, the dialog's own complex script font and size replace these.
     CharProps {
         font: Some(app.previews.font_stored(font)),
-        size: Some(preview_size(size).min(40.0)),
+        size: Some(pt),
+        size_cs: Some(pt),
         bold: Some(bold),
+        bold_cs: Some(bold),
         italic: Some(italic),
+        italic_cs: Some(italic),
         underline: Some(line),
         strike: Some(strike),
         color: Some(TextColor::Rgb(ink)),

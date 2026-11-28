@@ -261,7 +261,8 @@ mod tests {
     }
 
     /// An insertion error the engine reports in English shows in the interface language where the
-    /// catalog has it, and the dialog keeps the engine's words for scripts.
+    /// catalog has it. Only the drawn text is translated: the form keeps the engine's English in
+    /// `error` (serde-skipped, so not part of the dialog's state that scripts read).
     #[test]
     fn an_insertion_error_is_shown_in_the_interface_language() {
         use egui_kittest::kittest::Queryable;

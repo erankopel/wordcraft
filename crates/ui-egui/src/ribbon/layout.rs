@@ -33,6 +33,16 @@ pub(super) fn orientation_items(ui: &mut Ui, app: &mut WordApp) {
     mi_check(ui, app, "Landscape", land, "layout.orientation", json!({"value": "landscape"}));
 }
 
+// Layout › Hyphenation: the document's setting, Automatic or None, has the check mark.
+pub(super) fn hyphenation_items(ui: &mut Ui, app: &mut WordApp) {
+    let hy = app.session.doc.settings.auto_hyphenation;
+    mi_check(ui, app, "Automatic", hy, "layout.hyphenation", json!({"value": true}));
+    mi_check(ui, app, "None", !hy, "layout.hyphenation", json!({"value": false}));
+    mi(ui, app, "Manual…", "ui.dialog", json!({"name": "manualHyphenation"}));
+    ui.separator();
+    mi(ui, app, "Hyphenation Options…", "ui.dialog", json!({"name": "hyphenation"}));
+}
+
 pub(super) fn columns_items(ui: &mut Ui, app: &mut WordApp) {
     let current = wordcraft_engine::cmd::page::columns_preset_at(&app.session);
     for (l, k, params) in [
@@ -106,18 +116,11 @@ pub(super) fn layout(app: &mut WordApp, ui: &mut Ui) {
                     mi(ui, app, "Line Numbering Options…", "ui.dialog", json!({"name": "lineNumbers"}));
                 },
             );
-            let hy = app.session.doc.settings.auto_hyphenation;
             menu_button(
                 ui,
                 app,
                 crate::widgets::MenuButtonOptions::new("hyphenation", Some("Hyphenation"), "Hyphenation", false, "layout.hyphenation"),
-                |ui, app| {
-                    mi(ui, app, if hy { "✓ Automatic" } else { "Automatic" }, "layout.hyphenation", json!({"value": true}));
-                    mi(ui, app, if hy { "None" } else { "✓ None" }, "layout.hyphenation", json!({"value": false}));
-                    mi(ui, app, "Manual…", "ui.dialog", json!({"name": "manualHyphenation"}));
-                    ui.separator();
-                    mi(ui, app, "Hyphenation Options…", "ui.dialog", json!({"name": "hyphenation"}));
-                },
+                hyphenation_items,
             );
         });
         let fit_resp = big(ui, app, "fitOnePage", "Fit\nOne Page", "layout.fitOnePage", json!({}), false);

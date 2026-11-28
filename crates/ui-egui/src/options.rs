@@ -822,16 +822,21 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
 
 /// Cursor movement in text that mixes right-to-left and left-to-right writing (`file.options`
 /// `cursorMovement`, see docs/typing-parity.md): Logical, through the text in the order it was
-/// typed, or Visual, across the screen (the default). A line says what the choice does.
+/// typed, or Visual, across the screen (the default). A line says what the choice does. The two
+/// radio buttons are a radio group labelled by the row's label, as the pane's other pickers are
+/// labelled by theirs; each button keeps its own name (`labelled_by` on a button would replace it).
 fn cursor_movement_picker(app: &mut WordApp, ui: &mut Ui, now: wordcraft_engine::cmd::options::CursorMovement) {
     use wordcraft_engine::cmd::options::CursorMovement;
     ui.horizontal(|ui| {
-        ui.label(tl!("Cursor movement:"));
-        for (m, name) in [(CursorMovement::Logical, tl!("Logical")), (CursorMovement::Visual, tl!("Visual"))] {
-            if ui.radio(now == m, name).clicked() && now != m {
-                set(app, json!({"cursorMovement": m.name()}));
+        let label = ui.label(tl!("Cursor movement:"));
+        ui.scope_builder(egui::UiBuilder::new().accessibility_role(egui::accesskit::Role::RadioGroup), |ui| {
+            ui.ctx().accesskit_node_builder(ui.unique_id(), |node| node.push_labelled_by(label.id.accesskit_id()));
+            for (m, name) in [(CursorMovement::Logical, tl!("Logical")), (CursorMovement::Visual, tl!("Visual"))] {
+                if ui.radio(now == m, name).clicked() && now != m {
+                    set(app, json!({"cursorMovement": m.name()}));
+                }
             }
-        }
+        });
     });
     note(
         ui,

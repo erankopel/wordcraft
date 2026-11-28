@@ -587,6 +587,10 @@ fn advanced_cursor_movement_switches_between_logical_and_visual() {
     h.run_steps(4);
     assert_eq!(h.state().session.prefs.cursor_movement, CursorMovement::Visual, "visual by default");
     assert!(h.query_by_label("Cursor movement:").is_some(), "the row is there");
+    let group = h.query_all_by_label("Cursor movement:").find(|n| n.accesskit_node().role() == egui::accesskit::Role::RadioGroup);
+    let group = group.expect("the radio buttons are a group named by the row's label");
+    let names: Vec<String> = group.accesskit_node().children().filter_map(|c| c.label()).collect();
+    assert_eq!(names, ["Logical", "Visual"], "each button keeps its own name");
     h.get_by_label("Logical").click();
     h.run_steps(4);
     assert_eq!(h.state().session.prefs.cursor_movement, CursorMovement::Logical, "Logical sets it");

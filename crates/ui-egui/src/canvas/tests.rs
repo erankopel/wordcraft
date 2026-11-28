@@ -2620,17 +2620,17 @@ fn right_click_on_a_shape_opens_the_format_shape_pane() {
     assert!(!h.state().session.view.format_shape_pane, "the pane starts closed");
     let rect = h.state_mut().session.layout().object(&pos, 0).expect("the shape is laid out").rect;
     let at = crate::frame::to_screen(h.state().canvas.page_rects[0], h.state().canvas.scale, rect).center();
-    // A menu item's label ends with its (empty) shortcut column; the ribbon's own Format
-    // Shape… launcher has none, so this names the context menu's entry only.
+    // A menu row is named by its label alone when it has no shortcut; the entry is looked up
+    // inside the context menu, so nothing else of that name (a ribbon launcher) can answer.
     let entry = "Format Shape…";
-    assert!(h.query_by_label(entry).is_none(), "no context menu yet");
+    assert!(h.query_by_role(egui::accesskit::Role::Menu).is_none(), "no context menu yet");
     h.event(egui::Event::PointerMoved(at));
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
         h.step();
     }
     h.step();
-    h.get_by_label(entry).click();
+    h.get_by_role(egui::accesskit::Role::Menu).get_by_label(entry).click();
     for _ in 0..3 {
         h.step();
     }

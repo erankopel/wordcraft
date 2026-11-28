@@ -2661,9 +2661,13 @@ fn font_sample_props_map_each_field_to_its_property() {
     let mut p = |fx: (bool, bool, bool, bool), sc: (bool, bool, bool)| font_sample_props(&mut app, white, "Serif", "12", "", fx, sc, 1.5);
     let q = p((true, false, false, true), (true, false, false));
     assert_eq!((q.bold, q.italic, q.strike), (Some(true), Some(false), Some(true)));
+    // Complex script letters (Hebrew) in the sample take the same bold, italic and size: those
+    // don't fall back to the Latin ones.
+    assert_eq!((q.bold_cs, q.italic_cs, q.size_cs), (q.bold, q.italic, q.size), "complex script letters drawn alike");
     assert_eq!((q.small_caps, q.caps, q.spacing), (Some(true), Some(false), Some(1.5)));
     let q = p((false, true, false, false), (false, true, false));
     assert_eq!((q.italic, q.small_caps, q.caps), (Some(true), Some(false), Some(true)));
+    assert_eq!((q.bold_cs, q.italic_cs), (q.bold, q.italic));
     assert_eq!(p((false, false, false, false), (false, false, true)).underline, Some(Underline::Dotted));
     assert_eq!(p((false, false, true, false), (false, false, true)).underline, Some(Underline::Single));
 }

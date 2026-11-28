@@ -145,7 +145,6 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     if *complex {
         sample_props.font_cs = Some(app.previews.font_stored(font_cs));
         sample_props.size_cs = Some(super::font::preview_size(size_cs).min(40.0));
-        (sample_props.bold_cs, sample_props.italic_cs) = (Some(*bold), Some(*italic));
     }
     crate::widgets::section(ui, "", |ui| {
         crate::rtl::Table::new("fontdlg").columns(2).spacing(vec2(10.0, 6.0)).show(ui, |t| {
@@ -1210,7 +1209,7 @@ fn modify_style_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         // A new name only when the box was edited: it shows a built-in style's translated name,
         // which must not become the style's own.
         if name.trim() != name_was.trim() {
-            params["name"] = json!(name);
+            params["name"] = json!(name.trim());
         }
         let _ = app.run("styles.modify", params);
     }
@@ -1980,12 +1979,12 @@ mod tests {
         assert_eq!(stored(h.state()), english, "OK without an edit keeps the style's name");
         let mut d = Dialog::modify_style(h.state(), "Normal");
         let Some(Dialog::ModifyStyle { name, .. }) = &mut d else { panic!("Modify Style opens again") };
-        *name = "Body".into();
+        *name = "  Body ".into();
         h.state_mut().dialog = d;
         h.run_steps(3);
         h.get_by_label("OK").click();
         h.run_steps(3);
-        assert_eq!(stored(h.state()), "Body", "an edited name renames the style");
+        assert_eq!(stored(h.state()), "Body", "an edited name renames the style, without the spaces around it");
     }
 
     /// UWB-04: New Style's "Style based on" shows a built-in style by its name in the interface

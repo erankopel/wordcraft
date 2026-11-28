@@ -84,7 +84,10 @@ fn icon_text_button_with(ui: &mut Ui, icon: &str, text: &str, font: egui::FontId
     resp
 }
 
-/// A drop-down menu item with `icon` before `text`, at least `min_w` wide.
+/// A drop-down menu item with `icon` before `text` and `shortcut` at the far side, at least
+/// `min_w` wide. Mirrored in a right-to-left interface (by language, as [`icon_text_button`]):
+/// the icon at the right, then the text, the shortcut at the left. Named like
+/// [`crate::rtl::menu_item`]: the label, then the shortcut.
 pub fn icon_menu_item(ui: &mut Ui, icon: &str, text: &str, shortcut: &str, min_w: f32) -> Response {
     let t = Tokens::get(ui.ctx());
     let font = egui::TextStyle::Button.resolve(ui.style());
@@ -95,15 +98,20 @@ pub fn icon_menu_item(ui: &mut Ui, icon: &str, text: &str, shortcut: &str, min_w
     let sc_w = sc.as_ref().map_or(0.0, |g| g.size().x + 3.0 * pad.x);
     let w = (pad.x + icon_w + 6.0 + galley.size().x + sc_w + pad.x).max(min_w).max(ui.available_width());
     let (r, resp) = ui.allocate_exact_size(vec2(w, galley.size().y.max(icon_w) + 2.0 * pad.y), Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), text));
+    let name = if shortcut.is_empty() { text.to_string() } else { format!("{text} {shortcut}") };
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &name));
     let st = drawn_state(ui, &resp, false);
     ui.painter().rect_filled(r, ui.visuals().widgets.inactive.corner_radius, st.fill);
     let (line, accent) = if ui.is_enabled() { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
     let text_c = if ui.is_enabled() { st.text } else { t.text_disabled };
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + pad.x + icon_w / 2.0, r.center().y), vec2(icon_w, icon_w)), icon, line, accent);
-    ui.painter().galley(pos2(r.min.x + pad.x + icon_w + 6.0, r.center().y - galley.size().y / 2.0), galley, text_c);
+    let rtl = crate::rtl::on();
+    let icon_c = pos2(crate::rtl::lead_x(rtl, r, pad.x + icon_w / 2.0), r.center().y);
+    icons::paint(ui.painter(), Rect::from_center_size(icon_c, vec2(icon_w, icon_w)), icon, line, accent);
+    let text_x = crate::rtl::lead_left(rtl, r, pad.x + icon_w + 6.0, galley.size().x);
+    ui.painter().galley(pos2(text_x, r.center().y - galley.size().y / 2.0), galley, text_c);
     if let Some(g) = sc {
-        ui.painter().galley(pos2(r.max.x - pad.x - g.size().x, r.center().y - g.size().y / 2.0), g, t.text_disabled);
+        let sc_x = crate::rtl::lead_left(!rtl, r, pad.x, g.size().x);
+        ui.painter().galley(pos2(sc_x, r.center().y - g.size().y / 2.0), g, t.text_disabled);
     }
     resp
 }

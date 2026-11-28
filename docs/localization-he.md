@@ -51,7 +51,10 @@ right. In more detail:
 - **Drop-down lists** (`rtl::ComboBox`, every `craft_ui::ComboBox` the interface draws) start each
   row at the right, the row as wide as the list. **Menu rows with a shortcut** (`rtl::menu_item`:
   the ribbon's menus, the page's context menu, Search's results) are drawn shortcut at the far
-  side and named for a screen reader label first (`Bold Ctrl+B`), as they read.
+  side and named for a screen reader label first (`Bold Ctrl+B`), as they read. Rows with an icon
+  (`icon_menu_item`: New Drawing Canvas and the other drawn-icon rows) are mirrored the same way,
+  icon at the right, and named so too. Hyphenation's Automatic and None show the chosen one with a
+  drawn check mark and selected state, not a "✓" in the label.
 - **Insert › Date and Time** reads from the right: the formats at the right with the language to
   their left, each list row, Update automatically and Set as Default from the right edge, OK and
   Cancel at the far side. An error the engine reports shows in Hebrew where the catalog has it.
@@ -578,3 +581,4 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-28 | minor | Hebrew drop caps at full size; Hebrew text and Markdown files open with right-to-left paragraphs; a new address list's columns in Hebrew, which Address Block and Greeting Line read (State as מחוז); inserted icons described in the interface language; the Language pack bar links the index's source; the edition's sample links no ArtCraft site; Greeting Line's English words noted as not done |
 | 2026-11-28 | minor | Greeting Line greets in Hebrew in Hebrew text (לכבוד …, and שלום רב, with no name), English text unchanged; the edition's sample leaves out the community board's sentence instead of linking `example.org`; review fixes: Find's counts kept in English for scripts, Modify Style sends a complex script font or size only when it was changed or would be overwritten, the colour fields named by their rows, Match diacritics greyed with regular expressions, the page number box under the mirrored reference samples names no side, Paste Special's "and N more" in Hebrew; the Hebrew AutoCorrect list keeps a deleted or replaced entry's word as typed; a list with a ארץ column keeps its state in its מדינה column; a `.docx` file's text chunks take no direction from their letters; Markdown code lines stay left to right; Markdown Source's reset of a hand-set direction noted |
 | 2026-11-28 | minor | Insert › Date and Time read from the right, its errors in Hebrew; drop-down lists start their rows at the right (`rtl::ComboBox`); menu rows named label first; Modify Style's Name box in Hebrew, renaming only when edited; Options › Advanced › Cursor movement; the About window's edition page noted as done |
+| 2026-11-28 | minor | Review fixes: icon menu rows mirrored and named with their shortcut; Hyphenation's Automatic and None checked by state, not a "✓" in the label; Cursor movement's buttons a radio group named by its label; Modify Style sends the new name trimmed; the Font dialog sample and the bullet preview give Hebrew letters the chosen bold, italic and size |

@@ -50,8 +50,6 @@ struct SegmentInput<'a> {
     lbase: usize,
     use_levels: bool,
     context: &'a [bool],
-    /// Characters at a right-to-left level take the complex-script properties ([`Dir::ParaAuto`]).
-    odd_complex: bool,
 }
 
 impl<'a> Builder<'a> {
@@ -65,22 +63,7 @@ impl<'a> Builder<'a> {
     }
 
     fn segment_keys(&self, input: SegmentInput<'_>) -> Vec<(usize, usize, SegKey)> {
-        let SegmentInput {
-            text,
-            rc,
-            rc_cs,
-            primary,
-            primary_cs,
-            primary_ea,
-            run_face,
-            ea_face,
-            sym,
-            levels,
-            lbase,
-            use_levels,
-            context,
-            odd_complex,
-        } = input;
+        let SegmentInput { text, rc, rc_cs, primary, primary_cs, primary_ea, run_face, ea_face, sym, levels, lbase, use_levels, context } = input;
         let show = |c: char| sym.map_or(c, |m| m.show(c));
         let mut seg_start = 0;
         let mut cur: Option<SegKey> = None;
@@ -90,9 +73,13 @@ impl<'a> Builder<'a> {
             let c = show(c);
             let dc = self.numeral_char(context, i, c, rtl);
             let mark = is_mark(c);
+            // A character takes the complex-script properties when it is a complex-script letter
+            // or mark, or when its run says so (`w:rtl`, `w:cs`): spaces, digits and punctuation
+            // of a run that says neither take the others, whatever their bidi level, as Word picks
+            // the formatting by the character's Unicode range there (ECMA-376 §17.3.2.26).
             let complex = match cur {
                 Some(k) if mark => k.complex,
-                _ => rc_cs.is_some() && (rc.uses_complex(dc) || (odd_complex && rtl)),
+                _ => rc_cs.is_some() && rc.uses_complex(dc),
             };
             let primary = if complex { primary_cs.unwrap_or(primary) } else { primary };
             let face = match cur {
@@ -265,18 +252,14 @@ impl<'a> Builder<'a> {
         }
         // The levels by byte of `text`, from `lbase` on.
         let (levels, lbase): (&[u8], usize) = match dir {
-            Dir::Para | Dir::ParaAuto => (&self.levels, base),
+            Dir::Para => (&self.levels, base),
             Dir::Own(l) => (l, 0),
             Dir::Guess => (&[], 0),
         };
         let use_levels = !levels.is_empty();
-        // Characters at a right-to-left level of a run without a direction of its own are saved in
-        // `w:rtl` runs, and take the complex-script properties as Word gives them there.
-        let odd_complex =
-            matches!(dir, Dir::ParaAuto) && levels.get(lbase..lbase.saturating_add(text.len())).is_some_and(|l| l.iter().any(|v| v % 2 == 1));
         // Complex-script characters (Persian, Arabic…) use the run's complex-script font, size,
         // bold and italic.
-        let rc_cs: Option<Arc<ResolvedChar>> = (odd_complex || text.chars().any(|c| rc.uses_complex(c))).then(|| Arc::new(rc.complex()));
+        let rc_cs: Option<Arc<ResolvedChar>> = text.chars().any(|c| rc.uses_complex(c)).then(|| Arc::new(rc.complex()));
         let family = lookup_family(self.env.doc, &rc.font);
         let resolved = wordcraft_fonts::word::resolve(family, rc.bold, rc.italic);
         // The requested font is missing when it was substituted, or when another family stands in
@@ -340,7 +323,6 @@ impl<'a> Builder<'a> {
             lbase,
             use_levels,
             context: &context,
-            odd_complex,
         });
         let missing = MissingFonts {
             latin: requested_missing.then_some(rc.font.as_str()),
@@ -479,7 +461,7 @@ impl<'a> Builder<'a> {
                     dot: s == "." || s == ",",
                 });
             }
-            if matches!(dir, Dir::Para | Dir::ParaAuto) {
+            if matches!(dir, Dir::Para) {
                 self.split_ligature_advances(seg_c0, rc.spacing, key.rtl);
             }
         }

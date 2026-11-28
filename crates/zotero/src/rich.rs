@@ -16,8 +16,14 @@ fn style_props(base: &CharProps, src: &CharProps) -> CharProps {
     if src.bold.is_some() {
         p.bold = src.bold;
     }
+    if src.bold_cs.is_some() {
+        p.bold_cs = src.bold_cs;
+    }
     if src.italic.is_some() {
         p.italic = src.italic;
+    }
+    if src.italic_cs.is_some() {
+        p.italic_cs = src.italic_cs;
     }
     if src.underline.is_some() {
         p.underline = src.underline;

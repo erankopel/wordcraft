@@ -823,31 +823,30 @@ fn drawn_formats(text: &str, rtl_para: bool, run_rtl: Option<bool>) -> Vec<(usiz
     pl.clusters.iter().map(|c| (c.start, pl.styles[c.style as usize].rc.font.clone(), pl.styles[c.style as usize].rc.size)).collect()
 }
 
-/// RTL-04: punctuation and spaces typed in Hebrew text are saved in its right-to-left (`w:rtl`)
-/// pieces, whose every character Word sets in the complex-script font and size; on screen they
-/// are drawn the same way, so the line keeps its glyphs and width after a save and a reopen. Text
-/// that says it is left to right, and a right-to-left paragraph without right-to-left letters
-/// (saved without `w:rtl`), keep the Latin font for them.
+/// RTL-04 as RTL-11 corrected it: in a run that says its direction (`w:rtl`, as Word and
+/// WordCraft write typed Hebrew text) every character, punctuation and spaces included, is set
+/// in the complex-script font and size (ECMA-376 §17.3.2.30). In a run that says neither `w:rtl`
+/// nor `w:cs` (a file from a generator that writes no direction) Word picks them by Unicode range
+/// (§17.3.2.26): spaces and punctuation take the Latin font and size whatever their bidi level,
+/// the Hebrew letters the complex-script ones.
 #[test]
-fn punctuation_in_hebrew_text_takes_the_complex_script_font() {
+fn punctuation_in_hebrew_text_takes_the_font_its_run_says() {
     crate::test_fonts();
     let text = "שלום, עולם.";
-    let comma = text.find(',').unwrap();
-    let space = text.find(' ').unwrap();
-    let stop = text.find('.').unwrap();
+    let neutral = [text.find(',').unwrap(), text.find(' ').unwrap(), text.find('.').unwrap()];
     let format_at = |formats: &[(usize, String, f32)], off: usize| formats.iter().find(|(at, ..)| *at == off).cloned().unwrap();
-    let letter = |formats: &[(usize, String, f32)]| format_at(formats, 0);
     for rtl_para in [true, false] {
-        let typed = drawn_formats(text, rtl_para, None);
-        for off in [comma, space] {
-            assert_eq!(format_at(&typed, off), (off, letter(&typed).1, letter(&typed).2), "the Hebrew letters' font and size at {off}");
+        let undirected = drawn_formats(text, rtl_para, None);
+        assert_eq!(format_at(&undirected, 0).1, "Source Serif 4", "the letters are complex-script text");
+        for off in neutral {
+            assert_eq!(format_at(&undirected, off), (off, "Source Sans 3".to_string(), 12.0), "a run without w:rtl at {off}");
         }
-        assert_eq!(format_at(&typed, 0).1, "Source Serif 4", "the letters are complex-script text");
-        // The full stop ends a right-to-left paragraph (level 1) but a left-to-right one (level 0).
-        let stop_font = format_at(&typed, stop).1;
-        assert_eq!(stop_font == "Source Serif 4", rtl_para, "the full stop of a paragraph read right to left: {rtl_para}");
+        let rtl = drawn_formats(text, rtl_para, Some(true));
+        for off in neutral {
+            assert_eq!(format_at(&rtl, off), (off, "Source Serif 4".to_string(), 20.0), "a w:rtl run at {off}");
+        }
         let ltr = drawn_formats(text, rtl_para, Some(false));
-        assert_eq!(format_at(&ltr, comma).1, "Source Sans 3", "a run said to be left to right keeps the Latin font");
+        assert_eq!(format_at(&ltr, neutral[0]).1, "Source Sans 3", "a run said to be left to right keeps the Latin font");
     }
     let latin = drawn_formats("Hello, world.", true, None);
     assert!(latin.iter().all(|(_, font, size)| font == "Source Sans 3" && *size == 12.0), "{latin:?}");
@@ -885,4 +884,103 @@ fn a_hebrew_drop_cap_is_drawn_as_large_as_a_latin_one() {
     assert!(big_text > latin_text && big_cap > 2.0 * big_text, "the letter at {big_cap} pt beside Hebrew text at {big_text} pt");
     let (cap_ratio, text_ratio) = (big_cap / latin_cap, big_text / latin_text);
     assert!((cap_ratio - text_ratio).abs() < 0.05, "the letter grows with the text: ×{cap_ratio} for ×{text_ratio}");
+}
+
+/// RTL-11: Hebrew letters are set in the complex-script bold, italic and size alone (`w:bCs`,
+/// `w:iCs`, `w:szCs`), as Word sets them: a run that sets only bold, only italic or only a size
+/// (what a Latin-only generator writes) leaves its Hebrew letters as they were, while its Latin
+/// words take it as before; the complex-script values take the Hebrew letters on their own.
+#[test]
+fn hebrew_letters_take_only_the_complex_script_bold_italic_and_size() {
+    crate::test_fonts();
+    let text = "שלום world";
+    let latin_at = text.find('w').unwrap();
+    // The (bold, italic, size) the Hebrew letter at 0 and the Latin word are drawn with, with the
+    // run's direct formatting set by `set`.
+    let drawn = |set: &dyn Fn(&mut wordcraft_doc::props::CharProps)| {
+        let mut d = doc_of(&[(text, true)]);
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        set(&mut p.runs[0].props);
+        let l = lay(&d);
+        let (pl, _) = first_line(&l, 0);
+        let at = |off: usize| {
+            let c = pl.clusters.iter().find(|c| c.start == off).unwrap();
+            let rc = &pl.styles[c.style as usize].rc;
+            (rc.bold, rc.italic, rc.size)
+        };
+        (at(0), at(latin_at))
+    };
+    let (hebrew, latin) = drawn(&|_| {});
+    assert!(!hebrew.0 && !hebrew.1 && !latin.0 && !latin.1, "plain text: {hebrew:?} {latin:?}");
+
+    let (h, l) = drawn(&|c| c.bold = Some(true));
+    assert_eq!(h, hebrew, "only w:b: the Hebrew letters stay regular");
+    assert!(l.0 && !l.1 && l.2 == latin.2, "only w:b: the Latin word is bold, as before: {l:?}");
+
+    let (h, l) = drawn(&|c| c.italic = Some(true));
+    assert_eq!(h, hebrew, "only w:i: the Hebrew letters stay upright");
+    assert!(l.1 && !l.0 && l.2 == latin.2, "only w:i: the Latin word is italic, as before: {l:?}");
+
+    let big = latin.2 * 2.0;
+    let (h, l) = drawn(&|c| c.size = Some(big));
+    assert_eq!(h, hebrew, "only w:sz: the Hebrew letters keep their size");
+    assert_eq!(l, (false, false, big), "only w:sz: the Latin word takes it, as before");
+
+    let (h, l) = drawn(&|c| (c.bold_cs, c.italic_cs, c.size_cs) = (Some(true), Some(true), Some(big)));
+    assert_eq!(h, (true, true, big), "the complex-script values format the Hebrew letters");
+    assert_eq!(l, latin, "and leave the Latin word as it was");
+}
+
+/// RTL-11, ECMA-376 §17.3.2.26: in a run that says neither `w:rtl` nor `w:cs`, Word picks a
+/// character's formatting by its Unicode range, so the spaces, comma, brackets and full stop
+/// between Hebrew words take the run's bold and size (`w:b`, `w:sz`) while the Hebrew letters
+/// take the complex-script ones, whatever the bidi level of the neutral characters. A `w:rtl`
+/// run formats every character with the complex-script values.
+#[test]
+fn neutral_characters_between_hebrew_words_keep_the_latin_bold_and_size() {
+    crate::test_fonts();
+    let text = "שלום עולם, (טקסט) נוסף.";
+    let big = 16.0;
+    let drawn = |rtl: Option<bool>| {
+        let mut d = doc_of(&[(text, true)]);
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        let c = &mut p.runs[0].props;
+        (c.bold, c.size, c.rtl) = (Some(true), Some(big), rtl);
+        let l = lay(&d);
+        let (pl, _) = first_line(&l, 0);
+        let at = |ch: char| {
+            let off = text.find(ch).unwrap();
+            let c = pl.clusters.iter().find(|c| c.start == off).unwrap_or_else(|| panic!("no cluster for {ch:?}"));
+            let rc = &pl.styles[c.style as usize].rc;
+            (rc.bold, rc.size)
+        };
+        (at('ש'), [' ', ',', '(', ')', '.'].map(at))
+    };
+    let (letter, neutrals) = drawn(None);
+    assert!(!letter.0 && letter.1 < big, "the Hebrew letters are regular at the complex-script size: {letter:?}");
+    for n in neutrals {
+        assert_eq!(n, (true, big), "spaces and punctuation take w:b and w:sz: {neutrals:?}");
+    }
+    let (letter_rtl, neutrals) = drawn(Some(true));
+    assert_eq!(letter_rtl, letter, "a w:rtl run's letters as before");
+    for n in neutrals {
+        assert_eq!(n, letter, "every character of a w:rtl run takes the complex-script values: {neutrals:?}");
+    }
+}
+
+/// ECMA-376 §17.3.2.30: a paragraph mark that says `w:rtl` is formatted with the complex-script
+/// values, so an empty Hebrew paragraph is as tall as its complex-script size makes it.
+#[test]
+fn an_empty_paragraph_with_a_right_to_left_mark_takes_the_complex_script_size() {
+    crate::test_fonts();
+    let height = |rtl: Option<bool>| {
+        let mut d = doc_of(&[("", true), ("x", false)]);
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        (p.mark.size, p.mark.size_cs, p.mark.rtl) = (Some(12.0), Some(20.0), rtl);
+        let l = lay(&d);
+        let (pl, _) = first_line(&l, 0);
+        pl.lines[0].height
+    };
+    let (latin, complex) = (height(None), height(Some(true)));
+    assert!(complex > latin * 1.3, "the rtl mark's line is set at 20 pt, not 12 pt: {complex} vs {latin}");
 }

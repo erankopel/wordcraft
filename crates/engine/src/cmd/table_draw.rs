@@ -131,8 +131,14 @@ fn draw_table(s: &mut Session, v: &Value, l: &DocLayout, page: usize, start: (f3
     let w = r.w.clamp(18.0, tw);
     let mut t = Table::new(1, 1, w);
     t.props.width = Some(w);
-    let body_x = l.pages.get(page).map_or(0.0, |pg| pg.body.x);
-    let indent = r.x - body_x;
+    // In a right-to-left paragraph the table reads right to left, and its indent is measured
+    // from the right margin, where it starts.
+    t.props.bidi_visual = super::table::rtl_table_at(s, &pos);
+    let indent = match l.pages.get(page) {
+        Some(pg) if t.props.bidi_visual => pg.body.x + pg.body.w - (r.x + w),
+        Some(pg) => r.x - pg.body.x,
+        None => r.x,
+    };
     if indent > 1.0 {
         t.props.indent = Some(indent.min((tw - w).max(0.0)));
     }

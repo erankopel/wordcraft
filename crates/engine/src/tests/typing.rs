@@ -512,6 +512,26 @@ fn hebrew_document() -> Session {
     s
 }
 
+/// Text typed in Hebrew says right to left (`w:rtl`), as Word writes text typed on a Hebrew
+/// keyboard: its letters, and the spaces, digits and punctuation typed after a Hebrew letter, so
+/// they take the complex-script formatting like the letters around them (ECMA-376 §17.3.2.30).
+/// A Latin word, and what is typed after it, says nothing; English typing is unchanged.
+#[test]
+fn neutral_characters_typed_in_hebrew_text_say_right_to_left() {
+    let keys = "שלום, עולם 2026. Word ok";
+    let mut s = hebrew_document();
+    typ(&mut s, keys);
+    let p = s.doc.body.iter().find_map(|b| b.as_para()).expect("a paragraph");
+    let latin_from = keys.find('W').expect("the Latin word");
+    for (off, c) in p.text.char_indices() {
+        let want = (off < latin_from).then_some(true);
+        assert_eq!(p.props_of_char(off).rtl, want, "{c:?} at {off}");
+    }
+    let s = typed("Hello, world 2026.");
+    let p = s.doc.body.iter().find_map(|b| b.as_para()).expect("a paragraph");
+    assert!(p.runs.iter().all(|r| r.props.rtl.is_none()), "English typing says no direction: {:?}", p.runs);
+}
+
 /// What `keys` typed into a new Hebrew document leave in its body.
 fn typed_hebrew(keys: &str) -> String {
     let mut s = hebrew_document();
@@ -987,6 +1007,18 @@ fn a_tracked_border_line_at_the_top_supersedes_another_authors_formatting() {
     run(&mut s, "review.rejectAll", json!({}));
     let p = s.doc.para_at(&Pos::body(0, 0)).cloned().unwrap_or_default();
     assert_eq!((p.props.align, p.props.borders.and_then(|b| b.bottom).is_some()), (Some(Align::Center), false));
+}
+
+/// The "+--+" table AutoFormat typed in right-to-left text makes a right-to-left table, as Insert
+/// Table does (#2634): its first column (the first run of hyphens) at the right. In left-to-right
+/// text it is left to right.
+#[test]
+fn a_table_line_typed_in_right_to_left_text_makes_a_right_to_left_table() {
+    for (above, rtl) in [("שלום\n", true), ("Hello\n", false)] {
+        let s = typed(&format!("{above}+--+------+\n"));
+        let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap_or_else(|| panic!("no table: {:?}", paras(&s)));
+        assert_eq!(t.props.bidi_visual, rtl, "{above:?}: the table takes the paragraph's direction");
+    }
 }
 
 #[test]

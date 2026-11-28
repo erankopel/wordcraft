@@ -398,6 +398,8 @@ pub(super) fn from_text(s: &mut Session, v: &Value) -> CmdResult {
     }
     let width = crate::cmd::page::sect(s).text_width();
     let mut t = Table::new(cells.len().max(1), cols, width);
+    // The text's first paragraph reads right to left: so does the table.
+    t.props.bidi_visual = super::rtl_table_at(s, &a);
     if col_width > 0.0 {
         // Every column gets that preferred width, even past the margins (layout fits the table
         // to the text width, as Word draws it); the table itself has no preferred width.
@@ -468,6 +470,7 @@ pub(super) fn quick_table(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(r) = t.rows.first_mut() {
         r.props.header = true;
     }
+    t.props.bidi_visual = super::rtl_table_at(s, &s.sel.ordered().0);
     let story = s.sel.focus.story;
     let at = crate::cmd::delete_selection(s)?;
     let new = s.doc.split_paragraph(&at)?;

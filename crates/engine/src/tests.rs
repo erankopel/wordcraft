@@ -3393,6 +3393,33 @@ fn update_to_match_keeps_one_style_revision_per_author() {
     assert_eq!(para.rev, chr.rev, "one author has one review change for the style");
 }
 
+/// ECMA-376 §17.7.3 in WordCraft's own commands: the character style Strong applied in a bold
+/// heading shows the text regular (bold toggles across the paragraph and character styles, as in
+/// Word); Bold then sets bold outright, and Bold on bold text in a bold style writes direct "not
+/// bold" (`w:b w:val="0"`), as Word does. Update Style to Match keeps Strong bold.
+#[test]
+fn bold_toggles_across_styles_and_the_bold_button_sets_it_outright() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Heading"}));
+    run(&mut s, "styles.apply", json!({"style": "Heading1"}));
+    run(&mut s, "styles.modify", json!({"style": "Heading1", "chr": {"bold": true}}));
+    let shown = |s: &Session| {
+        let p = s.doc.body.iter().find_map(|b| b.as_para()).unwrap();
+        let c = s.doc.styles.resolve_char(p.props.style.as_deref(), &p.runs[0].props);
+        (c.bold, c.bold_cs, p.runs[0].props.bold)
+    };
+    assert_eq!(shown(&s), (true, true, None), "the heading is bold by its style");
+    run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 7}}));
+    run(&mut s, "styles.apply", json!({"style": "Strong"}));
+    assert_eq!(shown(&s), (false, false, None), "Strong in a bold heading toggles bold off");
+    run(&mut s, "format.bold", json!({}));
+    assert_eq!(shown(&s), (true, true, Some(true)), "Bold sets it outright");
+    run(&mut s, "styles.updateToMatch", json!({"style": "Strong"}));
+    assert_eq!(s.doc.styles.get("Strong").and_then(|st| st.chr.bold), Some(true), "Strong stays bold");
+    run(&mut s, "format.bold", json!({}));
+    assert_eq!(shown(&s), (false, false, Some(false)), "Bold off writes not bold, as Word's w:b w:val=0");
+}
+
 /// #2697 review: accepting or rejecting a text change whose range begins at the document start
 /// must not also resolve unrelated style-definition changes anchored there.
 #[test]

@@ -123,11 +123,12 @@ pub fn level_from(mut l: Level, i: usize, v: &Value) -> Level {
         Some(Value::String(s)) => l.chr.font = Some(s.chars().take(64).collect()).filter(|s: &String| !s.trim().is_empty()),
         _ => {}
     }
+    // A label in a right-to-left paragraph takes the complex-script bold and italic.
     if let Some(b) = p::bool(v, "bold") {
-        l.chr.bold = Some(b);
+        (l.chr.bold, l.chr.bold_cs) = (Some(b), Some(b));
     }
     if let Some(b) = p::bool(v, "italic") {
-        l.chr.italic = Some(b);
+        (l.chr.italic, l.chr.italic_cs) = (Some(b), Some(b));
     }
     match v.get("color") {
         Some(Value::Null) => l.chr.color = None,

@@ -120,11 +120,21 @@ impl ResolvedChar {
             lang_bidi: c.lang_bidi.clone(),
             rtl: c.rtl.unwrap_or(false),
             cs: c.cs.unwrap_or(false),
+            // The complex-script font falls back to the other text's when nothing sets one (a
+            // file with no `w:rFonts/@w:cs` and no theme font for it, or a format with one font
+            // for every script): the letters are drawn in that face when it has them, else in the
+            // fallback faces, as before.
             font_cs: c.font_cs.clone().or_else(|| c.font.clone()).unwrap_or_else(|| crate::styles::BODY_FONT.to_string()),
             font_ea: c.font_ea.clone(),
-            size_cs: c.size_cs.or(c.size).unwrap_or(crate::props::DEFAULT_FONT_SIZE).clamp(1.0, 1638.0),
-            bold_cs: c.bold_cs.or(c.bold).unwrap_or(false),
-            italic_cs: c.italic_cs.or(c.italic).unwrap_or(false),
+            // Complex-script size, bold and italic are properties of their own (`w:szCs`, `w:bCs`,
+            // `w:iCs`, ECMA-376 §17.3.2.39, .2, .17): resolved through the same chain, never taken
+            // from the Latin size, bold or italic, with the defaults those have when nothing sets
+            // them (the default size, not bold, not italic). So a run with only `w:b` shows its
+            // Hebrew letters regular, as Word does. Formats without these values set them beside
+            // the others when read (`Document::pair_complex`).
+            size_cs: c.size_cs.unwrap_or(crate::props::DEFAULT_FONT_SIZE).clamp(1.0, 1638.0),
+            bold_cs: c.bold_cs.unwrap_or(false),
+            italic_cs: c.italic_cs.unwrap_or(false),
         }
     }
     /// The formatting complex-script text in this run is drawn with: the complex-script font,
@@ -367,20 +377,32 @@ impl StyleSheet {
     /// `run_style` in a paragraph of style `para_style`, once the paragraph and character style
     /// chains are applied over it (ECMA-376 §17.7.2).
     pub fn table_char_patch(&self, para_style: Option<&str>, run_style: Option<&str>, table: &CharProps) -> CharProps {
-        let chain = |defaults: CharProps| {
-            let (_, mut cp) = self.para_style_props_over(para_style.unwrap_or("Normal"), ParaProps::default(), defaults);
-            if let Some(cs) = run_style {
-                for s in self.chain(cs) {
-                    if s.kind == StyleKind::Character || s.kind == StyleKind::Paragraph {
-                        cp.overlay(&s.chr);
-                    }
+        diff_patch(&self.style_chr(para_style, Some(table), run_style), &self.style_chr(para_style, None, run_style))
+    }
+
+    /// The character formatting the styles give a run of character style `run_style` in a
+    /// paragraph of style `para_style`, `table` being the table style's run formatting (with the
+    /// cell's conditional formatting): document defaults, the table style, the paragraph style
+    /// chain, the character style chain (ECMA-376 §17.7.2), before direct formatting. Each level
+    /// sets what its own chain sets, the later levels winning, except the toggle properties
+    /// ([`toggle_levels`]).
+    pub fn style_chr(&self, para_style: Option<&str>, table: Option<&CharProps>, run_style: Option<&str>) -> CharProps {
+        let table = table.map(|t| CharProps { style: None, ..t.clone() });
+        let (_, para) = self.para_style_props_over(para_style.unwrap_or("Normal"), ParaProps::default(), CharProps::default());
+        let mut run = CharProps::default();
+        if let Some(cs) = run_style {
+            for s in self.chain(cs) {
+                if s.kind == StyleKind::Character || s.kind == StyleKind::Paragraph {
+                    run.overlay(&s.chr);
                 }
             }
-            cp
-        };
-        let mut with = self.default_chr.clone();
-        with.overlay(&CharProps { style: None, ..table.clone() });
-        diff_patch(&chain(with), &chain(self.default_chr.clone()))
+        }
+        let mut cp = self.default_chr.clone();
+        for level in [table.as_ref(), Some(&para), Some(&run)].into_iter().flatten() {
+            cp.overlay(level);
+        }
+        toggle_levels(&mut cp, &self.default_chr, &[table.as_ref(), Some(&para), Some(&run)]);
+        cp
     }
 
     /// Resolve a paragraph's properties.
@@ -426,18 +448,7 @@ impl StyleSheet {
     /// paragraph is in. Order: document defaults, the table style, the paragraph style chain, the
     /// character style chain, direct formatting (ECMA-376 §17.7.2).
     pub fn resolve_char_in(&self, para_style: Option<&str>, table: Option<&CharProps>, c: &CharProps) -> ResolvedChar {
-        let mut defaults = self.default_chr.clone();
-        if let Some(t) = table {
-            defaults.overlay(&CharProps { style: None, ..t.clone() });
-        }
-        let (_, mut cp) = self.para_style_props_over(para_style.unwrap_or("Normal"), ParaProps::default(), defaults);
-        if let Some(cs) = c.style.as_deref() {
-            for s in self.chain(cs) {
-                if s.kind == StyleKind::Character || s.kind == StyleKind::Paragraph {
-                    cp.overlay(&s.chr);
-                }
-            }
-        }
+        let mut cp = self.style_chr(para_style, table, c.style.as_deref());
         // Only a character itself has a symbol font of its own (`w:sym`); a style never gives one.
         cp.sym_font = None;
         let mut direct = c.clone();
@@ -487,6 +498,28 @@ impl StyleSheet {
     }
 }
 
+/// Set the toggle properties of `cp` (ECMA-376 §17.7.3: bold, italic and their complex-script
+/// twins, caps, small caps, strike, double strike, outline, shadow, emboss, imprint, hidden)
+/// from the style `levels` (table style, paragraph style, character style; each as its own
+/// based-on chain gives it): exclusive or of the levels that set one, so a character style that
+/// turns bold on in a bold heading turns it off, as in Word. Where no level sets one, the
+/// document defaults' value stands; the defaults take no part in the exclusive or. Direct
+/// formatting, overlaid afterwards, sets them outright.
+fn toggle_levels(cp: &mut CharProps, defaults: &CharProps, levels: &[Option<&CharProps>]) {
+    macro_rules! toggle {
+        ($($f:ident),*) => {$(
+            let mut value: Option<bool> = None;
+            for level in levels.iter().flatten() {
+                if let Some(v) = level.$f {
+                    value = Some(value.unwrap_or(false) ^ v);
+                }
+            }
+            cp.$f = value.or(defaults.$f);
+        )*};
+    }
+    toggle!(bold, bold_cs, italic, italic_cs, caps, small_caps, strike, double_strike, outline, shadow, emboss, engrave, hidden);
+}
+
 /// The properties of `with` that differ from `without` (both fully resolved property sets of one
 /// kind), as a set of only those; empty when serialisation fails.
 fn diff_patch<T: Serialize + serde::de::DeserializeOwned + Default>(with: &T, without: &T) -> T {
@@ -525,6 +558,48 @@ mod tests {
         }
         let rc = StyleSheet::builtin().resolve_char(None, &CharProps { size: Some(11.0), ..Default::default() });
         assert_eq!(rc.draw_size(), 11.0, "baseline text keeps its size");
+    }
+
+    /// ECMA-376 §17.7.3: bold, italic and the other toggle properties combine by exclusive or
+    /// across the table style, the paragraph style and the character style, each as its own
+    /// based-on chain sets them; direct formatting sets them outright, and the document defaults
+    /// apply only where no style sets them. Heading 1 with Strong is not bold, as in Word.
+    #[test]
+    fn toggle_properties_combine_by_exclusive_or_across_style_levels() {
+        use crate::styles::Style;
+        let on = CharProps { bold: Some(true), bold_cs: Some(true), italic: Some(true), caps: Some(true), ..Default::default() };
+        let mut s = StyleSheet::builtin();
+        s.upsert(Style { id: "Head".into(), name: "Head".into(), kind: StyleKind::Paragraph, chr: on.clone(), ..Default::default() });
+        // Based on Head: within one level the derived style's own value wins, nothing toggles.
+        s.upsert(Style {
+            id: "SubHead".into(),
+            name: "SubHead".into(),
+            kind: StyleKind::Paragraph,
+            based_on: Some("Head".into()),
+            chr: CharProps { bold: Some(true), italic: Some(false), ..Default::default() },
+            ..Default::default()
+        });
+        s.upsert(Style { id: "Loud".into(), name: "Loud".into(), kind: StyleKind::Character, chr: on.clone(), ..Default::default() });
+        let loud = CharProps { style: Some("Loud".into()), ..Default::default() };
+        let look = |s: &StyleSheet, para: &str, table: Option<&CharProps>, c: &CharProps| {
+            let r = s.resolve_char_in(Some(para), table, c);
+            (r.bold, r.bold_cs, r.italic, r.caps)
+        };
+        assert_eq!(look(&s, "Head", None, &CharProps::default()), (true, true, true, true), "the paragraph style alone");
+        assert_eq!(look(&s, "Normal", None, &loud), (true, true, true, true), "the character style alone");
+        assert_eq!(look(&s, "Head", None, &loud), (false, false, false, false), "both: toggled off");
+        assert_eq!(look(&s, "SubHead", None, &CharProps::default()), (true, true, false, true), "a based-on chain overrides");
+        assert_eq!(look(&s, "SubHead", None, &loud), (false, false, true, false));
+        let direct = CharProps { bold: Some(true), italic: Some(false), ..loud.clone() };
+        assert_eq!(look(&s, "Head", None, &direct), (true, false, false, false), "direct formatting is absolute");
+        assert_eq!(look(&s, "Normal", Some(&on), &CharProps::default()), (true, true, true, true), "the table style alone");
+        assert_eq!(look(&s, "Head", Some(&on), &CharProps::default()), (false, false, false, false), "table and paragraph style");
+        assert_eq!(look(&s, "Head", Some(&on), &loud), (true, true, true, true), "three levels");
+        // The defaults take no part: they apply where no style sets the property.
+        s.default_chr.bold = Some(true);
+        assert!(look(&s, "Normal", None, &CharProps::default()).0, "the defaults' bold where no style sets one");
+        assert!(look(&s, "Head", None, &CharProps::default()).0, "a bold style over bold defaults stays bold");
+        assert!(!look(&s, "Head", None, &loud).0, "two bold styles over bold defaults: not bold");
     }
 
     /// #2036: only a character itself (direct formatting) has a symbol font of its own; a

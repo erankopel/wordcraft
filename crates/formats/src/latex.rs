@@ -5,7 +5,7 @@ use wordcraft_doc::{Document, SectionProps};
 pub use craft_latex::{escape_text, latex_to_linear, linear_to_latex};
 
 pub fn import(bytes: &[u8]) -> Document {
-    wordcraft_docx::from_shared_model(craft_latex::import(bytes)).unwrap_or_default()
+    crate::one_format_for_all_scripts(wordcraft_docx::from_shared_model(craft_latex::import(bytes)).unwrap_or_default())
 }
 
 pub fn import_on(bytes: &[u8], page: &SectionProps) -> Document {

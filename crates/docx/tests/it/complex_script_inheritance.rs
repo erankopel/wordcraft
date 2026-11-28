@@ -5,11 +5,15 @@ use wordcraft_doc::props::CharProps;
 use wordcraft_doc::{Document, Paragraph, Run};
 
 fn package(run: &str, defaults: &str, styles: &str, paragraph_style: &str) -> Vec<u8> {
+    package_text(run, defaults, styles, paragraph_style, "שָׁלוֹם ABC 123")
+}
+
+fn package_text(run: &str, defaults: &str, styles: &str, paragraph_style: &str, text: &str) -> Vec<u8> {
     let ns = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
     let root = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#;
     let rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
     let document = format!(
-        r#"<w:document {ns}><w:body><w:p><w:pPr>{paragraph_style}<w:bidi/></w:pPr><w:r><w:rPr>{run}</w:rPr><w:t>שָׁלוֹם ABC 123</w:t></w:r></w:p></w:body></w:document>"#
+        r#"<w:document {ns}><w:body><w:p><w:pPr>{paragraph_style}<w:bidi/></w:pPr><w:r><w:rPr>{run}</w:rPr><w:t xml:space="preserve">{text}</w:t></w:r></w:p></w:body></w:document>"#
     );
     let styles = format!("<w:styles {ns}><w:docDefaults><w:rPrDefault><w:rPr>{defaults}</w:rPr></w:rPrDefault></w:docDefaults>{styles}</w:styles>");
     let mut z = craft_zip::Writer::new();
@@ -50,6 +54,37 @@ fn undirected(runs: &[Run]) -> Vec<Run> {
     out
 }
 
+/// Each character of the first paragraph with the font, size, bold and italic it is drawn with:
+/// the complex-script ones for complex-script letters and every character of a `w:rtl` or `w:cs`
+/// run, the others for the rest (ECMA-376 §17.3.2.26, .30), as layout picks them.
+fn drawn(d: &Document) -> Vec<(char, String, f32, bool, bool)> {
+    let p = paragraph(d);
+    let mut out = Vec::new();
+    for (range, props) in p.run_ranges() {
+        let rc = d.styles.resolve_char(p.props.style.as_deref(), props);
+        for ch in p.text.get(range).unwrap_or("").chars() {
+            let c = if rc.uses_complex(ch) { rc.complex() } else { rc.clone() };
+            out.push((ch, c.font, c.size, c.bold, c.italic));
+        }
+    }
+    out
+}
+
+/// `runs` without their complex-script font, size, bold and italic, adjacent equal runs merged:
+/// what a save may say differently while every character is drawn as before ([`drawn`]).
+fn without_complex_values(runs: &[Run]) -> Vec<Run> {
+    let mut out: Vec<Run> = Vec::new();
+    for r in runs {
+        let mut props = r.props.clone();
+        (props.font_cs, props.size_cs, props.bold_cs, props.italic_cs) = (None, None, None, None);
+        match out.last_mut() {
+            Some(last) if last.props == props => last.len += r.len,
+            _ => out.push(Run { len: r.len, props }),
+        }
+    }
+    out
+}
+
 fn check_generations(bytes: &[u8], check: impl Fn(&Document)) {
     let mut d = wordcraft_docx::read(bytes).unwrap();
     for generation in 0..3 {
@@ -58,8 +93,11 @@ fn check_generations(bytes: &[u8], check: impl Fn(&Document)) {
         assert_eq!(paragraph(&next).text, paragraph(&d).text);
         if generation == 0 {
             // The first save splits the mixed Hebrew/Latin run by direction and names the
-            // Hebrew's language (#1543); apart from that nothing changes.
-            assert_eq!(undirected(&paragraph(&next).runs), undirected(&paragraph(&d).runs));
+            // Hebrew's language (#1543), and the neutral characters it marks right to left say
+            // the Latin values they are drawn with as complex-script ones; apart from that
+            // nothing changes, and every character is drawn as before.
+            assert_eq!(without_complex_values(&undirected(&paragraph(&next).runs)), without_complex_values(&undirected(&paragraph(&d).runs)));
+            assert_eq!(drawn(&next), drawn(&d));
         } else {
             assert_eq!(paragraph(&next).runs, paragraph(&d).runs);
         }
@@ -200,4 +238,50 @@ fn split_runs_add_no_phantom_tracked_formatting() {
         let old = &run.props.fmt_change.as_ref().unwrap().old;
         assert_eq!((old.rtl, old.lang_bidi.as_deref()), (run.props.rtl, run.props.lang_bidi.as_deref()));
     }
+}
+
+/// RTL-11: a run that sets only the Latin bold, italic and size (`w:b`, `w:i`, `w:sz`, as a
+/// Latin-only generator writes it) formats its Latin text alone: its Hebrew letters stay regular
+/// and upright at the default size, 10 pt when the document defaults set no `w:szCs` (as no
+/// `w:sz` gives 10 pt), as Word shows them. So it stays through saves.
+#[test]
+fn latin_only_bold_italic_and_size_leave_hebrew_letters_plain() {
+    let run = r#"<w:b/><w:i/><w:sz w:val="40"/>"#;
+    check_generations(&package(run, "", "", ""), |d| {
+        let p = paragraph(d);
+        let c = d.styles.resolve_char(p.props.style.as_deref(), &p.runs[0].props);
+        assert_eq!((c.bold, c.italic, c.size), (true, true, 20.0), "the Latin text");
+        let cs = c.complex();
+        assert_eq!((cs.bold, cs.italic, cs.size), (false, false, 10.0), "the Hebrew letters");
+    });
+    // Sizes in the document defaults: the Hebrew letters take the complex-script one only.
+    check_generations(&package(run, r#"<w:sz w:val="24"/><w:szCs w:val="28"/>"#, "", ""), |d| {
+        let p = paragraph(d);
+        let cs = d.styles.resolve_char(p.props.style.as_deref(), &p.runs[0].props).complex();
+        assert_eq!((cs.bold, cs.size), (false, 14.0));
+    });
+}
+
+/// RTL-11, ECMA-376 §17.3.2.26: in a run with only `w:b` and `w:sz` the spaces and punctuation
+/// between Hebrew words are bold at the run's size and the Hebrew letters regular at the
+/// complex-script size, as Word shows them; and so after saves, though the writer saves the
+/// right-to-left pieces as `w:rtl` runs (#1543): they say the Latin values as complex-script ones.
+/// A `w:rtl` run formats every character with the complex-script values.
+#[test]
+fn neutral_characters_between_hebrew_words_keep_the_latin_bold_and_size_through_saves() {
+    let text = "שלום עולם, (טקסט) נוסף.";
+    let neutral = |ch: char| " ,().".contains(ch);
+    let plain = package_text(r#"<w:b/><w:sz w:val="32"/>"#, r#"<w:sz w:val="24"/>"#, "", "", text);
+    check_generations(&plain, |d| {
+        for (ch, _, size, bold, _) in drawn(d) {
+            let want = if neutral(ch) { (true, 16.0) } else { (false, 10.0) };
+            assert_eq!((bold, size), want, "{ch:?}");
+        }
+    });
+    let rtl = package_text(r#"<w:b/><w:sz w:val="32"/><w:rtl/>"#, r#"<w:sz w:val="24"/>"#, "", "", text);
+    check_generations(&rtl, |d| {
+        for (ch, _, size, bold, _) in drawn(d) {
+            assert_eq!((bold, size), (false, 10.0), "{ch:?} of a w:rtl run");
+        }
+    });
 }

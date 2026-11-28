@@ -1,6 +1,6 @@
 # Hebrew interface and the Hebrew edition
 
-> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-28 · **Change:** minor (Greeting Line in Hebrew text; the edition's sample without the community board's sentence; review fixes to the Find results, Modify Style, the colour fields, the reference samples' page number box, the Hebrew AutoCorrect list, address lists and text import); previously minor (a built-in Hebrew AutoCorrect list); previously minor (Find and Replace's Match diacritics; dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored; Modify Style's complex script font; controls for the direction keys and gershayim) · **Target:** WordCraft 0.19.1
+> **Last reviewed:** 2026-11-26 · **Last updated:** 2026-11-28 · **Change:** minor (Word-fidelity review of the complex-script bold, italic and size: neutral characters, typing, paragraph marks, files without styles, saving, HTML export, labels); previously minor (Greeting Line in Hebrew text; the edition's sample without the community board's sentence; review fixes to the Find results, Modify Style, the colour fields, the reference samples' page number box, the Hebrew AutoCorrect list, address lists and text import); previously minor (a built-in Hebrew AutoCorrect list); previously minor (Find and Replace's Match diacritics; dialogs' results and errors in Hebrew; the mini toolbar, Search's results and the reference and list samples mirrored; Modify Style's complex script font; controls for the direction keys and gershayim) · **Target:** WordCraft 0.19.1
 
 WordCraft has a Hebrew (`he`) interface language, mirrored right to left like the Arabic one, and a
 Hebrew edition: a build of the same program that starts in Hebrew, starts new documents right to
@@ -528,10 +528,38 @@ source and Cargo home folders are the same too: the binaries carry some of their
   AutoCorrect list.
 - Hebrew spelling on the very first launch with no network (see Spelling), and the quality of the
   `he` pack inside WordCraft's affix engine, which was not examined.
-- The tables created by Convert to Table, Draw Table, autoformat and mail-merge labels are not
-  mirrored in a Hebrew-first document, and ODT and HTML export do not write the default direction
-  (DOCX and RTF do): both are follow-ups. How Microsoft Word reads `w:bidi` in the document
-  defaults was not observed.
+- How Microsoft Word reads `w:bidi` in the document defaults was not observed. HTML export marks
+  a right-to-left document's whole page `dir="rtl"` but no paragraph's own direction (`craft-html`
+  writes none), so an English paragraph in a Hebrew document reads right to left in a browser;
+  the HTML clipboard fragment carries no direction at all. ODT export says each paragraph's
+  direction and the default style's, but reading an ODT file takes no direction from its default
+  style (`craft-odf`). HTML has one bold, italic and size for every script and `craft-html`
+  writes only the Latin ones, so HTML export and the HTML clipboard put Hebrew letters (and every
+  character of a `w:rtl` run) in spans of their own that say their complex-script font, bold,
+  italic and size as those (`html::by_script`); MHT is only read.
+- Complex-script bold, italic and size (`w:bCs`, `w:iCs`, `w:szCs`) are WordCraft's own, as in
+  Word, but not everywhere yet: the Word 97-2003 reader (`craft-doc-binary`) reads only the
+  complex-script font, so a `.doc` file's Hebrew text takes the Latin bold, italic and size, as
+  before (so a `.doc` file whose Hebrew is formatted otherwise than its Latin text shows it
+  wrongly), until it reads sprmCFBoldBi, sprmCFItalicBi, sprmCHpsBi and the run direction
+  sprmCFBiDi; a draft of that reader change was written for storytold/craft-libs but is not
+  merged, so no test of differing `.doc` values exists yet; the ODT
+  writer gives Hebrew text the Latin bold and italic where the document sets no complex-script
+  ones (`craft-odf`); and the Font dialog's and the bullet dialog's samples (`crates/ui-egui`)
+  draw Hebrew letters without the bold, italic and size they show. A complex-script font that
+  nothing sets still falls back to the Latin font (Word's own choice there was not observed).
+- Spaces, digits and punctuation of a run that says neither `w:rtl` nor `w:cs` take its Latin
+  font, size, bold and italic whatever their bidi level, as Word picks them there by Unicode
+  range; WordCraft's typed Hebrew says `w:rtl`, as Word's does. Such a file's runs are saved by
+  direction (`craft-docx` marks their right-to-left pieces `w:rtl`), so the neutral characters of
+  those pieces are saved in runs of their own that say their Latin values as complex-script ones
+  (`crates/docx/src/save.rs`); that step resolves them without the table style's conditional
+  formatting. `craft-docx` itself could keep them out of the `w:rtl` pieces only if Word ordered
+  them the same, which was not observed. How Word orders the characters of a run without `w:rtl`
+  in Hebrew text was not compared with WordCraft's Unicode bidi order.
+- A `.docx` file without a styles part: WordCraft sets all its text at 10 pt, Latin and Hebrew
+  alike, as Word does, but keeps its built-in styles for paragraphs naming them (Word formats them
+  as Normal), now with the same complex-script bold, italic and size as their Latin ones.
 - Keyboard switching of paragraph direction with the two Shift keys of Windows Hebrew keyboards,
   the Hebrew IME and keyboard layouts on each platform, Hebrew calendar dates and gematria date
   formats, and Hebrew hyphenation (no pattern file exists for it).
@@ -582,3 +610,5 @@ source and Cargo home folders are the same too: the binaries carry some of their
 | 2026-11-28 | minor | Greeting Line greets in Hebrew in Hebrew text (לכבוד …, and שלום רב, with no name), English text unchanged; the edition's sample leaves out the community board's sentence instead of linking `example.org`; review fixes: Find's counts kept in English for scripts, Modify Style sends a complex script font or size only when it was changed or would be overwritten, the colour fields named by their rows, Match diacritics greyed with regular expressions, the page number box under the mirrored reference samples names no side, Paste Special's "and N more" in Hebrew; the Hebrew AutoCorrect list keeps a deleted or replaced entry's word as typed; a list with a ארץ column keeps its state in its מדינה column; a `.docx` file's text chunks take no direction from their letters; Markdown code lines stay left to right; Markdown Source's reset of a hand-set direction noted |
 | 2026-11-28 | minor | Insert › Date and Time read from the right, its errors in Hebrew; drop-down lists start their rows at the right (`rtl::ComboBox`); menu rows named label first; Modify Style's Name box in Hebrew, renaming only when edited; Options › Advanced › Cursor movement; the About window's edition page noted as done |
 | 2026-11-28 | minor | Review fixes: icon menu rows mirrored and named with their shortcut; Hyphenation's Automatic and None checked by state, not a "✓" in the label; Cursor movement's buttons a radio group named by its label; Modify Style sends the new name trimmed; the Font dialog sample and the bullet preview give Hebrew letters the chosen bold, italic and size |
+| 2026-11-28 | minor | Hebrew letters take only the complex-script bold, italic and size (`w:bCs`, `w:iCs`, `w:szCs`, RTL-11), as in Word: a Word file's run with only `w:b`, `w:i` or `w:sz` leaves them plain, and with no `w:szCs` in its defaults they are 10 pt; HTML, Markdown, RTF, LaTeX and Word 97-2003 files give them the Latin values when read, ODT its sizes; Convert Text to Table, Quick Tables, Draw Table, the "+--+" AutoFormat table and mail-merge labels are right to left in right-to-left text; ODT and HTML export write a right-to-left document's default direction |
+| 2026-11-28 | minor | Word-fidelity review of RTL-11: spaces and punctuation of a run without `w:rtl` keep its Latin font, size, bold and italic (ECMA-376 §17.3.2.26), also after a save; typed Hebrew, and what is typed after it, says `w:rtl` as in Word; a `w:rtl` paragraph mark takes the complex-script size; a file without styles at 10 pt in both scripts; an unset complex-script default size kept through a save; HTML export and the HTML clipboard format Hebrew letters with their own values; labels take the direction of new documents; complex-script pairing reaches note separators, the glossary and tracked formatting; bold, italic (Latin and complex-script) and the other toggle properties combine by exclusive or across the table, paragraph and character styles (ECMA-376 §17.7.3), direct formatting outright, so Strong in a bold heading is regular as in Word |

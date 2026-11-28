@@ -34,6 +34,15 @@ pub(super) use structure::{col, row};
 use structure::{del_col, del_row, del_table, merge, split, split_table};
 pub(super) use structure::{delete_table_at, selected_table};
 
+/// Whether a table WordCraft makes at `at` reads right to left (`w:bidiVisual`): where the
+/// paragraph there does, by its own direction, its style's or the document defaults' (#2634).
+/// Like Word, Insert Table, Convert Text to Table, Quick Tables, Draw Table, the "+---+" table
+/// AutoFormat and mail-merge labels make a right-to-left table there: its first cell stands at
+/// the right, so Tab, which follows reading order, moves leftwards.
+pub(crate) fn rtl_table_at(s: &Session, at: &Pos) -> bool {
+    s.doc.para(at.story, &at.path).is_some_and(|p| s.doc.styles.resolve_para(&p.props).bidi)
+}
+
 fn in_table(s: &Session) -> Option<&'static str> {
     if s.sel.focus.path.cell().is_some() { None } else { Some("the cursor isn't in a table") }
 }

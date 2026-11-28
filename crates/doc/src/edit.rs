@@ -578,36 +578,104 @@ fn sets_complex_size(doc: &Document) -> bool {
         return true;
     }
     let mut found = false;
-    for b in doc.body.iter().chain(doc.parts.values().flat_map(|p| p.blocks.iter())) {
-        each_para(b, 0, &mut |p| found |= p.mark.size_cs.is_some() || p.runs.iter().any(|r| r.props.size_cs.is_some()));
-        if found {
-            return true;
-        }
-    }
-    false
+    doc.for_each_para(&mut |p| found = found || p.mark.size_cs.is_some() || p.runs.iter().any(|r| r.props.size_cs.is_some()));
+    found
 }
 
 /// Set the complex-script size beside every size `doc` sets, to the same value: how a document
 /// that sets none sizes its complex-script text, said explicitly.
 fn pair_complex_sizes(doc: &mut Document) {
-    let pair = |c: &mut CharProps| {
-        if c.size_cs.is_none() {
-            c.size_cs = c.size;
-        }
-    };
-    let styles = Arc::make_mut(&mut doc.styles);
-    pair(&mut styles.default_chr);
-    for st in &mut styles.styles {
-        pair(&mut st.chr);
-        if let Some(t) = st.table.as_mut() {
-            for c in [&mut t.header_chr, &mut t.band_chr, &mut t.first_col_chr, &mut t.last_col_chr, &mut t.total_chr, &mut t.col_band_chr] {
-                pair(c);
-            }
-            t.regions.values_mut().for_each(|p| pair(&mut p.chr));
+    doc.pair_complex(false);
+}
+
+impl Document {
+    /// The blocks of every story: the body, every part (headers, footers, notes, comments, text
+    /// boxes), the note separators and continuation notices, and the glossary's building blocks.
+    fn story_blocks(&self) -> impl Iterator<Item = &Arc<Block>> {
+        let seps = [&self.footnote_separators, &self.endnote_separators]
+            .into_iter()
+            .flat_map(|s| [&s.separator, &s.continuation_separator, &s.continuation_notice])
+            .flatten();
+        self.body
+            .iter()
+            .chain(self.parts.values().flat_map(|p| p.blocks.iter()))
+            .chain(seps.flat_map(|b| b.iter()))
+            .chain(self.glossary.iter().flat_map(|g| g.blocks.iter()))
+    }
+
+    /// Call `f` on every paragraph of every story ([`Self::story_blocks`]), in tables too.
+    pub fn for_each_para(&self, f: &mut dyn FnMut(&Paragraph)) {
+        for b in self.story_blocks() {
+            each_para(b, 0, f);
         }
     }
-    for b in doc.body.iter_mut().chain(doc.parts.values_mut().flat_map(|p| p.blocks.iter_mut())) {
-        each_para_mut(Arc::make_mut(b), 0, &mut |p| {
+
+    /// Call `f` on every paragraph of every story ([`Self::story_blocks`]), in tables too, to
+    /// change it (the caller touches what it changes).
+    pub fn for_each_para_mut(&mut self, f: &mut dyn FnMut(&mut Paragraph)) {
+        let seps = [&mut self.footnote_separators, &mut self.endnote_separators]
+            .into_iter()
+            .flat_map(|s| [&mut s.separator, &mut s.continuation_separator, &mut s.continuation_notice])
+            .flatten();
+        let blocks = self
+            .body
+            .iter_mut()
+            .chain(self.parts.values_mut().flat_map(|p| p.blocks.iter_mut()))
+            .chain(seps.flat_map(|b| b.iter_mut()))
+            .chain(self.glossary.iter_mut().flat_map(|g| g.blocks.iter_mut()));
+        for b in blocks {
+            each_para_mut(Arc::make_mut(b), 0, f);
+        }
+    }
+
+    /// Give every set of character formatting in the document (its defaults, styles and their
+    /// table parts, list levels, runs and paragraph marks of every story) the complex-script
+    /// size it sets for other text, where it sets none of its own (`size_cs` from `size`); with
+    /// `emphasis`, bold and italic too (`bold_cs`, `italic_cs`). Every story counts
+    /// ([`Self::for_each_para_mut`]: notes, separators, the glossary), and the formatting a
+    /// tracked formatting change records as before it. For a document read from a
+    /// format with one size, bold and italic for every script (plain text, Markdown, HTML, RTF,
+    /// LaTeX, Word 97-2003 as read): its Hebrew and Arabic text keeps the formatting the file
+    /// gives it, since WordCraft resolves the complex-script values on their own, as Word does.
+    pub fn pair_complex(&mut self, emphasis: bool) {
+        let one = |c: &mut CharProps| {
+            if c.size_cs.is_none() {
+                c.size_cs = c.size;
+            }
+            if emphasis {
+                if c.bold_cs.is_none() {
+                    c.bold_cs = c.bold;
+                }
+                if c.italic_cs.is_none() {
+                    c.italic_cs = c.italic;
+                }
+            }
+        };
+        let pair = |c: &mut CharProps| {
+            one(c);
+            if let Some(ch) = c.fmt_change.as_mut() {
+                one(&mut ch.old);
+            }
+        };
+        let styles = Arc::make_mut(&mut self.styles);
+        pair(&mut styles.default_chr);
+        for st in &mut styles.styles {
+            pair(&mut st.chr);
+            if let Some(t) = st.table.as_mut() {
+                for c in [&mut t.header_chr, &mut t.band_chr, &mut t.first_col_chr, &mut t.last_col_chr, &mut t.total_chr, &mut t.col_band_chr] {
+                    pair(c);
+                }
+                t.regions.values_mut().for_each(|p| pair(&mut p.chr));
+            }
+        }
+        let numbering = Arc::make_mut(&mut self.numbering);
+        for a in &mut numbering.abstracts {
+            a.levels.iter_mut().for_each(|l| pair(&mut l.chr));
+        }
+        for n in &mut numbering.nums {
+            n.level_overrides.iter_mut().for_each(|(_, l)| pair(&mut l.chr));
+        }
+        self.for_each_para_mut(&mut |p| {
             pair(&mut p.mark);
             p.runs.iter_mut().for_each(|r| pair(&mut r.props));
             p.touch();
@@ -1167,10 +1235,11 @@ impl Document {
     /// [`Self::adopt_with`], its permission range ids from at least `perms` on (and past ours);
     /// `perms` moves past them.
     fn adopt_in(&mut self, mut src: Document, keep_styles: bool, perms: &mut u32) -> Fragment {
-        // A document that never sets a complex-script size (HTML, RTF or Markdown read in, Word's
-        // HTML clipboard) sizes its Hebrew and Arabic text by the other size. Here, where the
-        // defaults and styles may set both (a new document does), its runs would take ours
-        // instead: so it says so, everywhere it sets a size, and its text keeps its size.
+        // A document that never sets a complex-script size (one built without any; the readers
+        // of formats without one set it, `Document::pair_complex`) is taken to size its Hebrew
+        // and Arabic text by the other size. Here, where the defaults and styles may set both (a
+        // new document does), its runs would take ours instead: so it says so, everywhere it
+        // sets a size, and its text keeps its size.
         if !sets_complex_size(&src) {
             pair_complex_sizes(&mut src);
         }

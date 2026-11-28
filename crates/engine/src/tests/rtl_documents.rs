@@ -543,3 +543,116 @@ fn theme_fonts_reach_the_hebrew_text_of_a_hebrew_document() {
     assert_eq!((hebrew_font(&e.doc, None), hebrew_font(&e.doc, Some("Heading1"))), ("Miriam".to_string(), "Miriam".to_string()));
     assert!(e.run("design.themeFonts", &json!({"heading": "Futura", "bodyCs": ""})).is_err());
 }
+
+/// A session whose document reads right to left by default (`rtl`) or left to right, with three
+/// paragraphs of text.
+fn session_with_text(rtl: bool) -> Session {
+    let mut s = Session::new(Document::new());
+    s.set_new_documents_rtl(rtl);
+    let text = if rtl { SHALOM } else { "Hello world" };
+    for k in 0..3 {
+        if k > 0 {
+            run(&mut s, "text.newParagraph", json!({}));
+        }
+        run(&mut s, "text.insert", json!({"text": text}));
+    }
+    s
+}
+
+/// The first table of the body.
+fn body_table(s: &Session) -> wordcraft_doc::Table {
+    s.doc.body.iter().find_map(|b| b.as_table()).cloned().expect("a table")
+}
+
+/// The page rectangles of body table cells, in the table's order (row, cell).
+fn cell_rects(s: &mut Session) -> Vec<(usize, usize, wordcraft_geom::Rect)> {
+    let mut cells: Vec<_> = s
+        .layout()
+        .pages
+        .iter()
+        .flat_map(|p| p.items.iter())
+        .filter_map(|it| match it {
+            wordcraft_layout::Placed::Cell { story: StoryRef::Body, rect, row, cell, covered: false, .. } => Some((*row, *cell, *rect)),
+            _ => None,
+        })
+        .collect();
+    cells.sort_by_key(|c| (c.0, c.1));
+    cells
+}
+
+/// Tables WordCraft makes in a right-to-left document read right to left, as Insert Table's do
+/// (#2634): Convert Text to Table and Quick Tables, their first column at the right; in a
+/// left-to-right document they stay left to right.
+#[test]
+fn converted_and_quick_tables_take_the_documents_direction() {
+    for rtl in [false, true] {
+        let mut s = session_with_text(rtl);
+        run(&mut s, "select.all", json!({}));
+        run(&mut s, "table.fromText", json!({"separator": "other", "char": " "}));
+        assert_eq!(body_table(&s).props.bidi_visual, rtl, "Convert Text to Table, right to left: {rtl}");
+        let cells = cell_rects(&mut s);
+        let (first, second) = (cells[0].2.x, cells[1].2.x);
+        assert_eq!(first > second, rtl, "the first column at the {}: {first} vs {second}", if rtl { "right" } else { "left" });
+
+        let mut s = session_with_text(rtl);
+        run(&mut s, "table.quick", json!({"kind": "matrix"}));
+        assert_eq!(body_table(&s).props.bidi_visual, rtl, "Quick Tables, right to left: {rtl}");
+    }
+}
+
+/// Draw Table in a right-to-left document draws a right-to-left table where the pen went: its
+/// indent is measured from the right margin, so the cell keeps the stroke's place either way.
+#[test]
+fn a_drawn_table_takes_the_documents_direction_and_stays_where_it_was_drawn() {
+    for rtl in [false, true] {
+        let mut s = session_with_text(rtl);
+        let body = s.layout().pages[0].body;
+        let (x0, y0, x1, y1) = (body.x + 60.0, body.y + 4.0, body.x + 260.0, body.y + 60.0);
+        run(&mut s, "table.draw", json!({"page": 0, "x0": x0, "y0": y0, "x1": x1, "y1": y1}));
+        assert_eq!(body_table(&s).props.bidi_visual, rtl, "right to left: {rtl}");
+        let cell = cell_rects(&mut s)[0].2;
+        assert!((cell.x - x0).abs() < 6.0 && (cell.x + cell.w - x1).abs() < 6.0, "rtl {rtl}: the cell {cell:?} where the pen went ({x0}..{x1})");
+    }
+}
+
+/// Labels made where new documents start right to left read right to left: the first label at
+/// the top right of the sheet, its lines from the right; every label keeps its place on the sheet.
+#[test]
+fn labels_from_a_right_to_left_document_read_right_to_left() {
+    let mut places = Vec::new();
+    for rtl in [false, true] {
+        let mut s = session_with_text(rtl);
+        run(&mut s, "mailings.labels", json!({"text": SHALOM, "product": "a4-2x7"}));
+        let t = body_table(&s);
+        assert_eq!(t.props.bidi_visual, rtl, "right to left: {rtl}");
+        let label = t.rows[0].cells[0].blocks.iter().find_map(|b| b.as_para()).expect("a label line");
+        assert_eq!(s.doc.styles.resolve_para(&label.props).bidi, rtl, "the label's lines read right to left: {rtl}");
+        let cells = cell_rects(&mut s);
+        let (first, last) = (cells[0].2.x, cells.iter().rfind(|c| c.0 == 0).unwrap().2.x);
+        assert_eq!(first > last, rtl, "the first label at the {}", if rtl { "right" } else { "left" });
+        let mut xs: Vec<i32> = cells.iter().map(|c| c.2.x.round() as i32).collect();
+        xs.sort_unstable();
+        xs.dedup();
+        places.push(xs);
+    }
+    assert_eq!(places[0], places[1], "the labels stand at the same places on the sheet");
+}
+
+/// The labels are a new document: their direction is that of new documents, not that of the
+/// paragraph at the caret. A Hebrew interface's labels read right to left, from an English
+/// paragraph too, and their document defaults say so; labels from Hebrew text where new
+/// documents start left to right read left to right.
+#[test]
+fn labels_take_the_direction_of_new_documents() {
+    let mut s = hebrew_session();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "para.rtl", json!({"value": false}));
+    run(&mut s, "mailings.labels", json!({"text": "Name", "product": "a4-2x7"}));
+    assert!(body_table(&s).props.bidi_visual && reads_rtl(&s), "a Hebrew interface's labels read right to left");
+
+    let mut s = Session::new(Document::new());
+    run(&mut s, "para.rtl", json!({"value": true}));
+    run(&mut s, "text.insert", json!({"text": SHALOM}));
+    run(&mut s, "mailings.labels", json!({"text": SHALOM, "product": "a4-2x7"}));
+    assert!(!body_table(&s).props.bidi_visual && !reads_rtl(&s), "new documents start left to right here");
+}
